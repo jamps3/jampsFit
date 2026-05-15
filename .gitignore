@@ -1,0 +1,19 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Project specific
+*.jks
+*.keystore
+*.log
+
+# Mobile Tools
+*.apk
+*.ap_
+*.dex
