@@ -1,6 +1,8 @@
 package com.labbaslabs.jampsfit.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +51,29 @@ fun GraphsScreen(state: WatchState) {
         SleekGraphCard(title = "SpO2 (%)", data = spo2History, color = Color(0xFF00BCD4))
         
         SleekCard {
+            Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            if (state.sleepMinutes == null) {
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                    Text(text = "Waiting for data...", color = Color.Gray)
+                }
+            } else {
+                Row(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
+                    val total = state.sleepMinutes.toFloat()
+                    val deep = (state.deepSleepMinutes ?: 0).toFloat()
+                    val light = (state.lightSleepMinutes ?: 0).toFloat()
+                    val awake = (total - deep - light).coerceAtLeast(0f)
+
+                    SleepBar(weight = deep / total, color = Color(0xFF311B92), label = "Deep")
+                    SleepBar(weight = light / total, color = Color(0xFF7E57C2), label = "Light")
+                    if (awake > 0) {
+                        SleepBar(weight = awake / total, color = Color(0xFFFFEB3B), label = "Awake")
+                    }
+                }
+            }
+        }
+        
+        SleekCard {
             Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
             if (bpHistory.isEmpty()) {
@@ -75,6 +100,16 @@ fun GraphsScreen(state: WatchState) {
                     drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun RowScope.SleepBar(weight: Float, color: Color, label: String) {
+    if (weight > 0) {
+        Column(modifier = Modifier.fillMaxHeight().weight(weight).padding(horizontal = 2.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f).background(color, RoundedCornerShape(4.dp)))
+            Text(text = label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
     }
 }

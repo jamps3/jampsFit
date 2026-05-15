@@ -15,10 +15,12 @@
 - [x] UI Controls: Disconnect button and configurable start/connect behavior.
 - [x] Custom Button Mapping: Selectable actions for watch buttons (Media, Volume, Utility).
 - [x] Sleek UI: Glassmorphism, animated shine effects, and modern layouts.
+- [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
+- [x] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch.
 
 ## Planned Features
-- [ ] **Notification Mirroring**: Push phone notifications (calls, SMS, apps) to the watch.
 - [ ] **Data Export**: Save session data to CSV files.
+- [ ] **Sending Weather to the Watch**: Push current weather and forecast to the watch.
 - [ ] **Extended Reverse Engineering**: Decode more proprietary Kospet packets.
 - [ ] **Code Refactoring**: Split large files into modular components.
 

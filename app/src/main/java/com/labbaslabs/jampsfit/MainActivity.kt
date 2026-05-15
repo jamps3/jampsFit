@@ -162,12 +162,56 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleAutoConnect(enabled)
     }
 
+    fun toggleNotifications(enabled: Boolean) {
+        watchService?.watchManager?.toggleNotifications(enabled)
+    }
+
     fun disconnect() {
         watchService?.watchManager?.disconnect()
     }
 
     fun updateBatteryThreshold(threshold: Int) {
         watchService?.watchManager?.updateBatteryThreshold(threshold)
+    }
+
+    fun updateProtocol(header: String, uuid: String, mtu: Boolean, payloadOnly: Boolean) {
+        watchService?.watchManager?.updateProtocol(header, uuid, mtu, payloadOnly)
+    }
+
+    fun sendTestNotification(cmd: Int = 0x08, type: Int = 0x01) {
+        watchService?.watchManager?.sendNotification("jampsFit", "Hello from your phone!", cmd, type)
+    }
+
+    fun sendRawTest(hex: String, useAlt: Boolean = false) {
+        watchService?.watchManager?.sendRawTest(hex, useAlt)
+    }
+
+    fun readBattery() {
+        watchService?.watchManager?.readBattery()
+    }
+
+    fun clearQueue() {
+        watchService?.watchManager?.clearQueue()
+    }
+
+    fun findWatch() {
+        watchService?.watchManager?.findWatch()
+    }
+
+    fun syncTime() {
+        watchService?.watchManager?.syncTime()
+    }
+
+    fun queryHealth() {
+        watchService?.watchManager?.queryHealth()
+    }
+
+    fun startMeasurement(type: String) {
+        watchService?.watchManager?.startMeasurement(type)
+    }
+
+    fun stopMeasurement() {
+        watchService?.watchManager?.stopMeasurement()
     }
 
     override fun onDestroy() {

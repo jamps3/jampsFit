@@ -33,6 +33,15 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Visual Effects**: Hardare-accelerated "shine" animations on dashboard cards and sleek top-border highlights.
 - **Responsive**: Fully supports orientation changes without losing connection or UI state.
 
+## 📡 Protocol & Reverse Engineering
+
+The **Kospet TANK M1** appears to utilize the **MoYoung (DaFit)** protocol, identified through research and packet analysis:
+- **Identifier**: Manufacturer identified as `MOYOUNG-V2`.
+- **Packet Structure**: Commands generally follow a `FE EA 20 [LEN] [CMD]` format.
+- **Key Characteristics**: 
+    - `0000fee3-...`: Primary write channel for commands and notifications.
+    - `0000fee1-...` & `0000fea1-...`: Activity and health data notification channels.
+
 ## 🚀 Technical Stack
 - **Language**: Kotlin
 - **UI**: Jetpack Compose (Material 3)

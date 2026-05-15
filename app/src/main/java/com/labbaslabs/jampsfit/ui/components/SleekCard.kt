@@ -76,7 +76,8 @@ fun DataCard(
     value: String,
     supportingText: String? = null,
     icon: ImageVector,
-    color: Color
+    color: Color,
+    action: @Composable (() -> Unit)? = null
 ) {
     SleekCard {
         Row(
@@ -84,7 +85,7 @@ fun DataCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = color.copy(alpha = 0.1f)
@@ -112,12 +113,19 @@ fun DataCard(
                     }
                 }
             }
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                color = color
-            )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = color
+                )
+                if (action != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    action()
+                }
+            }
         }
     }
 }

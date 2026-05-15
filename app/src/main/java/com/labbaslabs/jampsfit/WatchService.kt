@@ -1,8 +1,10 @@
 package com.labbaslabs.jampsfit
 
 import android.app.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.media.RingtoneManager
@@ -18,6 +20,19 @@ class WatchService : Service() {
     private val binder = WatchBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     
+    private val notificationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED") {
+                val title = intent.getStringExtra("title") ?: ""
+                val text = intent.getStringExtra("text") ?: ""
+                val state = watchManager.state.value
+                if (state.isConnected && state.notificationsEnabled) {
+                    watchManager.sendNotification(title, text)
+                }
+            }
+        }
+    }
+
     lateinit var watchManager: WatchManager
         private set
 
@@ -44,6 +59,13 @@ class WatchService : Service() {
         
         if (watchManager.state.value.autoConnect) {
             watchManager.startScan()
+        }
+
+        val filter = IntentFilter("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(notificationReceiver, filter)
         }
 
         watchManager.state.onEach { state ->
@@ -265,6 +287,7 @@ class WatchService : Service() {
 
     override fun onDestroy() {
         serviceScope.cancel()
+        unregisterReceiver(notificationReceiver)
         watchManager.disconnect()
         super.onDestroy()
     }
