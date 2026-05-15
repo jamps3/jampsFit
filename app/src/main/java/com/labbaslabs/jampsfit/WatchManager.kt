@@ -26,6 +26,7 @@ data class WatchState(
     val calories: Int? = null,
     val isConnected: Boolean = false,
     val deviceName: String? = null,
+    val firmwareVersion: String? = null,
     val connectionStatus: String = "Disconnected",
     val debugLog: String = "Wait for scan...",
     val unknownMessages: List<String> = emptyList(),
@@ -64,7 +65,8 @@ class WatchManager(private val context: Context) {
         musicAction = prefs.getString("musicAction", "Media") ?: "Media",
         playPauseAction = prefs.getString("playPauseAction", "Play/Pause") ?: "Play/Pause",
         nextAction = prefs.getString("nextAction", "Next Track") ?: "Next Track",
-        prevAction = prefs.getString("prevAction", "Previous Track") ?: "Previous Track"
+        prevAction = prefs.getString("prevAction", "Previous Track") ?: "Previous Track",
+        firmwareVersion = prefs.getString("firmwareVersion", null)
     ))
     val state = _state.asStateFlow()
 
@@ -321,7 +323,15 @@ class WatchManager(private val context: Context) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 updateDebugLog("Services discovered")
                 for (service in gatt.services) {
+                    Log.d(TAG, "Service: ${service.uuid}")
                     for (characteristic in service.characteristics) {
+                        val props = mutableListOf<String>()
+                        if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) props.add("WRITE")
+                        if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) props.add("WRITE_NO_RESP")
+                        if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) props.add("READ")
+                        if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) props.add("NOTIFY")
+                        Log.d(TAG, "  Char: ${characteristic.uuid} [${props.joinToString(",")}]")
+
                         if (characteristic.uuid == SKIP_NOTIFY_CHAR) continue
                         
                         val properties = characteristic.properties
@@ -506,6 +516,36 @@ class WatchManager(private val context: Context) {
             val action = "Wrist Shake / Shutter"
             _state.update { it.copy(lastRemoteEvent = action) }
             return "Remote: $action raw=$rawHex"
+        }
+
+        // Battery saving mode: FE EA 20 07 A4
+        if (b.size == 7 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x07.toByte(), 0xA4.toByte()))) {
+            val state = if (b[5].toInt() == 0x01) "Enabled" else "Disabled"
+            return "Battery Saving: $state raw=$rawHex"
+        }
+
+        // Device Info / Firmware: FE EA 20 ... 5A
+        if (startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && b.size > 5 && b[4] == 0x5A.toByte()) {
+            val infoType = b[5].toInt()
+            if (b.size > 6) {
+                val infoString = String(b.copyOfRange(6, b.size)).trim { it <= ' ' }
+                if (infoType == 0x01) {
+                    prefs.edit { putString("firmwareVersion", infoString) }
+                    _state.update { it.copy(firmwareVersion = infoString) }
+                    return "Firmware: $infoString"
+                }
+                return "Device Info ($infoType): $infoString"
+            }
+        }
+
+        // Daily Totals: FE EA 20 0F 33 01
+        if (b.size == 15 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x0F.toByte(), 0x33.toByte(), 0x01.toByte()))) {
+            val steps = (b[6].toInt() and 0xFF) or ((b[7].toInt() and 0xFF) shl 8) or ((b[8].toInt() and 0xFF) shl 16)
+            val dist = (b[9].toInt() and 0xFF) or ((b[10].toInt() and 0xFF) shl 8) or ((b[11].toInt() and 0xFF) shl 16)
+            val cals = (b[12].toInt() and 0xFF) or ((b[13].toInt() and 0xFF) shl 8) or ((b[14].toInt() and 0xFF) shl 16)
+            _state.update { it.copy(steps = steps, distance = dist, calories = cals) }
+            saveToDb(steps = steps, distance = dist, calories = cals)
+            return "Daily Totals: Steps=$steps, Dist=${dist}m, Cals=$cals kcal"
         }
 
         // SpO2: FE EA 20 06 6B ...
