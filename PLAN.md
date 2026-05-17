@@ -17,8 +17,17 @@
 - [x] Sleek UI: Glassmorphism, animated shine effects, and modern layouts.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
 - [x] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch.
+- [x] Extended Notifications: Support for long messages (AccuBattery, WhatsApp) using B4 handshake.
+- [x] Precise Time Sync: Big-endian local time synchronization.
+- [x] Restore passive Main screen data via no-MTU broad notification listening.
+- [x] Decode live `FEE1` walking packets as activity count, distance, and calories.
 
 ## Planned Features
+- [ ] **Decode Real Steps**: Identify the packet/channel that carries actual step count; `FEE1` field is now named `activityCount`.
+- [ ] **Stabilize Watch Send Path**: Re-verify every outbound command; only Clock Sync is confirmed working right now.
+- [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
+- [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
+- [ ] **Find My Watch**: Re-verify vibration command without using risky memory/handshake frames.
 - [ ] **Data Export**: Save session data to CSV files.
 - [ ] **Sending Weather to the Watch**: Push current weather and forecast to the watch.
 - [ ] **Extended Reverse Engineering**: Decode more proprietary Kospet packets.

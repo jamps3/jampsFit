@@ -60,7 +60,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                         listOf("FE EA 20", "FE EA 10", "FE EA 21", "AB 00").forEach { header ->
                             FilterChip(
                                 selected = state.protocolHeader == header,
-                                onClick = { activity?.updateProtocol(header, state.writeUuidShort, state.requestMtu, state.payloadLengthOnly) },
+                                onClick = { activity?.updateProtocol(header, state.writeUuidShort, false, state.payloadLengthOnly) },
                                 label = { Text(header.split(" ").last(), fontSize = 10.sp) },
                                 modifier = Modifier.padding(end = 4.dp)
                             )
@@ -72,7 +72,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                         listOf("6387", "fee2", "fee5", "fee6").forEach { uuid ->
                             FilterChip(
                                 selected = state.writeUuidShort == uuid,
-                                onClick = { activity?.updateProtocol(state.protocolHeader, uuid, state.requestMtu, state.payloadLengthOnly) },
+                                onClick = { activity?.updateProtocol(state.protocolHeader, uuid, false, state.payloadLengthOnly) },
                                 label = { Text(uuid, fontSize = 10.sp) },
                                 modifier = Modifier.padding(end = 4.dp)
                             )
@@ -80,11 +80,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
 
                     SettingSwitch(label = "Length = Payload Only", checked = state.payloadLengthOnly) {
-                        activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, state.requestMtu, it)
-                    }
-
-                    SettingSwitch(label = "Request MTU (247)", checked = state.requestMtu) {
-                        activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, it, state.payloadLengthOnly)
+                        activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, false, it)
                     }
                 }
 
@@ -122,8 +118,20 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Standard Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { activity?.sendTestNotification(0x08, 0x01) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(4.dp)) { Text("Std Notif", fontSize = 10.sp) }
-                        Button(onClick = { activity?.sendRawTest("01 01") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(4.dp)) { Text("Handshake", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.sendTestNotification(0x08, 0x01) },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Std Notif", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.sendRawTest("01 01") },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Handshake", fontSize = 10.sp) }
                     }
                 }
 
@@ -142,6 +150,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = { activity?.findWatch() },
+                        enabled = false,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
@@ -153,6 +162,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = { activity?.syncTime() },
+                        enabled = state.isConnected,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -163,18 +173,8 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
-                        onClick = { activity?.queryHealth() },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                    ) {
-                        Icon(Icons.Default.MonitorHeart, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Query Health Data")
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
                         onClick = { activity?.readBattery() },
+                        enabled = state.isConnected,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
@@ -186,6 +186,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = { activity?.clearQueue() }, 
+                        enabled = state.isConnected,
                         modifier = Modifier.fillMaxWidth(), 
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

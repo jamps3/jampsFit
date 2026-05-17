@@ -5,7 +5,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 ## ✨ Key Features
 
 ### 📊 Real-Time Health & Activity
-- **Live Dashboard**: Monitor Battery, Steps, Heart Rate, SpO2, and Blood Pressure at a glance.
+- **Live Dashboard**: Monitor Battery plus live watch activity count, distance, and calories at a glance.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
 - **Battery Intelligence**: High-resolution discharge graph and time-remaining estimation based on current usage.
 
@@ -37,10 +37,15 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 
 The **Kospet TANK M1** appears to utilize the **MoYoung (DaFit)** protocol, identified through research and packet analysis:
 - **Identifier**: Manufacturer identified as `MOYOUNG-V2`.
-- **Packet Structure**: Commands generally follow a `FE EA 20 [LEN] [CMD]` format.
+- **Packet Structure**: Commands use at least two related formats: `FE EA 10 [LEN] [CMD]` and `FE EA 20 [LEN] [CMD]`.
 - **Key Characteristics**: 
-    - `0000fee3-...`: Primary write channel for commands and notifications.
+    - `0000fee2-...` / `0000fee3-...`: Legacy write/notify path. Clock sync is currently verified here.
     - `0000fee1-...` & `0000fea1-...`: Activity and health data notification channels.
+    - `00006387-...` / `00006487-...`: Native MoYoung write/notify path. Present in vendor captures but not yet safe as the default send path.
+
+Current reverse-engineering focus: passive main-screen data is restored, but real step snapshots and safe watch-bound notification sends still need decoding. See `PROTOCOL.md` for the active packet hypotheses and capture references.
+
+Current stable mode: the app skips MTU negotiation, broadly subscribes to watch notification channels, and passively decodes `FEE1` live walking packets into `activityCount`, distance, and calories. Outbound watch commands other than clock sync remain disabled or experimental because several `6387`/handshake-style writes can reboot the watch.
 
 ## 🚀 Technical Stack
 - **Language**: Kotlin

@@ -194,6 +194,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.clearQueue()
     }
 
+    fun syncHealth() {
+        watchService?.watchManager?.syncHealth()
+    }
+
     fun findWatch() {
         watchService?.watchManager?.findWatch()
     }

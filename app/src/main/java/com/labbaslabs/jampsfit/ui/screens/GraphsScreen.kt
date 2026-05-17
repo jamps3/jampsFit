@@ -22,6 +22,7 @@ fun GraphsScreen(state: WatchState) {
     val hrHistory = remember { mutableStateListOf<Int>() }
     val spo2History = remember { mutableStateListOf<Int>() }
     val bpHistory = remember { mutableStateListOf<Pair<Int, Int>>() }
+    val activityHistory = remember { mutableStateListOf<Int>() }
     val stepsHistory = remember { mutableStateListOf<Int>() }
     val distanceHistory = remember { mutableStateListOf<Int>() }
     val batteryHistory = remember { mutableStateListOf<Int>() }
@@ -35,6 +36,7 @@ fun GraphsScreen(state: WatchState) {
             if (bpHistory.size > 20) bpHistory.removeAt(0)
         }
     }
+    LaunchedEffect(state.activityCount) { state.activityCount?.let { activityHistory.add(it); if (activityHistory.size > 20) activityHistory.removeAt(0) } }
     LaunchedEffect(state.steps) { state.steps?.let { stepsHistory.add(it); if (stepsHistory.size > 20) stepsHistory.removeAt(0) } }
     LaunchedEffect(state.distance) { state.distance?.let { distanceHistory.add(it); if (distanceHistory.size > 20) distanceHistory.removeAt(0) } }
 
@@ -45,7 +47,8 @@ fun GraphsScreen(state: WatchState) {
         Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         SleekGraphCard(title = "Battery (%)", data = batteryHistory, color = Color(0xFF4CAF50))
-        SleekGraphCard(title = "Steps (Count)", data = stepsHistory, color = Color(0xFF8BC34A))
+        SleekGraphCard(title = "Activity Count", data = activityHistory, color = Color(0xFF8BC34A))
+        SleekGraphCard(title = "Steps (Snapshot)", data = stepsHistory, color = Color(0xFFFFC107))
         SleekGraphCard(title = "Distance (m)", data = distanceHistory, color = Color(0xFF2196F3))
         SleekGraphCard(title = "Heart Rate (BPM)", data = hrHistory, color = Color(0xFFE91E63))
         SleekGraphCard(title = "SpO2 (%)", data = spo2History, color = Color(0xFF00BCD4))

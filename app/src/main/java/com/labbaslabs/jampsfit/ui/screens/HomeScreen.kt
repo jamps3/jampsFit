@@ -68,7 +68,8 @@ fun HomeScreen(state: WatchState) {
             icon = Icons.Default.BatteryChargingFull,
             color = Color(0xFF4CAF50)
         )
-        DataCard(label = "Steps", value = state.steps?.toString() ?: "--", icon = Icons.Default.DirectionsWalk, color = Color(0xFFFFC107))
+        DataCard(label = "Activity Count", value = state.activityCount?.toString() ?: "--", icon = Icons.Default.DirectionsWalk, color = Color(0xFFFFC107))
+        DataCard(label = "Steps", value = state.steps?.toString() ?: "--", icon = Icons.Default.Timeline, color = Color(0xFF8BC34A))
         
         val total = state.sleepMinutes ?: 0
         DataCard(
@@ -103,6 +104,7 @@ fun HomeScreen(state: WatchState) {
             action = {
                 MeasurementButton(
                     isActive = state.activeMeasurement == "Heart Rate",
+                    enabled = state.isConnected,
                     onClick = {
                         if (state.activeMeasurement == "Heart Rate") activity?.stopMeasurement()
                         else activity?.startMeasurement("Heart Rate")
@@ -119,6 +121,7 @@ fun HomeScreen(state: WatchState) {
             action = {
                 MeasurementButton(
                     isActive = state.activeMeasurement == "SpO2",
+                    enabled = state.isConnected,
                     onClick = {
                         if (state.activeMeasurement == "SpO2") activity?.stopMeasurement()
                         else activity?.startMeasurement("SpO2")
@@ -135,6 +138,7 @@ fun HomeScreen(state: WatchState) {
             action = {
                 MeasurementButton(
                     isActive = state.activeMeasurement == "Blood Pressure",
+                    enabled = state.isConnected,
                     onClick = {
                         if (state.activeMeasurement == "Blood Pressure") activity?.stopMeasurement()
                         else activity?.startMeasurement("Blood Pressure")
@@ -149,11 +153,16 @@ fun HomeScreen(state: WatchState) {
 }
 
 @Composable
-fun MeasurementButton(isActive: Boolean, onClick: () -> Unit) {
+fun MeasurementButton(isActive: Boolean, enabled: Boolean, onClick: () -> Unit) {
     IconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.size(32.dp).background(
-            if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+            if (isActive) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.4f)
+            },
             RoundedCornerShape(8.dp)
         )
     ) {
