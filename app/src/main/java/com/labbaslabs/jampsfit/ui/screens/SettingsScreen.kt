@@ -88,26 +88,44 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Text(text = "Diagnostics & Troubleshooting", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     
-                    Text("Manual Commands:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text("Manual RAW Write:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     var rawCommand by remember { mutableStateOf("") }
-                    var useAltChannel by remember { mutableStateOf(false) }
+                    var useNativeChannel by remember { mutableStateOf(true) }
                     
                     OutlinedTextField(
                         value = rawCommand,
                         onValueChange = { rawCommand = it },
-                        placeholder = { Text("FE EA 20 ...", fontSize = 12.sp) },
+                        label = { Text(if (useNativeChannel) "Write to 6387" else "Write to selected target: ${state.writeUuidShort}") },
+                        placeholder = { Text("Example: FE EA 20 05 61", fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
                         singleLine = true
                     )
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = useAltChannel, onCheckedChange = { useAltChannel = it })
-                        Text("Use 6487 (Response) Channel", style = MaterialTheme.typography.bodySmall)
+                        Checkbox(checked = useNativeChannel, onCheckedChange = { useNativeChannel = it })
+                        Text("Use native write channel 6387", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Text("This sends exactly the bytes shown. Da Fit captures now show most FE EA 20 writes use FEE2; use 6387 only for packets proven on that characteristic.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(
+                            onClick = { rawCommand = "FE EA 20 05 61"; useNativeChannel = true },
+                            label = { Text("Fill Find") }
+                        )
+                        AssistChip(
+                            onClick = { rawCommand = "FE EA 20 06 5A 00"; useNativeChannel = true },
+                            label = { Text("Fill 5A00") }
+                        )
+                        AssistChip(
+                            onClick = { rawCommand = "FE EA 10 04 2F"; useNativeChannel = false },
+                            label = { Text("Fill FEE2 2F") }
+                        )
                     }
 
                     Button(
-                        onClick = { activity?.sendRawTest(rawCommand, useAltChannel) },
+                        onClick = { activity?.sendRawTest(rawCommand, useNativeChannel) },
                         enabled = state.isConnected && rawCommand.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
@@ -119,8 +137,42 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Text("Standard Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
+                            onClick = { activity?.prepareDaFitSession() },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Find Prep", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.prepareAndFindWatch() },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Prep + Find", fontSize = 10.sp) }
+                    }
+                    Text("Disabled: old prep tests wrote Da Fit FEE2 traffic to the wrong characteristic.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { activity?.sendStartupPreamblePhase1() },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Start P1", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.sendStartupPreamblePhase2() },
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Start P2", fontSize = 10.sp) }
+                    }
+                    Text("Disabled: old startup tests targeted the wrong characteristic.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
                             onClick = { activity?.sendExperimentalNotification() },
-                            enabled = state.isConnected,
+                            enabled = false,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(4.dp)
@@ -133,6 +185,30 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                             contentPadding = PaddingValues(4.dp)
                         ) { Text("Handshake", fontSize = 10.sp) }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Android Notification Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { activity?.postTestPhoneNotification("short") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Short", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.postTestPhoneNotification("long") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Long", fontSize = 10.sp) }
+                        Button(
+                            onClick = { activity?.postTestPhoneNotification("update") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) { Text("Update", fontSize = 10.sp) }
+                    }
+                    Text("These post normal Android notifications for Da Fit to mirror; they do not write BLE directly.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
 
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Captured Da Fit Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -185,10 +261,11 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     )
                     Button(
                         onClick = { activity?.setWeatherCity(weatherCity) },
-                        enabled = state.isConnected && weatherCity.isNotBlank(),
+                        enabled = false,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     ) { Text("Send Weather City") }
+                    Text("Disabled: captured weather sequence rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
 
                     var weightKg by remember { mutableFloatStateOf(851f) }
                     Text("Weight candidate: ${"%.1f".format(weightKg / 10f)}kg", style = MaterialTheme.typography.bodySmall)
@@ -209,22 +286,52 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
                     Text("Disabled until a second known weight capture confirms the encoding.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { activity?.setAlarm1Enabled(false) },
-                            enabled = state.isConnected,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(6.dp)
-                        ) { Text("Alarm1 Off", fontSize = 11.sp) }
-                        Button(
-                            onClick = { activity?.setAlarm1Enabled(true) },
-                            enabled = state.isConnected,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(6.dp)
-                        ) { Text("Alarm1 On", fontSize = 11.sp) }
+                    Text("Alarm Test:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    var alarmSlot by remember { mutableIntStateOf(0) }
+                    var alarmEnabled by remember { mutableStateOf(true) }
+                    var alarmHour by remember { mutableFloatStateOf(7f) }
+                    var alarmMinute by remember { mutableFloatStateOf(16f) }
+                    var alarmRepeat by remember { mutableIntStateOf(0x3E) }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("1", "2", "3").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = alarmSlot == index,
+                                onClick = { alarmSlot = index },
+                                label = { Text(label) }
+                            )
+                        }
                     }
+                    SettingSwitch(label = "Alarm Enabled", checked = alarmEnabled) { alarmEnabled = it }
+                    Text("Time: ${alarmHour.toInt().toString().padStart(2, '0')}:${alarmMinute.toInt().toString().padStart(2, '0')}", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Hour", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
+                        Slider(value = alarmHour, onValueChange = { alarmHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Min", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
+                        Slider(value = alarmMinute, onValueChange = { alarmMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(
+                            "Once" to 0x00,
+                            "Weekdays" to 0x3E,
+                            "Every Day" to 0x7F
+                        ).forEach { (label, mask) ->
+                            FilterChip(
+                                selected = alarmRepeat == mask,
+                                onClick = { alarmRepeat = mask },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour.toInt(), alarmMinute.toInt(), alarmRepeat) },
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) { Text("Send Alarm ${alarmSlot + 1}") }
+                    Text("Disabled: captured alarm records rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
 
                 SleekCard {
@@ -242,7 +349,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = { activity?.findWatch() },
-                        enabled = false,
+                        enabled = state.isConnected,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)

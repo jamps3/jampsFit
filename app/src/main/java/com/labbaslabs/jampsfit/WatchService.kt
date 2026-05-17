@@ -48,6 +48,8 @@ class WatchService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val LOW_BATTERY_NOTIFICATION_ID = 2
         private const val DISCONNECT_NOTIFICATION_ID = 3
+        private const val CONNECTED_NOTIFICATION_ID = 4
+        private const val TEST_NOTIFICATION_ID = 5
     }
 
     override fun onCreate() {
@@ -69,7 +71,7 @@ class WatchService : Service() {
         }
 
         watchManager.state.onEach { state ->
-            updateNotification(state.connectionStatus)
+            updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
             
             // Connection alert logic
             if (state.isConnected != lastConnectionState) {
@@ -77,6 +79,7 @@ class WatchService : Service() {
                     sendDisconnectNotification()
                 } else if (state.isConnected) {
                     cancelDisconnectNotification()
+                    sendConnectedNotification()
                 }
                 lastConnectionState = state.isConnected
             }
@@ -231,6 +234,37 @@ class WatchService : Service() {
             .setOngoing(true)
             .build()
         manager.notify(DISCONNECT_NOTIFICATION_ID, notification)
+    }
+
+    fun sendConnectedNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("jampsFit Connected!")
+            .setContentText("Watch link is ready.")
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(CONNECTED_NOTIFICATION_ID, notification)
+    }
+
+    fun postTestPhoneNotification(kind: String) {
+        val manager = getSystemService(NotificationManager::class.java)
+        val (title, text) = when (kind) {
+            "short" -> "jampsFit Test" to "Short phone notification"
+            "long" -> "jampsFit Long Test" to "This longer Android notification tests whether Da Fit mirrors jampsFit notifications safely to the watch."
+            "update" -> "jampsFit Update" to "Notification update test ${System.currentTimeMillis() % 100000}"
+            else -> "jampsFit Test" to "Phone notification path"
+        }
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(TEST_NOTIFICATION_ID, notification)
     }
 
     private fun cancelDisconnectNotification() {

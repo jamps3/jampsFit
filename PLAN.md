@@ -16,20 +16,24 @@
 - [x] Custom Button Mapping: Selectable actions for watch buttons (Media, Volume, Utility).
 - [x] Sleek UI: Glassmorphism, animated shine effects, and modern layouts.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
-- [x] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch.
-- [x] Extended Notifications: Support for long messages (AccuBattery, WhatsApp) using B4 handshake.
+- [ ] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection.
+- [ ] Extended Notifications: Support long messages from jampsFit without Da Fit owning the watch session.
 - [x] Precise Time Sync: Big-endian local time synchronization.
 - [x] Restore passive Main screen data via no-MTU broad notification listening.
 - [x] Decode live `FEE1` walking packets as activity count, distance, and calories.
 - [x] Add Logcat mirroring for watch debug logs.
 - [x] Add guarded experimental long notification sender from vendor capture.
+- [x] Capture Da Fit native connect preamble and identify session-dependent command risk.
+- [x] Correct Da Fit handle mapping: handle `0x0047` is `FEE2`, not `6387`, in captured sessions.
 
 ## Planned Features
 - [ ] **Decode Real Steps**: Identify the packet/channel that carries actual step count; `FEE1` field is now named `activityCount`.
-- [ ] **Stabilize Watch Send Path**: Re-verify every outbound command; Clock Sync is stable and the experimental `0x41` notification sequence needs on-watch validation.
+- [ ] **Stabilize Watch Send Path**: Re-verify outbound commands on the correct characteristic; Clock Sync is stable on `FEE2`, and captured Da Fit `FE EA 20` commands should be retested on `FEE2` before any `6387` hypothesis.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Find My Watch**: Re-verify vibration command without using risky memory/handshake frames.
+- [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
+- [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
 - [ ] **Data Export**: Save session data to CSV files.
 - [ ] **Sending Weather to the Watch**: Push current weather and forecast to the watch.
 - [ ] **Extended Reverse Engineering**: Decode more proprietary Kospet packets.

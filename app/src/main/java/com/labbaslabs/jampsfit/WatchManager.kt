@@ -122,15 +122,13 @@ class WatchManager(private val context: Context) {
     }
 
     fun findWatch() {
-        // Find My Watch ALWAYS uses 20-series protocol on 6387 (15-byte wrapper)
-        val bytes = ByteArray(15) { 0 }
-        bytes[0] = 0xFE.toByte(); bytes[1] = 0xEA.toByte(); bytes[2] = 0x20.toByte()
-        bytes[3] = 0x0F.toByte(); bytes[4] = 0x00.toByte(); bytes[5] = 0x36.toByte()
-        bytes[7] = 0xDA.toByte(); bytes[8] = 0x01.toByte()
-        bytes[11] = 0x11.toByte(); bytes[12] = 0x03.toByte()
-        bytes[13] = 0x20.toByte(); bytes[14] = 0x31.toByte()
-        enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, bytes))
-        updateDebugLog("Finding watch (Native 6387)...")
+        if (!_state.value.isConnected) {
+            updateDebugLog("Find My Watch skipped: watch is not connected.")
+            return
+        }
+        val packet = nativePacket(0x61)
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Find My Watch via FEE2: ${packet.toHexString()}")
     }
 
     fun syncTime() {
@@ -181,28 +179,35 @@ class WatchManager(private val context: Context) {
     }
 
     fun sendExperimentalNotification() {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Experimental notification skipped: watch is not connected.")
-            return
-        }
+        updateDebugLog("Experimental notification disabled: use Android notification mirroring path; this button rebooted the watch.")
+    }
 
-        managerScope.launch {
-            updateDebugLog("Experimental notification: log-derived 6387 sequence starting...")
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x00.toByte()))
-            delay(180)
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x12.toByte()))
-            delay(180)
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x10.toByte()))
-            delay(180)
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x20.toByte()))
-            delay(180)
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x09.toByte(), 0x12.toByte(), 0xA8.toByte(), 0x4B.toByte(), 0x29.toByte(), 0x00.toByte()))
-            delay(320)
-            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xF1.toByte(), 0x00.toByte()))
-            delay(180)
-            sendNativeRaw(buildExperimentalNotificationPacket("jampsFit: passive data restored. Test notification."))
-            updateDebugLog("Experimental notification sequence sent.")
-        }
+    fun prepareDaFitSession() {
+        updateDebugLog("Find prep disabled: the 84/B4 cluster rebooted this watch outside Da Fit startup state.")
+    }
+
+    fun prepareAndFindWatch() {
+        updateDebugLog("Prep + Find disabled: Find prep rebooted this watch outside Da Fit startup state.")
+    }
+
+    fun sendStartupPreamblePhase1() {
+        updateDebugLog("Startup phase 1 disabled: old test wrote Da Fit FEE2 traffic to the wrong characteristic.")
+    }
+
+    fun sendStartupPreamblePhase2() {
+        updateDebugLog("Startup phase 2 disabled: old test wrote Da Fit FEE2 traffic to the wrong characteristic.")
+    }
+
+    private suspend fun sendFindPrepCluster() {
+        sendNativeRaw(nativePacket(0x84))
+        delay(180)
+        sendNativeRaw(nativePacket(0xB4, 0x00))
+        delay(180)
+        sendNativeRaw(nativePacket(0xB4, 0x12))
+        delay(180)
+        sendNativeRaw(nativePacket(0xB4, 0x10))
+        delay(180)
+        sendNativeRaw(nativePacket(0xB4, 0x20))
     }
 
     private fun buildExperimentalNotificationPacket(message: String): ByteArray {
@@ -236,30 +241,7 @@ class WatchManager(private val context: Context) {
     }
 
     fun setWeatherCity(city: String) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Weather test skipped: watch is not connected.")
-            return
-        }
-        val safeCity = city.trim().ifBlank { "Joensuu" }.take(12)
-        managerScope.launch {
-            updateDebugLog("Da Fit test: weather city '$safeCity' sequence starting...")
-            val cityLower = safeCity.lowercase(Locale.US)
-            val cityAscii = cityLower.toByteArray(Charsets.UTF_8)
-            val cityUtf16 = cityLower.toByteArray(Charsets.UTF_16LE)
-            val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
-
-            sendNativeRaw(nativePacket(0xB9, 0x19, 0x00))
-            delay(180)
-            sendNativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray()))
-            delay(180)
-            sendNativeRaw(nativePacket(0x42, 0x03, 0x0E, 0x07, 0x00, 0x0E, 0x06, 0x03, 0x13, 0x0A, 0x03, 0x10, 0x0C, 0x00, 0x0F, 0x0A, 0x03, 0x0D, 0x09, 0x03, 0x09, 0x07))
-            delay(180)
-            sendNativeRaw(nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x38, 0x15, 0x39, *cityAscii.map { it.toInt() and 0xFF }.toIntArray()))
-            delay(180)
-            val cityPacket = nativePacket(0x45, *displayAscii.map { it.toInt() and 0xFF }.toIntArray())
-            sendNativeRaw(cityPacket)
-            updateDebugLog("Da Fit test: weather city '$safeCity' sent -> ${cityPacket.toHexString()}")
-        }
+        updateDebugLog("Weather city write disabled: captured Da Fit sequence reboots this watch outside Da Fit session.")
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {
@@ -271,19 +253,11 @@ class WatchManager(private val context: Context) {
     }
 
     fun setAlarm1Enabled(enabled: Boolean) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Alarm test skipped: watch is not connected.")
-            return
-        }
-        managerScope.launch {
-            val enabledByte = if (enabled) 0x01 else 0x00
-            val record = nativePacket(0x11, 0x00, enabledByte, 0x00, 0x07, 0x0F, 0xB5, 0x11, 0x00)
-            val commit = nativePacket(0xB9, 0x05, 0x00, enabledByte, 0x00, 0x00, 0x07, 0x0F, 0xB5, 0x11, 0x00)
-            sendNativeRaw(record)
-            delay(320)
-            sendNativeRaw(commit)
-            updateDebugLog("Da Fit test: alarm1 ${if (enabled) "enabled" else "disabled"} -> ${record.toHexString()} / ${commit.toHexString()}")
-        }
+        setAlarm(0, enabled, 7, 15, 0)
+    }
+
+    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
+        updateDebugLog("Alarm write disabled: captured Da Fit alarm records reboot this watch outside Da Fit session.")
     }
 
     private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
@@ -322,6 +296,18 @@ class WatchManager(private val context: Context) {
         packet[4] = cmd.toByte()
         payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
         return packet
+    }
+
+    private fun buildDaFitTimestampPacket(): ByteArray {
+        val now = ((System.currentTimeMillis() + TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000).toInt()
+        return nativePacket(
+            0x31,
+            now and 0xFF,
+            (now shr 8) and 0xFF,
+            (now shr 16) and 0xFF,
+            (now shr 24) and 0xFF,
+            0x08
+        )
     }
 
     private fun ByteArray.toHexString(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }

@@ -44,11 +44,11 @@ The **Kospet TANK M1** appears to utilize the **MoYoung (DaFit)** protocol, iden
     - `0000fee1-...` & `0000fea1-...`: Activity and health data notification channels.
     - `00006387-...` / `00006487-...`: Native MoYoung write/notify path. Present in vendor captures but not yet safe as the default send path.
 
-Current reverse-engineering focus: passive main-screen data is restored, but real step snapshots and safe watch-bound notification sends still need decoding. See `PROTOCOL.md` for the active packet hypotheses and capture references.
+Current reverse-engineering focus: passive main-screen data is restored, but our own BLE notification/control path must still be stabilized. Da Fit can mirror Android notifications when it owns the watch connection, but that is only a capture clue, not a viable jampsFit feature path, because Da Fit and jampsFit cannot own the BLE link at the same time. See `PROTOCOL.md` for the active packet hypotheses and capture references.
 
 Current stable mode: the app skips MTU negotiation, broadly subscribes to watch notification channels, and passively decodes `FEE1` live walking packets into `activityCount`, distance, and calories. Outbound watch commands other than clock sync remain disabled or experimental because several `6387`/handshake-style writes can reboot the watch.
 
-There is also a guarded `Exp Notif` diagnostics button for testing the vendor-captured long notification sequence on `6387`. It is intentionally experimental until live watch logs prove it safe.
+Important capture correction: the Da Fit writes previously labelled as `6387` were ATT handle `0x0047`, which maps to the FEEA write characteristic `FEE2` in the captured service table. jampsFit was sending many `FE EA 20` packets to `6387`; that likely caused the reboots. The next send-path tests should route Da Fit-style `FE EA 20` packets through `FEE2`, where clock sync already works.
 
 ## 🚀 Technical Stack
 - **Language**: Kotlin

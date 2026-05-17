@@ -186,6 +186,26 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendExperimentalNotification()
     }
 
+    fun prepareDaFitSession() {
+        watchService?.watchManager?.prepareDaFitSession()
+    }
+
+    fun prepareAndFindWatch() {
+        watchService?.watchManager?.prepareAndFindWatch()
+    }
+
+    fun sendStartupPreamblePhase1() {
+        watchService?.watchManager?.sendStartupPreamblePhase1()
+    }
+
+    fun sendStartupPreamblePhase2() {
+        watchService?.watchManager?.sendStartupPreamblePhase2()
+    }
+
+    fun postTestPhoneNotification(kind: String) {
+        watchService?.postTestPhoneNotification(kind)
+    }
+
     fun sendRawTest(hex: String, useAlt: Boolean = false) {
         watchService?.watchManager?.sendRawTest(hex, useAlt)
     }
@@ -216,6 +236,10 @@ class MainActivity : ComponentActivity() {
 
     fun setAlarm1Enabled(enabled: Boolean) {
         watchService?.watchManager?.setAlarm1Enabled(enabled)
+    }
+
+    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
+        watchService?.watchManager?.setAlarm(slot, enabled, hour, minute, repeatMask)
     }
 
     fun syncHealth() {

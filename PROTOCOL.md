@@ -3,7 +3,9 @@
 ## Overview
 The watch communicates using a proprietary BLE protocol (MoYoung/DaFit). It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
 
-Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync is the only confirmed safe outbound watch command. Treat the rest of the send path as suspect until verified against captures from the vendor phone app and live watch responses.
+Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync is the only confirmed safe outbound command that works without extra native-session setup. Treat the rest of the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
+
+Da Fit notification mirroring is not a product workaround. It proves the watch accepts notifications when Da Fit owns the native session, but jampsFit must replace Da Fit entirely and cannot rely on Da Fit being connected in parallel.
 
 ## External References To Cross-Check
 
@@ -23,12 +25,13 @@ These references are useful clues, but they may describe different watches or ol
 - **Known-good local behavior**: Clock sync works on `FEE2` using exact-length packets.
 - **Live activity path**: `FEE1` notifications stream while walking after broad passive subscription.
 
-### Series 20 (Modern/Native)
+### Series 20 (Modern/Da Fit)
 - **Header**: `FE EA 20`
 - **Length Byte (Index 3)**: Defined as `Total Length` count.
 - **Checksum**: Required for longer packets (e.g., Notifications), calculated as `Sum(all bytes) % 256`.
-- **Main Pipe**: Write to `6387` (Handle 0x0047), Notify on `6487`.
-- **Current risk**: Sending bursts or handshake-like commands on `6387` can reboot the watch. Avoid `6387` writes unless testing one exact packet at a time.
+- **Captured Da Fit Pipe**: Write to `FEE2` (ATT handle `0x0047` in current captures), Notify on `FEE3` (ATT handle `0x0049`).
+- **Important correction**: Earlier notes treated handle `0x0047` as `6387`. The captured service discovery shows handle `0x0047` is the value handle for `FEE2`; `6387` is a later handle in service `6287`. Many reboots were likely caused by sending Da Fit `FE EA 20` traffic to `6387` instead of `FEE2`.
+- **Current risk**: `6387` should not be used for Da Fit `FE EA 20` packets unless a capture proves that exact packet was written to `6387`.
 
 ## Passive Listening Findings
 
@@ -96,9 +99,11 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
 | `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
 | `20` | `VAR` | `08` | Notification Push | `[Type] [TitleLen] [Title] [TextLen] [Text] [Checksum]` |
-| `20` | `VAR` | `41` | **Extended Notification**| Large payload support (requires B4 sequence) |
+| `20` | `VAR` | `41` | **Extended Notification**| Large payload support (requires B4 sequence). Direct diagnostic send rebooted the watch outside the right session state. |
 | `20` | `06` | `B4` | Buffer Allocation | Part of extended data handshake (Params: 00, 12, 10, 20) |
 | `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
+| `20` | `05` | `61` | Find My Watch | Captured from Da Fit on `FEE2` / handle `0x0047`. Retest from jampsFit on `FEE2`; previous reboot was from wrong characteristic. |
+| `20` | `0D` | `11` | Alarm Record | Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. Captured on `FEE2`; retest there only. |
 
 ## Current Safety Notes
 
@@ -106,8 +111,78 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 - Main screen passive data is restored through `FEE1`: `activityCount`, live distance, calories, and standard battery.
 - The vendor phone capture confirms `MOYOUNG-V2`, `FEE2`, `FEE3`, `6387`, and `6487` are present. Use `btlog.txt` and `btsnoop_hci.log` as ground truth before promoting any command to verified.
 - Real steps are still not decoded from the live `FEE1` packet. Candidate sources remain snapshot packets such as `33`/`59` from captures.
-- Handshake, Find My Watch, standard notification send, long notification send, and `6387` query bursts are disabled/unsafe until tested carefully.
+- Handshake, alarm/weather writes, standard notification send, long notification diagnostic send, and any `6387` query bursts are disabled/unsafe until tested carefully on the correct characteristic.
 - Keep packets exact length. Do not pad variable commands to 20 bytes.
+
+## Da Fit Native Session State
+
+Fresh HCI capture with Bluetooth toggled off/on showed that Da Fit sends a large `FE EA 20` preamble on `FEE2` after connect before commands such as Find My Watch. Earlier jampsFit tests sent these packets to `6387`, which is not what Da Fit did in the capture.
+
+Initial minimal ready cluster from earlier connect preamble:
+
+```text
+FE EA 20 05 84
+FE EA 20 06 B4 00
+FE EA 20 06 B4 12
+FE EA 20 06 B4 10
+FE EA 20 06 B4 20
+FE EA 20 09 12 A8 55 29 00
+FE EA 20 06 F1 00
+```
+
+Live testing showed that the full cluster above reboots the watch when sent by jampsFit, likely because `12 A8...` / `F1` is only safe after additional Da Fit state. A later single-action capture showed the immediate pre-Find cluster excludes those two packets and repeats only:
+
+```text
+FE EA 20 05 84
+FE EA 20 06 B4 00
+FE EA 20 06 B4 12
+FE EA 20 06 B4 10
+FE EA 20 06 B4 20
+```
+
+Live testing showed that this stripped `84/B4` cluster rebooted the watch when sent by jampsFit to `6387`. This result is now considered invalid for judging the Da Fit sequence because the target characteristic was wrong. The prep buttons remain disabled until reintroduced on `FEE2`.
+
+Current staged startup experiments:
+
+```text
+Start P1:
+FE EA 20 06 5A 00
+FE EA 20 06 B7 0E
+FE EA 20 0A 31 [local timestamp LE] 08
+FE EA 20 07 BB 16 00
+FE EA 20 0B BB 07 00 30 2A 00 00
+FE EA 20 0B BB 07 00 30 2A 00 00
+
+Start P2:
+FE EA 20 08 5A 02 00 00
+FE EA 20 07 67 0C 00
+FE EA 20 07 67 0D 1E
+FE EA 20 06 7B 00
+FE EA 20 06 5A 01
+```
+
+Test P1 alone first. P2 should only be tried if P1 does not reboot.
+
+Live result: **Start P1 rebooted the watch** when sent to `6387`, so both P1 and P2 are disabled in the app. This result is also considered invalid for judging Da Fit startup because the captured Da Fit traffic was actually on `FEE2`.
+
+Captured action packets that worked in Da Fit but rebooted when sent directly from jampsFit:
+
+```text
+Find My Watch: FE EA 20 05 61
+Alarm 1 on:   FE EA 20 0D 11 00 01 00 07 0F B5 11 00
+Alarm 1 off:  FE EA 20 0D 11 00 00 00 07 0F B5 11 00
+Weather city: FE EA 20 0C 45 4A 6F 65 6E 73 75 75
+```
+
+Alarm record fields currently decode as:
+
+| Field | Meaning |
+| :--- | :--- |
+| `slot` | `00..02` for alarm 1..3 |
+| `enabled` | `00` off, `01` on |
+| `mode` | `00` once/no repeat, `01` every day, `02` custom repeat |
+| `hour/minute` | 24-hour alarm time |
+| `repeatMask` | `00` once, `3E` weekdays, `7F` every day |
 
 ## Handshake Procedures
 
