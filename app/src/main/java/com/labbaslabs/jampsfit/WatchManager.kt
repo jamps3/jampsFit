@@ -51,6 +51,14 @@ data class WatchState(
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
+    val batteryHistory: List<Int> = emptyList(),
+    val heartRateHistory: List<Int> = emptyList(),
+    val spo2History: List<Int> = emptyList(),
+    val bpHistory: List<Pair<Int, Int>> = emptyList(),
+    val stepsHistory: List<Int> = emptyList(),
+    val distanceHistory: List<Int> = emptyList(),
+    val caloriesHistory: List<Int> = emptyList(),
+    val activityHistory: List<Int> = emptyList(),
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false
@@ -96,6 +104,61 @@ class WatchManager(private val context: Context) {
     private val recentActivityPayloadSet = mutableSetOf<String>()
     private val recentFee1Payloads = ArrayDeque<String>()
     private val recentFee1PayloadSet = mutableSetOf<String>()
+
+    init {
+        observeHistory()
+    }
+
+    private fun observeHistory() {
+        managerScope.launch {
+            healthDao.getBatteryHistory().collect { history ->
+                _state.update { it.copy(batteryHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getHeartRateHistory().collect { history ->
+                _state.update { it.copy(heartRateHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getSpO2History().collect { history ->
+                _state.update { it.copy(spo2History = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getBloodPressureHistory().collect { history ->
+                val pairs = history.mapNotNull { 
+                    if (it.systolic != null && it.diastolic != null) Pair(it.systolic, it.diastolic) else null
+                }
+                _state.update { it.copy(bpHistory = pairs.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getStepsHistory().collect { history ->
+                _state.update { it.copy(stepsHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getDistanceHistory().collect { history ->
+                _state.update { it.copy(distanceHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getActivityHistory().collect { history ->
+                _state.update { it.copy(activityHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getCaloriesHistory().collect { history ->
+                _state.update { it.copy(caloriesHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getAllUnknownPackets().collect { history ->
+                _state.update { it.copy(unknownMessages = history) }
+            }
+        }
+    }
 
     sealed class GattOperation {
         class WriteDescriptor(val descriptor: BluetoothGattDescriptor, val value: ByteArray) : GattOperation()
@@ -744,7 +807,16 @@ class WatchManager(private val context: Context) {
 
     private fun addUnknownMessage(msg: String) {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        _state.update { it.copy(unknownMessages = (it.unknownMessages + "[$timestamp] $msg").takeLast(100)) }
+        val formattedMsg = "[$timestamp] $msg"
+        managerScope.launch {
+            healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = formattedMsg))
+        }
+    }
+
+    fun clearUnknownPackets() {
+        managerScope.launch {
+            healthDao.deleteAllUnknown()
+        }
     }
 
     private fun handleData(uuid: UUID, data: ByteArray) {
@@ -809,8 +881,8 @@ class WatchManager(private val context: Context) {
         }
     }
 
-    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, steps: Int? = null, distance: Int? = null, calories: Int? = null) {
-        managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, steps = steps, distance = distance, calories = calories)) }
+    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null) {
+        managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories)) }
     }
 
     private fun parseStandardHeartRate(data: ByteArray): Int? {
@@ -855,6 +927,7 @@ class WatchManager(private val context: Context) {
                 if (data.size > 5) {
                     val spo2 = data[5].toInt() and 0xFF
                     _state.update { it.copy(spo2 = spo2) }
+                    saveToDb(spo2 = spo2)
                     updateDebugLog("Manual SpO2: $spo2%")
                 }
             }
@@ -863,6 +936,7 @@ class WatchManager(private val context: Context) {
                     val systolic = data[6].toInt() and 0xFF
                     val diastolic = data[7].toInt() and 0xFF
                     _state.update { it.copy(systolic = systolic, diastolic = diastolic) }
+                    saveToDb(systolic = systolic, diastolic = diastolic)
                     updateDebugLog("Manual BP: $systolic/$diastolic")
                 }
             }
@@ -903,7 +977,7 @@ class WatchManager(private val context: Context) {
         val calories = (b[6].toInt() and 0xFF) or ((b[7].toInt() and 0xFF) shl 8)
         lastActivitySeq = seq
         _state.update { it.copy(activityCount = activityCount, distance = distance, calories = calories) }
-        saveToDb(distance = distance, calories = calories)
+        saveToDb(activityCount = activityCount, distance = distance, calories = calories)
         updateDebugLog("Activity live[$source]: seq=$seq activityCount=$activityCount distance=${distance}m calories=$calories")
         return true
     }

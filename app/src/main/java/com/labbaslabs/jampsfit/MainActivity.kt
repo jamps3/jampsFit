@@ -98,7 +98,10 @@ class MainActivity : ComponentActivity() {
                                     1 -> GraphsScreen(state = state)
                                     2 -> ControlsScreen(state = state)
                                     3 -> RemoteScreen(state = state)
-                                    4 -> UnknownScreen(state = state)
+                                    4 -> UnknownScreen(
+                                        state = state,
+                                        onResetClick = { watchService?.watchManager?.clearUnknownPackets() }
+                                    )
                                     5 -> SettingsScreen(
                                         state = state,
                                         onScanClick = { checkPermissionsAndStart() },

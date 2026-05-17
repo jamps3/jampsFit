@@ -8,8 +8,10 @@
 - [x] Multi-tab UI (Home, Graphs, Controls, Remote, Unknown, Settings).
 - [x] Background Foreground Service for persistent connection.
 - [x] Copy Unknown packets to clipboard.
+- [x] **Unknown Packet Persistence**: Persist unknown packets to the database and add a reset button to the Unknown tab.
 - [x] Active Phone Control: Media and Camera/Find My Phone.
 - [x] Data Persistence: Health data is saved to a local Room database.
+- [x] **Graph Persistence**: Load historical health data from the database into the Graphs screen to ensure data persists across app restarts.
 - [x] Battery Monitoring: Graph, configurable low battery alerts, and time-remaining estimation.
 - [x] Connection Resilience: Automatic retry (5 times) and notification on disconnect.
 - [x] UI Controls: Disconnect button and configurable start/connect behavior.
