@@ -39,6 +39,7 @@
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
+- [ ] **Weather Current Conditions**: Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
 - [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
 - [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
 - [ ] **Data Export**: Save session data to CSV files.

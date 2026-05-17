@@ -237,9 +237,9 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Slider(
                             value = stepGoal,
-                            onValueChange = { stepGoal = (it / 100f).toInt() * 100f },
-                            valueRange = 1000f..30000f,
-                            steps = 289,
+                            onValueChange = { stepGoal = (it / 1000f).toInt() * 1000f },
+                            valueRange = 2000f..35000f,
+                            steps = 32,
                             modifier = Modifier.weight(1f)
                         )
                         Button(

@@ -240,6 +240,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendWeatherForecastSample()
     }
 
+    fun sendWeatherCurrentProbe(kind: String) {
+        watchService?.watchManager?.sendWeatherCurrentProbe(kind)
+    }
+
     fun sendWeightCandidate(weightTenthsKg: Int) {
         watchService?.watchManager?.sendWeightCandidate(weightTenthsKg)
     }

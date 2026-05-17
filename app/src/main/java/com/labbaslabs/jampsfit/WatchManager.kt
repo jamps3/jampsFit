@@ -303,7 +303,7 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Step-goal test skipped: watch is not connected.")
             return
         }
-        val safeGoal = (goal / 100).coerceIn(10, 300) * 100
+        val safeGoal = (goal / 1000).coerceIn(2, 35) * 1000
         val packet = nativePacket(0x16, 0x00, (safeGoal shr 8) and 0xFF, safeGoal and 0xFF)
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         updateDebugLog("Step goal via FEE2: $safeGoal -> ${packet.toHexString()}")
@@ -359,6 +359,24 @@ class WatchManager(private val context: Context) {
             sendFee2NativeRaw(forecastPacket)
             updateDebugLog("Weather forecast sample via FEE2 sent -> ${forecastPacket.toHexString()}")
         }
+    }
+
+    fun sendWeatherCurrentProbe(kind: String) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Weather current probe skipped: watch is not connected.")
+            return
+        }
+        val packet = when (kind) {
+            "43-cold" -> nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x05, 0x00, 0x03, 0x00, 0xFF, 0xFF)
+            "43-warm" -> nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x17, 0x00, 0x15, 0x00, 0x0F, 0x00)
+            "b5-warm" -> nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x17, 0x15, 0x0F, 0x6A, 0x6F, 0x65, 0x6E, 0x73, 0x75, 0x75)
+            else -> {
+                updateDebugLog("Unknown weather current probe: $kind")
+                return
+            }
+        }
+        sendFee2NativeRaw(packet)
+        updateDebugLog("Weather current probe $kind via FEE2 -> ${packet.toHexString()}")
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {
@@ -704,6 +722,10 @@ class WatchManager(private val context: Context) {
         val short = uuid.toString().substring(4, 8).uppercase()
         val rawHex = data.joinToString(" ") { "%02X".format(it) }
         val msg = "RX $short raw=$rawHex"
+        if (uuid == BATTERY_CHAR && data.size == 1) {
+            updateDebugLog(msg)
+            return
+        }
         if (uuid == FEE3_NOTIFY && isKnownFee3Packet(data)) {
             updateDebugLog(msg)
             return

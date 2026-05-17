@@ -110,7 +110,7 @@ fun ControlsScreen(state: WatchState) {
             var stepGoal by remember { mutableFloatStateOf(9000f) }
             Text("Step goal: ${stepGoal.toInt()}")
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Slider(value = stepGoal, onValueChange = { stepGoal = (it / 100f).toInt() * 100f }, valueRange = 1000f..30000f, steps = 289, modifier = Modifier.weight(1f))
+                Slider(value = stepGoal, onValueChange = { stepGoal = (it / 1000f).toInt() * 1000f }, valueRange = 2000f..35000f, steps = 32, modifier = Modifier.weight(1f))
                 Button(onClick = { activity?.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
             }
 
@@ -141,6 +141,12 @@ fun ControlsScreen(state: WatchState) {
                 Icon(Icons.Default.NotificationsActive, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Send Forecast Sample")
+            }
+            Text("Current weather probes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                WeatherProbeButton("43 Cold", "43-cold", state.isConnected, activity, Modifier.weight(1f))
+                WeatherProbeButton("43 Warm", "43-warm", state.isConnected, activity, Modifier.weight(1f))
+                WeatherProbeButton("B5 Warm", "b5-warm", state.isConnected, activity, Modifier.weight(1f))
             }
 
             Text(
@@ -239,6 +245,24 @@ private fun NotificationProbeButton(
 ) {
     OutlinedButton(
         onClick = { activity?.sendNotificationProbe(kind) },
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(label, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun WeatherProbeButton(
+    label: String,
+    kind: String,
+    enabled: Boolean,
+    activity: MainActivity?,
+    modifier: Modifier = Modifier.fillMaxWidth()
+) {
+    OutlinedButton(
+        onClick = { activity?.sendWeatherCurrentProbe(kind) },
         enabled = enabled,
         modifier = modifier,
         shape = RoundedCornerShape(8.dp)

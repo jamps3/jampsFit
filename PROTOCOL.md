@@ -82,6 +82,8 @@ FEA1: 07 5A 02 00 EE 01 00 1B 00 00
 
 Known `FEE1` walking frames are kept out of the Unknown tab and logged as decoded activity. The app also suppresses duplicate `FEA1` mirror frames from the System Log and Unknown tab, and avoids duplicate activity updates when the same sequence was already received on `FEE1`. If a mirror arrives with a new sequence, it is still accepted as a fallback activity update and logged.
 
+`RX 2A19 raw=2F`, `2E`, `2D` are standard battery notifications, not unknown proprietary packets. They decode as hex battery percentages: `0x2F` = 47%, `0x2E` = 46%, `0x2D` = 45%.
+
 ## Verified Commands
 
 | Header | Length | CMD | Description | Payload / Notes |
@@ -105,7 +107,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `05` | `61` | **Find My Watch** | Confirmed working from jampsFit on `FEE2` / handle `0x0047`. Previous reboot was from wrong characteristic. |
 | `20` | `0D` | `11` | **Alarm Record** | Confirmed working for alarm slots 1 and 3 from jampsFit on `FEE2`. Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. |
 | `20` | `06` | `7D` | **Auto-lock seconds** | Confirmed working from jampsFit on `FEE2`. Example: `FE EA 20 06 7D 14` for 20 seconds. |
-| `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Added as a connected-only experimental control; still needs live confirmation. |
+| `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Da Fit UI allows 2000-35000 in 1000-step increments. Added as a connected-only experimental control; still needs live confirmation. |
 | `20` | `1A` | `42` | **Forecast data** | Confirmed working from jampsFit on `FEE2`. Seven triples: `[icon/weatherCode] [high C] [low C]`. First triple updates today's range; next six appear as future forecast days. |
 | `20` | `0C` | `45` | Weather city name | Captured as the final city-name packet in the weather sequence. Added as a connected-only experimental control with the captured surrounding weather packets; still needs live confirmation. |
 
@@ -196,6 +198,16 @@ Today 2026-05-17: range 28C-18C
 ```
 
 The current-day actual temperature (`7C` in the live test) did not come from the `0x42` sample packet. It likely comes from the preceding captured weather/status packet, probably `0x43` or `0xB5`.
+
+Current-weather probe buttons:
+
+| Button | Packet | Purpose |
+| :--- | :--- | :--- |
+| 43 Cold | `FE EA 20 10 43 00 01 07 00 05 00 03 00 FF FF` | Tests whether `0x43` carries current/high/low style values. |
+| 43 Warm | `FE EA 20 10 43 00 01 07 00 17 00 15 00 0F 00` | Same layout with obvious warm values. |
+| B5 Warm | `FE EA 20 16 B5 00 01 07 00 00 03 17 15 0F 6A 6F 65 6E 73 75 75` | Tests whether `0xB5` carries current/high/low plus city slug. |
+
+Live result: isolated `43 Cold`, `43 Warm`, and `B5 Warm` probes did not visibly change the watch weather. `Send Weather City` and `Send Forecast Sample` still update city/forecast/ranges, but today's current temperature remains `7C`. Current temperature may be cached, may require the complete weather transaction order, or may live in another packet/field not isolated yet.
 
 Alarm record fields currently decode as:
 
