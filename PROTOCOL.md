@@ -46,7 +46,7 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 - `2A37`: standard heart-rate notify.
 - `FEE1`: live walking/activity notify.
 - `FEE3`: legacy notify.
-- `FEA1`: additional activity/health notify.
+- `FEA1`: mirrored activity/health notify. Walking frames observed as `07` plus the same 9-byte payload from `FEE1`.
 - `6487`: native MoYoung notify.
 
 ### `FEE1` Live Activity Packet
@@ -69,6 +69,15 @@ Current decode:
 | `5` | 1 | Unknown/reserved | Observed `00`. |
 | `6..7` | 2 LE | Calories | Confirmed by slow increase while walking. |
 | `8` | 1 | Unknown/reserved | Observed `00`. |
+
+`FEA1` mirror examples:
+
+```text
+FEE1: 5A 02 00 EE 01 00 1B 00 00
+FEA1: 07 5A 02 00 EE 01 00 1B 00 00
+```
+
+Known `FEE1` walking frames are kept out of the Unknown tab and logged as decoded activity. The app also suppresses duplicate `FEA1` mirror frames from the System Log and Unknown tab, and avoids duplicate activity updates when the same sequence was already received on `FEE1`. If a mirror arrives with a new sequence, it is still accepted as a fallback activity update and logged.
 
 ## Verified Commands
 

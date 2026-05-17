@@ -88,6 +88,11 @@ class WatchManager(private val context: Context) {
     private var lastOpTime = 0L
     private var isConfigured = false
     private var logBuffer = mutableListOf<String>()
+    private var lastActivitySeq: Int? = null
+    private val recentActivityPayloads = ArrayDeque<String>()
+    private val recentActivityPayloadSet = mutableSetOf<String>()
+    private val recentFee1Payloads = ArrayDeque<String>()
+    private val recentFee1PayloadSet = mutableSetOf<String>()
 
     sealed class GattOperation {
         class WriteDescriptor(val descriptor: BluetoothGattDescriptor, val value: ByteArray) : GattOperation()
@@ -439,6 +444,14 @@ class WatchManager(private val context: Context) {
         val short = uuid.toString().substring(4, 8).uppercase()
         val rawHex = data.joinToString(" ") { "%02X".format(it) }
         val msg = "RX $short raw=$rawHex"
+        if (uuid == FEE1_CHAR && isActivityPayload(data)) {
+            rememberRecentPayload(data.toHexKey(), recentFee1Payloads, recentFee1PayloadSet)
+            updateDebugLog(msg)
+            return
+        }
+        if (uuid == FEA1_CHAR && isFea1ActivityMirror(data)) {
+            return
+        }
         updateDebugLog(msg)
         addUnknownMessage(msg)
     }
@@ -459,8 +472,15 @@ class WatchManager(private val context: Context) {
                 }
             }
             HEART_RATE_CHAR -> parseStandardHeartRate(data)?.let { _state.update { s -> s.copy(heartRate = it) }; saveToDb(heartRate = it) }
-            FEE1_CHAR, FEA1_CHAR -> {
-                if (!parseActivityPacket(data)) parseKospetPacket(data)
+            FEE1_CHAR -> {
+                if (!parseActivityPacket(data, "FEE1")) parseKospetPacket(data)
+            }
+            FEA1_CHAR -> {
+                if (isFea1ActivityMirror(data)) {
+                    handleFea1ActivityMirror(data)
+                } else if (!parseActivityPacket(data, "FEA1")) {
+                    parseKospetPacket(data)
+                }
             }
             else -> {
                 parseKospetPacket(data)
@@ -479,28 +499,63 @@ class WatchManager(private val context: Context) {
         else (if (data.size < 2) null else data[1].toInt() and 0xFF)
     }
 
-    private fun parseActivityPacket(data: ByteArray): Boolean {
-        val b = when {
-            data.size == 10 && data[0] == 0x07.toByte() -> data.copyOfRange(1, 10)
-            data.size == 9 -> data
-            else -> return false
-        }
+    private fun isFea1ActivityMirror(data: ByteArray): Boolean = data.size == 10 && data[0] == 0x07.toByte()
+
+    private fun isActivityPayload(data: ByteArray): Boolean = data.size == 9
+
+    private fun handleFea1ActivityMirror(data: ByteArray): Boolean {
+        val b = data.copyOfRange(1, 10)
+        val seq = b[0].toInt() and 0xFF
+        if (hasRecentPayload(b.toHexKey(), recentFee1PayloadSet)) return true
+        if (lastActivitySeq == seq) return true
+        updateDebugLog("FEA1 activity mirror used because seq=$seq was not seen on FEE1.")
+        return parseActivityPacket(b, "FEA1 mirror")
+    }
+
+    private fun parseActivityPacket(data: ByteArray, source: String): Boolean {
+        val b = normalizeActivityPayload(data) ?: return false
+        val payloadKey = b.toHexKey()
+        if (isDuplicateActivityPayload(payloadKey)) return true
 
         val seq = b[0].toInt() and 0xFF
         val activityCount = (b[1].toInt() and 0xFF) or ((b[2].toInt() and 0xFF) shl 8)
         val distance = (b[3].toInt() and 0xFF) or ((b[4].toInt() and 0xFF) shl 8)
         val calories = (b[6].toInt() and 0xFF) or ((b[7].toInt() and 0xFF) shl 8)
+        lastActivitySeq = seq
         _state.update { it.copy(activityCount = activityCount, distance = distance, calories = calories) }
         saveToDb(distance = distance, calories = calories)
-        updateDebugLog("Activity live: seq=$seq activityCount=$activityCount distance=${distance}m calories=$calories")
+        updateDebugLog("Activity live[$source]: seq=$seq activityCount=$activityCount distance=${distance}m calories=$calories")
         return true
+    }
+
+    private fun isDuplicateActivityPayload(payloadKey: String): Boolean = synchronized(recentActivityPayloads) {
+        rememberRecentPayload(payloadKey, recentActivityPayloads, recentActivityPayloadSet)
+    }
+
+    private fun rememberRecentPayload(key: String, queue: ArrayDeque<String>, set: MutableSet<String>): Boolean = synchronized(queue) {
+        if (!set.add(key)) return@synchronized true
+        queue.addLast(key)
+        while (queue.size > 32) set.remove(queue.removeFirst())
+        false
+    }
+
+    private fun hasRecentPayload(key: String, set: Set<String>): Boolean {
+        return synchronized(recentFee1Payloads) { key in set }
     }
 
     private fun parseWrappedActivityPacket(data: ByteArray): Boolean {
         if (data.size >= 14 && data[4] == 0x07.toByte()) {
-            return parseActivityPacket(data.copyOfRange(5, 14))
+            return parseActivityPacket(data.copyOfRange(5, 14), "wrapped")
         }
         return false
+    }
+
+    private fun normalizeActivityPayload(data: ByteArray): ByteArray? {
+        return when {
+            isFea1ActivityMirror(data) -> data.copyOfRange(1, 10)
+            data.size == 9 -> data
+            else -> null
+        }
     }
 
     private fun parseKospetPacket(data: ByteArray) {
@@ -588,6 +643,8 @@ class WatchManager(private val context: Context) {
         if (offset + 2 >= b.size) return 0
         return (b[offset].toInt() and 0xFF) or ((b[offset + 1].toInt() and 0xFF) shl 8) or ((b[offset + 2].toInt() and 0xFF) shl 16)
     }
+
+    private fun ByteArray.toHexKey(): String = joinToString("") { "%02X".format(it) }
 
     private fun startsWith(d: ByteArray, p: ByteArray): Boolean { if (d.size < p.size) return false; for (i in p.indices) if (d[i] != p[i]) return false; return true }
 }
