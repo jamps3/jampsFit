@@ -21,10 +21,12 @@
 - [x] Precise Time Sync: Big-endian local time synchronization.
 - [x] Restore passive Main screen data via no-MTU broad notification listening.
 - [x] Decode live `FEE1` walking packets as activity count, distance, and calories.
+- [x] Add Logcat mirroring for watch debug logs.
+- [x] Add guarded experimental long notification sender from vendor capture.
 
 ## Planned Features
 - [ ] **Decode Real Steps**: Identify the packet/channel that carries actual step count; `FEE1` field is now named `activityCount`.
-- [ ] **Stabilize Watch Send Path**: Re-verify every outbound command; only Clock Sync is confirmed working right now.
+- [ ] **Stabilize Watch Send Path**: Re-verify every outbound command; Clock Sync is stable and the experimental `0x41` notification sequence needs on-watch validation.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Find My Watch**: Re-verify vibration command without using risky memory/handshake frames.

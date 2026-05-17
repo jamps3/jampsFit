@@ -119,12 +119,12 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Text("Standard Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { activity?.sendTestNotification(0x08, 0x01) },
-                            enabled = false,
+                            onClick = { activity?.sendExperimentalNotification() },
+                            enabled = state.isConnected,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(4.dp)
-                        ) { Text("Std Notif", fontSize = 10.sp) }
+                        ) { Text("Exp Notif", fontSize = 10.sp) }
                         Button(
                             onClick = { activity?.sendRawTest("01 01") },
                             enabled = false,

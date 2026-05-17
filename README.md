@@ -20,6 +20,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 ### 🛠️ Reverse Engineering Toolkit
 - **Live Debug Log**: Full visibility into the BLE communication lifecycle (GATT operations, service discovery, notifications).
 - **Unknown Packet Sniffer**: Dedicated tab for capturing and displaying unrecognized raw hex data from the watch.
+- **ADB-Friendly Capture**: Watch debug logs are mirrored to Logcat under `WatchManager` for direct packet collection from a connected phone.
 - **Easy Export**: Long-press any log to copy captured packets to the clipboard for further analysis.
 
 ### 🛡️ Reliability & Background Support
@@ -46,6 +47,8 @@ The **Kospet TANK M1** appears to utilize the **MoYoung (DaFit)** protocol, iden
 Current reverse-engineering focus: passive main-screen data is restored, but real step snapshots and safe watch-bound notification sends still need decoding. See `PROTOCOL.md` for the active packet hypotheses and capture references.
 
 Current stable mode: the app skips MTU negotiation, broadly subscribes to watch notification channels, and passively decodes `FEE1` live walking packets into `activityCount`, distance, and calories. Outbound watch commands other than clock sync remain disabled or experimental because several `6387`/handshake-style writes can reboot the watch.
+
+There is also a guarded `Exp Notif` diagnostics button for testing the vendor-captured long notification sequence on `6387`. It is intentionally experimental until live watch logs prove it safe.
 
 ## 🚀 Technical Stack
 - **Language**: Kotlin

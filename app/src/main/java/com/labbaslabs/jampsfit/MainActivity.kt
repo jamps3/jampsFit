@@ -182,6 +182,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendNotification("jampsFit", "Hello from your phone!", cmd, type)
     }
 
+    fun sendExperimentalNotification() {
+        watchService?.watchManager?.sendExperimentalNotification()
+    }
+
     fun sendRawTest(hex: String, useAlt: Boolean = false) {
         watchService?.watchManager?.sendRawTest(hex, useAlt)
     }

@@ -96,6 +96,7 @@ class WatchManager(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "WatchManager"
         private const val TARGET_NAME = "TANK M1"
         private val BATTERY_CHAR = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
         private val HEART_RATE_CHAR = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
@@ -171,6 +172,49 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Sent Notif (Stable FEE2).")
     }
 
+    fun sendExperimentalNotification() {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Experimental notification skipped: watch is not connected.")
+            return
+        }
+
+        managerScope.launch {
+            updateDebugLog("Experimental notification: log-derived 6387 sequence starting...")
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x00.toByte()))
+            delay(180)
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x12.toByte()))
+            delay(180)
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x10.toByte()))
+            delay(180)
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xB4.toByte(), 0x20.toByte()))
+            delay(180)
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x09.toByte(), 0x12.toByte(), 0xA8.toByte(), 0x4B.toByte(), 0x29.toByte(), 0x00.toByte()))
+            delay(320)
+            sendNativeRaw(byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20.toByte(), 0x06.toByte(), 0xF1.toByte(), 0x00.toByte()))
+            delay(180)
+            sendNativeRaw(buildExperimentalNotificationPacket("jampsFit: passive data restored. Test notification."))
+            updateDebugLog("Experimental notification sequence sent.")
+        }
+    }
+
+    private fun buildExperimentalNotificationPacket(message: String): ByteArray {
+        val maxTextBytes = 62
+        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxTextBytes)
+        val packet = ByteArray(6 + textBytes.size)
+        packet[0] = 0xFE.toByte()
+        packet[1] = 0xEA.toByte()
+        packet[2] = 0x20.toByte()
+        packet[3] = packet.size.toByte()
+        packet[4] = 0x41.toByte()
+        packet[5] = 0x80.toByte()
+        System.arraycopy(textBytes, 0, packet, 6, textBytes.size)
+        return packet
+    }
+
+    private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
+        return copyOfRange(fromIndex, size.coerceAtMost(fromIndex + maxLength))
+    }
+
     private fun formatPacket(cmd: Byte, payload: ByteArray, forceLen: Int? = null): ByteArray {
         val headerParts = _state.value.protocolHeader.split(" ")
         val is10Series = headerParts.getOrNull(2) == "10"
@@ -188,6 +232,10 @@ class WatchManager(private val context: Context) {
     fun sendRawTest(hex: String, useAltChar: Boolean = false) {
         val bytes = hex.split(" ").filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
         enqueueOperation(GattOperation.WriteCharacteristic(if (useAltChar) DATA_CHAR_UUID else null, bytes))
+    }
+
+    private fun sendNativeRaw(bytes: ByteArray) {
+        enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, bytes))
     }
 
     private fun sendNativeQuery(cmd: Int, arg: Int? = null) {
@@ -237,10 +285,14 @@ class WatchManager(private val context: Context) {
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
 
     private fun updateDebugLog(msg: String) {
+        Log.d(TAG, msg)
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        logBuffer.add("[$timestamp] $msg")
-        if (logBuffer.size > 100) logBuffer.removeAt(0)
-        _state.update { it.copy(debugLog = logBuffer.joinToString("\n")) }
+        val logText = synchronized(logBuffer) {
+            logBuffer.add("[$timestamp] $msg")
+            while (logBuffer.size > 100) logBuffer.removeAt(0)
+            logBuffer.toList().joinToString("\n")
+        }
+        _state.update { it.copy(debugLog = logText) }
     }
 
     private fun checkQueueTimeout() {

@@ -102,14 +102,39 @@ Current decode:
 
 ## Handshake Procedures
 
-### Extended Data / Large Notification Handshake
-Before sending large payloads (like Extended Notifications `0x41`), a preparation sequence is required to allocate memory on the watch:
+### Extended Data / Large Notification Handshake (Experimental)
+
+The vendor capture shows long AccuBattery notifications using `6387` / handle `0x0047`. This is now implemented behind the experimental `Exp Notif` button only.
+
+Observed sequence:
+
 1. `FE EA 20 06 B4 00`
 2. `FE EA 20 06 B4 12`
 3. `FE EA 20 06 B4 10`
 4. `FE EA 20 06 B4 20`
-5. `FE EA 20 06 F1 00` (Ready Signal)
-6. Send Actual Data (e.g., CMD `0x41`)
+5. `FE EA 20 09 12 A8 4B 29 00`
+6. `FE EA 20 06 F1 00`
+7. Send `0x41` notification packet.
+
+Observed timing between writes was roughly `150-180ms` for the first five writes and about `300ms` before `F1`, not a strict ACK-based flow. The current experimental implementation uses timed delays and exact-length packets.
+
+Captured `0x41` example:
+
+```text
+FE EA 20 44 41 80 4E 79 74 3A ... 29
+```
+
+Current interpretation:
+
+| Offset | Meaning |
+| :--- | :--- |
+| `0..2` | Header `FE EA 20` |
+| `3` | Total packet length |
+| `4` | Command `41` |
+| `5` | Notification subtype/flags, observed `80` |
+| `6..end` | UTF-8 notification text |
+
+The final byte in the captured sample (`29`) is the ASCII/UTF-8 `)` from the notification text, not proven to be a checksum.
 
 ## BLE UUIDs
 
@@ -125,3 +150,5 @@ Before sending large payloads (like Extended Notifications `0x41`), a preparatio
 ## Implementation Notes
 - **Timezone**: The watch expects **Local Time** (UTC + Offset) in Big Endian for the timestamp.
 - **Stability**: Sending 20-byte padded frames to variable-length endpoints (like 6387) causes immediate firmware reboots. Commands must be sent with their exact length.
+- **Debug logging**: App debug log entries are also emitted to Android Logcat under tag `WatchManager`, so `adb logcat -s WatchManager NotificationReceiver` can collect packet logs without manual copy/paste.
+- **Threading**: `updateDebugLog()` must synchronize access to its in-memory buffer. BLE callbacks can arrive concurrently and previously caused `ConcurrentModificationException`.
