@@ -3,7 +3,7 @@
 ## Overview
 The watch communicates using a proprietary BLE protocol (MoYoung/DaFit). It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
 
-Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync is the only confirmed safe outbound command that works without extra native-session setup. Treat the rest of the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
+Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. Treat the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
 
 Da Fit notification mirroring is not a product workaround. It proves the watch accepts notifications when Da Fit owns the native session, but jampsFit must replace Da Fit entirely and cannot rely on Da Fit being connected in parallel.
 
@@ -99,19 +99,25 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
 | `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
 | `20` | `VAR` | `08` | Notification Push | `[Type] [TitleLen] [Title] [TextLen] [Text] [Checksum]` |
-| `20` | `VAR` | `41` | **Extended Notification**| Large payload support (requires B4 sequence). Direct diagnostic send rebooted the watch outside the right session state. |
+| `20` | `VAR` | `41` | **Notification Push** | Confirmed working for small direct payloads on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Large payload support still needs length-limit testing. |
 | `20` | `06` | `B4` | Buffer Allocation | Part of extended data handshake (Params: 00, 12, 10, 20) |
 | `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
-| `20` | `05` | `61` | Find My Watch | Captured from Da Fit on `FEE2` / handle `0x0047`. Retest from jampsFit on `FEE2`; previous reboot was from wrong characteristic. |
-| `20` | `0D` | `11` | Alarm Record | Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. Captured on `FEE2`; retest there only. |
+| `20` | `05` | `61` | **Find My Watch** | Confirmed working from jampsFit on `FEE2` / handle `0x0047`. Previous reboot was from wrong characteristic. |
+| `20` | `0D` | `11` | **Alarm Record** | Confirmed working for alarm slots 1 and 3 from jampsFit on `FEE2`. Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. |
+| `20` | `06` | `7D` | **Auto-lock seconds** | Confirmed working from jampsFit on `FEE2`. Example: `FE EA 20 06 7D 14` for 20 seconds. |
+| `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Added as a connected-only experimental control; still needs live confirmation. |
+| `20` | `1A` | `42` | **Forecast data** | Confirmed working from jampsFit on `FEE2`. Seven triples: `[icon/weatherCode] [high C] [low C]`. First triple updates today's range; next six appear as future forecast days. |
+| `20` | `0C` | `45` | Weather city name | Captured as the final city-name packet in the weather sequence. Added as a connected-only experimental control with the captured surrounding weather packets; still needs live confirmation. |
 
 ## Current Safety Notes
 
-- `FE EA 10 09 31 [timestamp BE] 08` written to `FEE2` is the only confirmed good outbound command.
+- `FE EA 10 09 31 [timestamp BE] 08` written to `FEE2` is confirmed good for clock sync.
+- `FE EA 20 05 61` written to `FEE2` is confirmed good for Find My Watch.
+- `FE EA 20 0D 11 ...` written to `FEE2` is confirmed good for alarm writes; alarm slots 1 and 3 were live-tested.
 - Main screen passive data is restored through `FEE1`: `activityCount`, live distance, calories, and standard battery.
 - The vendor phone capture confirms `MOYOUNG-V2`, `FEE2`, `FEE3`, `6387`, and `6487` are present. Use `btlog.txt` and `btsnoop_hci.log` as ground truth before promoting any command to verified.
 - Real steps are still not decoded from the live `FEE1` packet. Candidate sources remain snapshot packets such as `33`/`59` from captures.
-- Handshake, alarm/weather writes, standard notification send, long notification diagnostic send, and any `6387` query bursts are disabled/unsafe until tested carefully on the correct characteristic.
+- Handshake, weather writes, step-goal writes, standard notification send, long notification diagnostic send, and any `6387` query bursts are still experimental or unsafe until tested carefully on the correct characteristic.
 - Keep packets exact length. Do not pad variable commands to 20 bytes.
 
 ## Da Fit Native Session State
@@ -165,14 +171,31 @@ Test P1 alone first. P2 should only be tried if P1 does not reboot.
 
 Live result: **Start P1 rebooted the watch** when sent to `6387`, so both P1 and P2 are disabled in the app. This result is also considered invalid for judging Da Fit startup because the captured Da Fit traffic was actually on `FEE2`.
 
-Captured action packets that worked in Da Fit but rebooted when sent directly from jampsFit:
+Captured action packets. Find My Watch and alarms now work from jampsFit when sent to `FEE2`; weather remains experimental:
 
 ```text
 Find My Watch: FE EA 20 05 61
 Alarm 1 on:   FE EA 20 0D 11 00 01 00 07 0F B5 11 00
 Alarm 1 off:  FE EA 20 0D 11 00 00 00 07 0F B5 11 00
 Weather city: FE EA 20 0C 45 4A 6F 65 6E 73 75 75
+Forecast:     FE EA 20 1A 42 03 0E 07 00 0E 06 03 13 0A 03 10 0C 00 0F 0A 03 0D 09 03 09 07
 ```
+
+Live jampsFit forecast sample result on 2026-05-17:
+
+```text
+Sent: FE EA 20 1A 42 00 1C 12 01 1A 10 02 18 0E 03 16 0C 04 14 0A 05 12 08 06 10 06
+
+Today 2026-05-17: range 28C-18C
+2026-05-19: 26C-16C, icon code 01, shown like two lines under a cloud
+2026-05-20: 24C-14C, icon code 02, shown like two clouds
+2026-05-21: 22C-12C, icon code 03, shown like raining cloud
+2026-05-22: 20C-10C, icon code 04, shown like snowing cloud
+2026-05-23: 18C-8C, icon code 05, shown like sun
+2026-05-24: 16C-6C, icon code 06, shown like tornado/wind
+```
+
+The current-day actual temperature (`7C` in the live test) did not come from the `0x42` sample packet. It likely comes from the preceding captured weather/status packet, probably `0x43` or `0xB5`.
 
 Alarm record fields currently decode as:
 
@@ -187,6 +210,40 @@ Alarm record fields currently decode as:
 ## Handshake Procedures
 
 ### Extended Data / Large Notification Handshake (Experimental)
+
+Current jampsFit notification probe buttons:
+
+| Button | Packet family | Notes |
+| :--- | :--- | :--- |
+| Legacy Short | `FE EA 10` / `0x08` | Short title/text format already used by the notification mirroring code. |
+| Legacy Call | `FE EA 10` / `0x08` | Same format with type `0x02`. |
+| Type 1/2/3/5 | `FE EA 20` / `0x08` | Da Fit-style native notification candidates without checksum. |
+| Csum 1/3 | `FE EA 20` / `0x08` | Same native `0x08` format with one trailing sum checksum byte. |
+| Tiny 0x41 | `FE EA 20` / `0x41` | Confirmed working. Displayed on watch as `Other: jampsFit tiny 41`. |
+
+Test one notification button at a time and capture the exact log line. If the watch reboots, the last `Notification probe ... ->` packet is the failing candidate.
+
+Live result: Only the `Tiny 0x41` probe worked. The confirmed packet was:
+
+```text
+FE EA 20 16 41 80 6A 61 6D 70 73 46 69 74 20 74 69 6E 79 20 34 31
+```
+
+The watch rendered it as:
+
+```text
+Other: jampsFit tiny 41
+```
+
+Current implication: direct `0x41` on `FEE2` is the best notification path. Next tests should vary only one factor at a time: payload length, subtype byte (`80`), and text encoding/content. Avoid the older B4/F1 prep sequence unless a later capture proves it is required for longer payloads.
+
+Implementation update: jampsFit notification mirroring now formats incoming phone notifications as direct `0x41` messages:
+
+```text
+FE EA 20 [len] 41 80 [UTF-8 title/text]
+```
+
+The Controls tab includes direct `0x41` length probes at 20, 40, 60, and 80 text bytes. Live result: all tested lengths through 80 bytes display successfully without reboot.
 
 The vendor capture shows long AccuBattery notifications using `6387` / handle `0x0047`. This is now implemented behind the experimental `Exp Notif` button only.
 

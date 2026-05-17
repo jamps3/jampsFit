@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
                                 val tabs = listOf(
                                     TabSpec("Home", Icons.Default.Home),
                                     TabSpec("Graphs", Icons.Default.Timeline),
+                                    TabSpec("Controls", Icons.Default.Tune),
                                     TabSpec("Remote", Icons.Default.SettingsRemote),
                                     TabSpec("Unknown", Icons.Default.Warning),
                                     TabSpec("Settings", Icons.Default.Settings)
@@ -95,9 +96,10 @@ class MainActivity : ComponentActivity() {
                                 when (selectedTab) {
                                     0 -> HomeScreen(state = state)
                                     1 -> GraphsScreen(state = state)
-                                    2 -> RemoteScreen(state = state)
-                                    3 -> UnknownScreen(state = state)
-                                    4 -> SettingsScreen(
+                                    2 -> ControlsScreen(state = state)
+                                    3 -> RemoteScreen(state = state)
+                                    4 -> UnknownScreen(state = state)
+                                    5 -> SettingsScreen(
                                         state = state,
                                         onScanClick = { checkPermissionsAndStart() },
                                         onDisconnectClick = { disconnect() }
@@ -182,6 +184,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendNotification("jampsFit", "Hello from your phone!", cmd, type)
     }
 
+    fun sendNotificationProbe(kind: String) {
+        watchService?.watchManager?.sendNotificationProbe(kind)
+    }
+
     fun sendExperimentalNotification() {
         watchService?.watchManager?.sendExperimentalNotification()
     }
@@ -228,6 +234,10 @@ class MainActivity : ComponentActivity() {
 
     fun setWeatherCity(city: String) {
         watchService?.watchManager?.setWeatherCity(city)
+    }
+
+    fun sendWeatherForecastSample() {
+        watchService?.watchManager?.sendWeatherForecastSample()
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {

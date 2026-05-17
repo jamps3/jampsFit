@@ -159,23 +159,59 @@ class WatchManager(private val context: Context) {
     }
 
     fun sendNotification(title: String, text: String, cmd: Int = 0x08, type: Int = 0x01) {
-        // USE STABLE FEE2 PIPE with Header 10
-        val tB = title.take(15).toByteArray(Charsets.UTF_8)
-        val mB = text.take(15).toByteArray(Charsets.UTF_8)
-        val payload = ByteArray(1 + 1 + tB.size + 1 + mB.size)
-        payload[0] = type.toByte(); payload[1] = tB.size.toByte()
-        System.arraycopy(tB, 0, payload, 2, tB.size)
-        payload[2 + tB.size] = mB.size.toByte()
-        System.arraycopy(mB, 0, payload, 3 + tB.size, mB.size)
-        
-        val totalLen = 5 + payload.size
-        val packet = ByteArray(totalLen)
-        packet[0] = 0xFE.toByte(); packet[1] = 0xEA.toByte(); packet[2] = 0x10.toByte()
-        packet[3] = (totalLen - 1).toByte(); packet[4] = cmd.toByte()
-        System.arraycopy(payload, 0, packet, 5, payload.size)
-        
+        val message = listOf(title.trim(), text.trim())
+            .filter { it.isNotBlank() }
+            .joinToString(": ")
+            .ifBlank { "jampsFit" }
+        sendNativeNotification41(message, maxBytes = 80, logLabel = "mirrored")
+    }
+
+    fun sendNotificationProbe(kind: String) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Notification probe skipped: watch is not connected.")
+            return
+        }
+        when (kind) {
+            "legacy-short" -> sendNotification("jampsFit", "Legacy short", 0x08, 0x01)
+            "legacy-call" -> sendNotification("Call", "Ada Lovelace", 0x08, 0x02)
+            "20-08-type1" -> sendNativeNotification08("jampsFit", "Type 1 short", 0x01, checksum = false)
+            "20-08-type2" -> sendNativeNotification08("Phone", "Type 2 message", 0x02, checksum = false)
+            "20-08-type3" -> sendNativeNotification08("SMS", "Type 3 message", 0x03, checksum = false)
+            "20-08-type5" -> sendNativeNotification08("App", "Type 5 message", 0x05, checksum = false)
+            "20-08-csum1" -> sendNativeNotification08("jampsFit", "Checksum type 1", 0x01, checksum = true)
+            "20-08-csum3" -> sendNativeNotification08("SMS", "Checksum type 3", 0x03, checksum = true)
+            "20-41-tiny" -> sendNativeNotification41("jampsFit tiny 41")
+            "20-41-len20" -> sendNativeNotification41("Len20 abcdefghijklmn", maxBytes = 20, logLabel = "len20")
+            "20-41-len40" -> sendNativeNotification41("Len40 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJ", maxBytes = 40, logLabel = "len40")
+            "20-41-len60" -> sendNativeNotification41("Len60 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890", maxBytes = 60, logLabel = "len60")
+            "20-41-len80" -> sendNativeNotification41("Len80 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail", maxBytes = 80, logLabel = "len80")
+            else -> updateDebugLog("Unknown notification probe: $kind")
+        }
+    }
+
+    private fun sendNativeNotification08(title: String, text: String, type: Int, checksum: Boolean) {
+        val titleBytes = title.take(18).toByteArray(Charsets.UTF_8)
+        val textBytes = text.take(40).toByteArray(Charsets.UTF_8)
+        val payload = mutableListOf<Int>()
+        payload.add(type and 0xFF)
+        payload.add(titleBytes.size)
+        titleBytes.forEach { payload.add(it.toInt() and 0xFF) }
+        payload.add(textBytes.size)
+        textBytes.forEach { payload.add(it.toInt() and 0xFF) }
+        val base = nativePacket(0x08, *payload.toIntArray())
+        val packet = if (checksum) base.withTrailingSumChecksum() else base
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Sent Notif (Stable FEE2).")
+        updateDebugLog("Notification probe 20/08 type=$type checksum=$checksum -> ${packet.toHexString()}")
+    }
+
+    private fun sendNativeNotification41(message: String, maxBytes: Int = 40, logLabel: String = "tiny") {
+        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxBytes.coerceIn(1, 180))
+        val payload = IntArray(1 + textBytes.size)
+        payload[0] = 0x80
+        textBytes.forEachIndexed { index, byte -> payload[index + 1] = byte.toInt() and 0xFF }
+        val packet = nativePacket(0x41, *payload)
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Notification 20/41 $logLabel bytes=${textBytes.size} -> ${packet.toHexString()}")
     }
 
     fun sendExperimentalNotification() {
@@ -229,7 +265,10 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Auto-lock test skipped: watch is not connected.")
             return
         }
-        updateDebugLog("Auto-lock write disabled: captured packet rebooted this watch.")
+        val safeSeconds = seconds.coerceIn(5, 60)
+        val packet = nativePacket(0x7D, safeSeconds)
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Auto-lock via FEE2: ${safeSeconds}s -> ${packet.toHexString()}")
     }
 
     fun setStepGoal(goal: Int) {
@@ -237,11 +276,62 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Step-goal test skipped: watch is not connected.")
             return
         }
-        updateDebugLog("Step-goal write disabled: captured packet rebooted this watch.")
+        val safeGoal = (goal / 100).coerceIn(10, 300) * 100
+        val packet = nativePacket(0x16, 0x00, (safeGoal shr 8) and 0xFF, safeGoal and 0xFF)
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Step goal via FEE2: $safeGoal -> ${packet.toHexString()}")
     }
 
     fun setWeatherCity(city: String) {
-        updateDebugLog("Weather city write disabled: captured Da Fit sequence reboots this watch outside Da Fit session.")
+        if (!_state.value.isConnected) {
+            updateDebugLog("Weather test skipped: watch is not connected.")
+            return
+        }
+        val safeCity = city.trim().ifBlank { "Joensuu" }.take(12)
+        managerScope.launch {
+            updateDebugLog("Weather city via FEE2 '$safeCity' sequence starting...")
+            val cityLower = safeCity.lowercase(Locale.US)
+            val cityAscii = cityLower.toByteArray(Charsets.UTF_8)
+            val cityUtf16 = cityLower.toByteArray(Charsets.UTF_16LE)
+            val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
+
+            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00))
+            delay(180)
+            sendFee2NativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray()))
+            delay(180)
+            sendFee2NativeRaw(nativePacket(0x42, 0x03, 0x0E, 0x07, 0x00, 0x0E, 0x06, 0x03, 0x13, 0x0A, 0x03, 0x10, 0x0C, 0x00, 0x0F, 0x0A, 0x03, 0x0D, 0x09, 0x03, 0x09, 0x07))
+            delay(180)
+            sendFee2NativeRaw(nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x38, 0x15, 0x39, *cityAscii.map { it.toInt() and 0xFF }.toIntArray()))
+            delay(180)
+            val cityPacket = nativePacket(0x45, *displayAscii.map { it.toInt() and 0xFF }.toIntArray())
+            sendFee2NativeRaw(cityPacket)
+            updateDebugLog("Weather city via FEE2 '$safeCity' sent -> ${cityPacket.toHexString()}")
+        }
+    }
+
+    fun sendWeatherForecastSample() {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Weather forecast test skipped: watch is not connected.")
+            return
+        }
+        managerScope.launch {
+            updateDebugLog("Weather forecast sample via FEE2 starting...")
+            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00))
+            delay(180)
+            // Captures suggest command 0x42 is seven forecast triples: condition, high C, low C.
+            val forecastPacket = nativePacket(
+                0x42,
+                0x00, 0x1C, 0x12,
+                0x01, 0x1A, 0x10,
+                0x02, 0x18, 0x0E,
+                0x03, 0x16, 0x0C,
+                0x04, 0x14, 0x0A,
+                0x05, 0x12, 0x08,
+                0x06, 0x10, 0x06
+            )
+            sendFee2NativeRaw(forecastPacket)
+            updateDebugLog("Weather forecast sample via FEE2 sent -> ${forecastPacket.toHexString()}")
+        }
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {
@@ -257,7 +347,33 @@ class WatchManager(private val context: Context) {
     }
 
     fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
-        updateDebugLog("Alarm write disabled: captured Da Fit alarm records reboot this watch outside Da Fit session.")
+        if (!_state.value.isConnected) {
+            updateDebugLog("Alarm write skipped: watch is not connected.")
+            return
+        }
+        val safeSlot = slot.coerceIn(0, 2)
+        val safeHour = hour.coerceIn(0, 23)
+        val safeMinute = minute.coerceIn(0, 59)
+        val safeRepeatMask = repeatMask and 0x7F
+        val enabledByte = if (enabled) 0x01 else 0x00
+        val mode = when (safeRepeatMask) {
+            0x00 -> 0x00
+            0x7F -> 0x01
+            else -> 0x02
+        }
+        val packet = nativePacket(
+            0x11,
+            safeSlot,
+            enabledByte,
+            mode,
+            safeHour,
+            safeMinute,
+            if (safeRepeatMask == 0x00) 0xB5 else 0x00,
+            if (safeRepeatMask == 0x00) 0x11 else 0x00,
+            safeRepeatMask
+        )
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Alarm ${safeSlot + 1} via FEE2: ${if (enabled) "on" else "off"} ${"%02d:%02d".format(safeHour, safeMinute)} repeat=0x${"%02X".format(safeRepeatMask)} -> ${packet.toHexString()}")
     }
 
     private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
@@ -287,6 +403,10 @@ class WatchManager(private val context: Context) {
         enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, bytes))
     }
 
+    private fun sendFee2NativeRaw(bytes: ByteArray) {
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, bytes))
+    }
+
     private fun nativePacket(cmd: Int, vararg payload: Int): ByteArray {
         val packet = ByteArray(5 + payload.size)
         packet[0] = 0xFE.toByte()
@@ -311,6 +431,13 @@ class WatchManager(private val context: Context) {
     }
 
     private fun ByteArray.toHexString(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+
+    private fun ByteArray.withTrailingSumChecksum(): ByteArray {
+        val packet = copyOf(size + 1)
+        packet[3] = packet.size.toByte()
+        packet[packet.lastIndex] = (packet.dropLast(1).sumOf { it.toInt() and 0xFF } and 0xFF).toByte()
+        return packet
+    }
 
     private fun sendNativeQuery(cmd: Int, arg: Int? = null) {
         val payloadSize = if (arg == null) 0 else 1

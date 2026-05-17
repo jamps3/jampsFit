@@ -327,11 +327,11 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
                     Button(
                         onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour.toInt(), alarmMinute.toInt(), alarmRepeat) },
-                        enabled = false,
+                        enabled = state.isConnected,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     ) { Text("Send Alarm ${alarmSlot + 1}") }
-                    Text("Disabled: captured alarm records rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Text("Sends captured Da Fit alarm record via FEE2. Test one change at a time.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
 
                 SleekCard {
