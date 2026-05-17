@@ -198,6 +198,26 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.clearQueue()
     }
 
+    fun setAutoLockSeconds(seconds: Int) {
+        watchService?.watchManager?.setAutoLockSeconds(seconds)
+    }
+
+    fun setStepGoal(goal: Int) {
+        watchService?.watchManager?.setStepGoal(goal)
+    }
+
+    fun setWeatherCity(city: String) {
+        watchService?.watchManager?.setWeatherCity(city)
+    }
+
+    fun sendWeightCandidate(weightTenthsKg: Int) {
+        watchService?.watchManager?.sendWeightCandidate(weightTenthsKg)
+    }
+
+    fun setAlarm1Enabled(enabled: Boolean) {
+        watchService?.watchManager?.setAlarm1Enabled(enabled)
+    }
+
     fun syncHealth() {
         watchService?.watchManager?.syncHealth()
     }

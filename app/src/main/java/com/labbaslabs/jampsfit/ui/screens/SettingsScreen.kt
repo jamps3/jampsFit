@@ -133,6 +133,98 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                             contentPadding = PaddingValues(4.dp)
                         ) { Text("Handshake", fontSize = 10.sp) }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Captured Da Fit Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+
+                    var autoLockSeconds by remember { mutableFloatStateOf(20f) }
+                    Text("Auto-lock: ${autoLockSeconds.toInt()}s", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Slider(
+                            value = autoLockSeconds,
+                            onValueChange = { autoLockSeconds = it },
+                            valueRange = 5f..60f,
+                            steps = 10,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) },
+                            enabled = false,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) { Text("Send", fontSize = 12.sp) }
+                    }
+                    Text("Disabled: 5s/20s rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+
+                    var stepGoal by remember { mutableFloatStateOf(9000f) }
+                    Text("Step goal: ${stepGoal.toInt()}", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Slider(
+                            value = stepGoal,
+                            onValueChange = { stepGoal = (it / 100f).toInt() * 100f },
+                            valueRange = 1000f..30000f,
+                            steps = 289,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { activity?.setStepGoal(stepGoal.toInt()) },
+                            enabled = false,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) { Text("Send", fontSize = 12.sp) }
+                    }
+                    Text("Disabled: captured step-goal write rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+
+                    var weatherCity by remember { mutableStateOf("Joensuu") }
+                    OutlinedTextField(
+                        value = weatherCity,
+                        onValueChange = { weatherCity = it.take(12) },
+                        label = { Text("Weather city", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = { activity?.setWeatherCity(weatherCity) },
+                        enabled = state.isConnected && weatherCity.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) { Text("Send Weather City") }
+
+                    var weightKg by remember { mutableFloatStateOf(851f) }
+                    Text("Weight candidate: ${"%.1f".format(weightKg / 10f)}kg", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Slider(
+                            value = weightKg,
+                            onValueChange = { weightKg = it },
+                            valueRange = 500f..1400f,
+                            steps = 899,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { activity?.sendWeightCandidate(weightKg.toInt()) },
+                            enabled = false,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) { Text("Send", fontSize = 12.sp) }
+                    }
+                    Text("Disabled until a second known weight capture confirms the encoding.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { activity?.setAlarm1Enabled(false) },
+                            enabled = state.isConnected,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(6.dp)
+                        ) { Text("Alarm1 Off", fontSize = 11.sp) }
+                        Button(
+                            onClick = { activity?.setAlarm1Enabled(true) },
+                            enabled = state.isConnected,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(6.dp)
+                        ) { Text("Alarm1 On", fontSize = 11.sp) }
+                    }
                 }
 
                 SleekCard {

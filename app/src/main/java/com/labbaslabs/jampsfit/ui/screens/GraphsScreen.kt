@@ -19,13 +19,13 @@ import com.labbaslabs.jampsfit.ui.components.SleekCard
 
 @Composable
 fun GraphsScreen(state: WatchState) {
-    val hrHistory = remember { mutableStateListOf<Int>() }
-    val spo2History = remember { mutableStateListOf<Int>() }
-    val bpHistory = remember { mutableStateListOf<Pair<Int, Int>>() }
-    val activityHistory = remember { mutableStateListOf<Int>() }
-    val stepsHistory = remember { mutableStateListOf<Int>() }
-    val distanceHistory = remember { mutableStateListOf<Int>() }
-    val batteryHistory = remember { mutableStateListOf<Int>() }
+    val hrHistory = remember(state.deviceName) { mutableStateListOf<Int>() }
+    val spo2History = remember(state.deviceName) { mutableStateListOf<Int>() }
+    val bpHistory = remember(state.deviceName) { mutableStateListOf<Pair<Int, Int>>() }
+    val activityHistory = remember(state.deviceName) { mutableStateListOf<Int>() }
+    val stepsHistory = remember(state.deviceName) { mutableStateListOf<Int>() }
+    val distanceHistory = remember(state.deviceName) { mutableStateListOf<Int>() }
+    val batteryHistory = remember(state.deviceName) { mutableStateListOf<Int>() }
 
     LaunchedEffect(state.battery) { state.battery?.let { batteryHistory.add(it); if (batteryHistory.size > 50) batteryHistory.removeAt(0) } }
     LaunchedEffect(state.heartRate) { state.heartRate?.let { hrHistory.add(it); if (hrHistory.size > 20) hrHistory.removeAt(0) } }
@@ -46,12 +46,11 @@ fun GraphsScreen(state: WatchState) {
     ) {
         Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-        SleekGraphCard(title = "Battery (%)", data = batteryHistory, color = Color(0xFF4CAF50))
-        SleekGraphCard(title = "Activity Count", data = activityHistory, color = Color(0xFF8BC34A))
-        SleekGraphCard(title = "Steps (Snapshot)", data = stepsHistory, color = Color(0xFFFFC107))
-        SleekGraphCard(title = "Distance (m)", data = distanceHistory, color = Color(0xFF2196F3))
-        SleekGraphCard(title = "Heart Rate (BPM)", data = hrHistory, color = Color(0xFFE91E63))
-        SleekGraphCard(title = "SpO2 (%)", data = spo2History, color = Color(0xFF00BCD4))
+        SleekGraphCard(title = "Battery (%)", data = batteryHistory, currentValue = state.battery?.let { "$it%" }, color = Color(0xFF4CAF50))
+        SleekGraphCard(title = "Activity Count", data = activityHistory, currentValue = state.activityCount?.toString(), color = Color(0xFF8BC34A))
+        SleekGraphCard(title = "Distance (m)", data = distanceHistory, currentValue = state.distance?.let { "${it}m" }, color = Color(0xFF2196F3))
+        SleekGraphCard(title = "Heart Rate (BPM)", data = hrHistory, currentValue = state.heartRate?.let { "$it bpm" }, color = Color(0xFFE91E63))
+        SleekGraphCard(title = "SpO2 (%)", data = spo2History, currentValue = state.spo2?.let { "$it%" }, color = Color(0xFF00BCD4))
         
         SleekCard {
             Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -118,11 +117,15 @@ fun RowScope.SleepBar(weight: Float, color: Color, label: String) {
 }
 
 @Composable
-fun SleekGraphCard(title: String, data: List<Int>, color: Color) {
+fun SleekGraphCard(title: String, data: List<Int>, currentValue: String?, color: Color) {
     SleekCard {
-        Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = currentValue ?: "--", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        }
         Spacer(modifier = Modifier.height(16.dp))
-        if (data.isEmpty()) {
+        val graphData = if (data.isNotEmpty()) data else currentValue?.filter { it.isDigit() }?.toIntOrNull()?.let { listOf(it) }.orEmpty()
+        if (graphData.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                 Text(text = "Waiting for data...", color = Color.Gray)
             }
@@ -130,24 +133,27 @@ fun SleekGraphCard(title: String, data: List<Int>, color: Color) {
             Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
                 val width = size.width
                 val height = size.height
-                val currentMax = (data.maxOrNull()?.toFloat() ?: 100f).coerceAtLeast(1f)
-                val currentMin = (data.minOrNull()?.toFloat() ?: 0f)
+                val currentMax = (graphData.maxOrNull()?.toFloat() ?: 100f).coerceAtLeast(1f)
+                val currentMin = (graphData.minOrNull()?.toFloat() ?: 0f)
                 val range = (currentMax - currentMin).coerceAtLeast(1f)
                 val path = Path()
-                data.forEachIndexed { i, value ->
-                    val x = (i.toFloat() / (data.size - 1).coerceAtLeast(1)) * width
+                graphData.forEachIndexed { i, value ->
+                    val x = if (graphData.size == 1) width / 2f else (i.toFloat() / (graphData.size - 1)) * width
                     val y = height - ((value.toFloat() - currentMin) / range) * height
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
-                drawPath(path, color = color, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                // Subtle area fill
-                val fillPath = Path().apply {
-                    addPath(path)
-                    lineTo(width, height)
-                    lineTo(0f, height)
-                    close()
+                if (graphData.size == 1) {
+                    drawCircle(color = color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, height / 2f))
+                } else {
+                    drawPath(path, color = color, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    val fillPath = Path().apply {
+                        addPath(path)
+                        lineTo(width, height)
+                        lineTo(0f, height)
+                        close()
+                    }
+                    drawPath(fillPath, brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.2f), Color.Transparent)))
                 }
-                drawPath(fillPath, brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.2f), Color.Transparent)))
             }
         }
     }

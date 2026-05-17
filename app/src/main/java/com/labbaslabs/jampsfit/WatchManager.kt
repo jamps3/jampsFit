@@ -87,6 +87,9 @@ class WatchManager(private val context: Context) {
     private var isOperating = false
     private var lastOpTime = 0L
     private var isConfigured = false
+    private var userRequestedDisconnect = false
+    private var reconnectJob: Job? = null
+    private var scanWatchdogJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private var lastActivitySeq: Int? = null
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -216,6 +219,73 @@ class WatchManager(private val context: Context) {
         return packet
     }
 
+    fun setAutoLockSeconds(seconds: Int) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Auto-lock test skipped: watch is not connected.")
+            return
+        }
+        updateDebugLog("Auto-lock write disabled: captured packet rebooted this watch.")
+    }
+
+    fun setStepGoal(goal: Int) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Step-goal test skipped: watch is not connected.")
+            return
+        }
+        updateDebugLog("Step-goal write disabled: captured packet rebooted this watch.")
+    }
+
+    fun setWeatherCity(city: String) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Weather test skipped: watch is not connected.")
+            return
+        }
+        val safeCity = city.trim().ifBlank { "Joensuu" }.take(12)
+        managerScope.launch {
+            updateDebugLog("Da Fit test: weather city '$safeCity' sequence starting...")
+            val cityLower = safeCity.lowercase(Locale.US)
+            val cityAscii = cityLower.toByteArray(Charsets.UTF_8)
+            val cityUtf16 = cityLower.toByteArray(Charsets.UTF_16LE)
+            val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
+
+            sendNativeRaw(nativePacket(0xB9, 0x19, 0x00))
+            delay(180)
+            sendNativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray()))
+            delay(180)
+            sendNativeRaw(nativePacket(0x42, 0x03, 0x0E, 0x07, 0x00, 0x0E, 0x06, 0x03, 0x13, 0x0A, 0x03, 0x10, 0x0C, 0x00, 0x0F, 0x0A, 0x03, 0x0D, 0x09, 0x03, 0x09, 0x07))
+            delay(180)
+            sendNativeRaw(nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x38, 0x15, 0x39, *cityAscii.map { it.toInt() and 0xFF }.toIntArray()))
+            delay(180)
+            val cityPacket = nativePacket(0x45, *displayAscii.map { it.toInt() and 0xFF }.toIntArray())
+            sendNativeRaw(cityPacket)
+            updateDebugLog("Da Fit test: weather city '$safeCity' sent -> ${cityPacket.toHexString()}")
+        }
+    }
+
+    fun sendWeightCandidate(weightTenthsKg: Int) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Weight test skipped: watch is not connected.")
+            return
+        }
+        updateDebugLog("Weight write disabled until we capture a second known value.")
+    }
+
+    fun setAlarm1Enabled(enabled: Boolean) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Alarm test skipped: watch is not connected.")
+            return
+        }
+        managerScope.launch {
+            val enabledByte = if (enabled) 0x01 else 0x00
+            val record = nativePacket(0x11, 0x00, enabledByte, 0x00, 0x07, 0x0F, 0xB5, 0x11, 0x00)
+            val commit = nativePacket(0xB9, 0x05, 0x00, enabledByte, 0x00, 0x00, 0x07, 0x0F, 0xB5, 0x11, 0x00)
+            sendNativeRaw(record)
+            delay(320)
+            sendNativeRaw(commit)
+            updateDebugLog("Da Fit test: alarm1 ${if (enabled) "enabled" else "disabled"} -> ${record.toHexString()} / ${commit.toHexString()}")
+        }
+    }
+
     private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
         return copyOfRange(fromIndex, size.coerceAtMost(fromIndex + maxLength))
     }
@@ -242,6 +312,19 @@ class WatchManager(private val context: Context) {
     private fun sendNativeRaw(bytes: ByteArray) {
         enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, bytes))
     }
+
+    private fun nativePacket(cmd: Int, vararg payload: Int): ByteArray {
+        val packet = ByteArray(5 + payload.size)
+        packet[0] = 0xFE.toByte()
+        packet[1] = 0xEA.toByte()
+        packet[2] = 0x20.toByte()
+        packet[3] = packet.size.toByte()
+        packet[4] = cmd.toByte()
+        payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
+        return packet
+    }
+
+    private fun ByteArray.toHexString(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
 
     private fun sendNativeQuery(cmd: Int, arg: Int? = null) {
         val payloadSize = if (arg == null) 0 else 1
@@ -338,17 +421,54 @@ class WatchManager(private val context: Context) {
             val name = result.scanRecord?.deviceName ?: result.device.name
             if (name?.contains(TARGET_NAME, ignoreCase = true) == true) { stopScan(); connectToDevice(result.device) }
         }
+
+        override fun onScanFailed(errorCode: Int) {
+            updateDebugLog("Scan failed: $errorCode; retrying...")
+            scheduleReconnect(delayMs = 1500)
+        }
     }
 
-    fun startScan() { _state.update { it.copy(connectionStatus = "Scanning...") }; scanner?.startScan(null, android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCallback) }
-    fun stopScan() { scanner?.stopScan(scanCallback) }
-    fun disconnect() { bluetoothGatt?.disconnect(); bluetoothGatt?.close(); bluetoothGatt = null; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") } }
-    private fun connectToDevice(device: BluetoothDevice) { lastConnectedDevice = device; _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }; bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE) }
+    fun startScan() {
+        userRequestedDisconnect = false
+        reconnectJob?.cancel()
+        stopScan()
+        _state.update { it.copy(connectionStatus = "Scanning...") }
+        scanner?.startScan(null, android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCallback)
+        startScanWatchdog()
+    }
+    fun stopScan() {
+        scanWatchdogJob?.cancel()
+        scanWatchdogJob = null
+        scanner?.stopScan(scanCallback)
+    }
+    fun disconnect() {
+        userRequestedDisconnect = true
+        reconnectJob?.cancel()
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        bluetoothGatt = null
+        stopScan()
+        _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
+    }
+    private fun connectToDevice(device: BluetoothDevice) {
+        userRequestedDisconnect = false
+        stopScan()
+        lastConnectedDevice = device
+        _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }
+        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+    }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) { isConfigured = false; _state.update { it.copy(isConnected = true, connectionStatus = "Connected") }; gatt.discoverServices() }
-            else if (newState == BluetoothProfile.STATE_DISCONNECTED) { _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { isOperating = false } }
+            else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                bluetoothGatt = null
+                isConfigured = false
+                _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
+                synchronized(operationQueue) { operationQueue.clear(); isOperating = false }
+                gatt.close()
+                scheduleReconnect()
+            }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -444,6 +564,10 @@ class WatchManager(private val context: Context) {
         val short = uuid.toString().substring(4, 8).uppercase()
         val rawHex = data.joinToString(" ") { "%02X".format(it) }
         val msg = "RX $short raw=$rawHex"
+        if (uuid == FEE3_NOTIFY && isKnownFee3Packet(data)) {
+            updateDebugLog(msg)
+            return
+        }
         if (uuid == FEE1_CHAR && isActivityPayload(data)) {
             rememberRecentPayload(data.toHexKey(), recentFee1Payloads, recentFee1PayloadSet)
             updateDebugLog(msg)
@@ -484,7 +608,41 @@ class WatchManager(private val context: Context) {
             }
             else -> {
                 parseKospetPacket(data)
+                parseFee3Packet(uuid, data)
                 parseWrappedActivityPacket(data)
+            }
+        }
+    }
+
+    private fun scheduleReconnect(delayMs: Long = 3000) {
+        if (userRequestedDisconnect || !_state.value.autoConnect) return
+        reconnectJob?.cancel()
+        reconnectJob = managerScope.launch {
+            updateDebugLog("Auto-connect retry in ${delayMs / 1000.0}s.")
+            delay(delayMs)
+            if (!_state.value.isConnected && _state.value.autoConnect && !userRequestedDisconnect) {
+                reconnectOrScan()
+            }
+        }
+    }
+
+    private fun reconnectOrScan() {
+        val last = lastConnectedDevice
+        if (last != null) {
+            updateDebugLog("Auto-connect: trying last watch directly.")
+            connectToDevice(last)
+        } else {
+            startScan()
+        }
+    }
+
+    private fun startScanWatchdog() {
+        scanWatchdogJob?.cancel()
+        scanWatchdogJob = managerScope.launch {
+            delay(12000)
+            if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning..." && !userRequestedDisconnect) {
+                updateDebugLog("Scan watchdog: restarting scan.")
+                startScan()
             }
         }
     }
@@ -510,6 +668,66 @@ class WatchManager(private val context: Context) {
         if (lastActivitySeq == seq) return true
         updateDebugLog("FEA1 activity mirror used because seq=$seq was not seen on FEE1.")
         return parseActivityPacket(b, "FEA1 mirror")
+    }
+
+    private fun isKnownFee3Packet(data: ByteArray): Boolean {
+        if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
+        return when (data[4].toInt() and 0xFF) {
+            0x66, 0x67, 0x69, 0x6B, 0x6D, 0xA4 -> true
+            else -> false
+        }
+    }
+
+    private fun parseFee3Packet(uuid: UUID, data: ByteArray): Boolean {
+        if (uuid != FEE3_NOTIFY || !isKnownFee3Packet(data)) return false
+        when (data[4].toInt() and 0xFF) {
+            0x6D -> {
+                if (data.size > 5) {
+                    val hr = data[5].toInt() and 0xFF
+                    _state.update { it.copy(heartRate = hr) }
+                    saveToDb(heartRate = hr)
+                    updateDebugLog("Manual HR: $hr bpm")
+                }
+            }
+            0x6B -> {
+                if (data.size > 5) {
+                    val spo2 = data[5].toInt() and 0xFF
+                    _state.update { it.copy(spo2 = spo2) }
+                    updateDebugLog("Manual SpO2: $spo2%")
+                }
+            }
+            0x69 -> {
+                if (data.size > 7) {
+                    val systolic = data[6].toInt() and 0xFF
+                    val diastolic = data[7].toInt() and 0xFF
+                    _state.update { it.copy(systolic = systolic, diastolic = diastolic) }
+                    updateDebugLog("Manual BP: $systolic/$diastolic")
+                }
+            }
+            0x66 -> {
+                _state.update { it.copy(lastRemoteEvent = "Wrist Shake / Shutter") }
+                updateDebugLog("Remote event: Wrist Shake / Shutter")
+            }
+            0x67 -> {
+                val event = when (data.getOrNull(5)?.toInt()?.and(0xFF)) {
+                    0x01 -> "Previous Track"
+                    0x02 -> "Next Track"
+                    0x06 -> "Play/Pause"
+                    else -> null
+                }
+                if (event != null) {
+                    _state.update { it.copy(lastRemoteEvent = event) }
+                    updateDebugLog("Remote event: $event")
+                }
+            }
+            0xA4 -> {
+                if (data.size > 6) {
+                    val enabled = data[5].toInt() == 0x01
+                    updateDebugLog("Power save: ${if (enabled) "enabled" else "disabled"}")
+                }
+            }
+        }
+        return true
     }
 
     private fun parseActivityPacket(data: ByteArray, source: String): Boolean {
