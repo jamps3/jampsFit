@@ -1,14 +1,15 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BluetoothDisabled
-import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Schedule
@@ -27,7 +28,12 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 
 @Composable
-fun ControlsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick: () -> Unit) {
+fun ControlsScreen(
+    state: WatchState,
+    scrollState: ScrollState = rememberScrollState(),
+    onScanClick: () -> Unit,
+    onDisconnectClick: () -> Unit
+) {
     val activity = LocalContext.current as? MainActivity
     var queriedSettings by rememberSaveable { mutableStateOf(false) }
     var controlsTab by rememberSaveable { mutableIntStateOf(0) }
@@ -43,11 +49,11 @@ fun ControlsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(text = "Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        TabRow(selectedTabIndex = controlsTab, containerColor = Color.Transparent, divider = {}) {
+        SecondaryTabRow(selectedTabIndex = controlsTab, containerColor = Color.Transparent, divider = {}) {
             Tab(selected = controlsTab == 0, onClick = { controlsTab = 0 }, text = { Text("Watch") })
             Tab(selected = controlsTab == 1, onClick = { controlsTab = 1 }, text = { Text("App") })
             Tab(selected = controlsTab == 2, onClick = { controlsTab = 2 }, text = { Text("Manual") })
@@ -281,13 +287,27 @@ fun ControlsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
         }
 
         SleekCard {
-            Text(text = "Gadgetbridge Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = "Step Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
+            Text("Real-step candidates", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("Get Alarms", "get-alarms", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("Get Step Goal", "get-step-goal", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("33 00", "steps-33-00", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("33 01", "steps-33-01", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("33 02", "steps-33-02", state.isConnected, activity, Modifier.weight(1f))
             }
-            GadgetProbeButton("Get Auto-lock", "get-auto-lock", state.isConnected, activity)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                GadgetProbeButton("59 00", "steps-59-00", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("59 01", "steps-59-01", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("59 02", "steps-59-02", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("59 03", "steps-59-03", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                GadgetProbeButton("10/59 00", "steps-10-59-00", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("10/59 01", "steps-10-59-01", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("10/59 02", "steps-10-59-02", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("10/59 03", "steps-10-59-03", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Text("Advanced/unknown probes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 GadgetProbeButton("Heartbeat 64", "heartbeat-64", state.isConnected, activity, Modifier.weight(1f))
                 GadgetProbeButton("B9 Weather", "b9-weather-19", state.isConnected, activity, Modifier.weight(1f))
@@ -297,7 +317,7 @@ fun ControlsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                 GadgetProbeButton("B9 Card Data", "b9-ecard-content", state.isConnected, activity, Modifier.weight(1f))
             }
             Text(
-                text = "Based on Gadgetbridge Moyoung notes: get commands often equal set + 0x10.",
+                text = "59 00 is Steps Down. Test nearby buckets to find Steps Up; settings queries now run automatically.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
@@ -326,7 +346,7 @@ private fun AppSettingsControls(
             shape = RoundedCornerShape(8.dp),
             colors = if (state.isConnected) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()
         ) {
-            Icon(if (state.isConnected) Icons.Default.BluetoothDisabled else Icons.Default.BluetoothSearching, contentDescription = null)
+            Icon(if (state.isConnected) Icons.Default.BluetoothDisabled else Icons.AutoMirrored.Filled.BluetoothSearching, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text(if (state.isConnected) "Disconnect Watch" else "Scan & Connect")
         }

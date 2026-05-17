@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,7 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 
 @Composable
-fun HomeScreen(state: WatchState) {
+fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val context = LocalContext.current
     val activity = context as? MainActivity
 
@@ -30,7 +31,7 @@ fun HomeScreen(state: WatchState) {
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

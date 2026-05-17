@@ -135,13 +135,31 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 
 | Button | Packet | Rationale |
 | :--- | :--- | :--- |
-| Get Alarms | `FE EA 20 05 21` | Gadgetbridge documents `0x11` set alarms and `0x21` get alarms. |
-| Get Step Goal | `FE EA 20 05 26` | Hypothesis from set/get convention: step goal set is `0x16`, so get may be `0x26`. |
-| Get Auto-lock | `FE EA 20 05 8D` | Hypothesis from observed `0x8D` auto-lock response/ack for set command `0x7D`. |
+| Get Alarms | `FE EA 20 05 21` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
+| Get Step Goal | `FE EA 20 05 26` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
+| Get Auto-lock | `FE EA 20 05 8D` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
 | Heartbeat 64 | `FE EA 20 05 64` | Mirrors the watch-origin no-payload heartbeat/keepalive candidate. |
 | B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |
 | B9 Card Cfg | `FE EA 20 09 B9 12 00 02` | Gadgetbridge example advanced command / eCard config request. |
 | B9 Card Data | `FE EA 20 09 B9 12 00 03` | Gadgetbridge example advanced command / eCard content request. |
+
+Step priority probes:
+
+| Button | Packet | Expected useful reply |
+| :--- | :--- | :--- |
+| 33 00 | `FE EA 20 06 33 00` | No visible reply in repeated live tests at 2026-05-18 01:19:14 and 01:21:11. |
+| 33 01 | `FE EA 20 06 33 01` | Stable reply: `FE EA 20 0F 33 01 AC 02 00 30 02 00 1E 00 00` = 684 / 560m / 30 cal. Seen at 01:14:58, 01:19:16, and 01:21:14. Likely a day-offset daily total. |
+| 33 02 | `FE EA 20 06 33 02` | Stable reply: `FE EA 20 0F 33 02 D3 0D 00 79 0B 00 B0 00 00` = 3539 / 2937m / 176 cal. Seen at 01:15:23, 01:19:18, 01:21:18, and 01:22:21. Likely another day-offset daily total, but still needs watch-history correlation. |
+| 59 00 | `FE EA 20 06 59 00` | Confirmed current step split. First 16-bit field is **Steps Down**, second is **Steps Up**, third is another step component. At 01:24:37 the watch showed Steps Up 291, Steps Down 80, Total Steps 435; packet returned `80 / 291 / 64`, so Total Steps is `80 + 291 + 64 = 435`. |
+| 59 01 | `FE EA 20 06 59 01` | Returned all zeros at 01:19:21 and 01:24:47. Not Steps Up in these captures. |
+| 59 02 | `FE EA 20 06 59 02` | Returned all zeros at 01:19:23 and 01:25:06. |
+| 59 03 | `FE EA 20 06 59 03` | Stable mostly-zero reply with tail values `597 / 87` at 01:19:24 and 01:25:17. Needs per-record decoding; not enough to identify Steps Up. |
+| 10/59 00 | `FE EA 10 05 59 00` | Legacy query is accepted but the watch responds with native `59 00`: `80 / 291m / 45`. |
+| 10/59 01 | `FE EA 10 05 59 01` | Legacy query collapses to native `59 00` on this watch. |
+| 10/59 02 | `FE EA 10 05 59 02` | Legacy query collapses to native `59 00` on this watch. |
+| 10/59 03 | `FE EA 10 05 59 03` | Legacy query collapses to native `59 00` on this watch. |
+
+The app decodes known `0x33` daily-total-shaped replies and logs `0x59` bucket replies as forensic candidate values. `59 00` is promoted to Home/Graphs as `totalSteps = stepsUp + stepsDown + stepsOther`. Other `59` replies remain forensic only. `33 02` is logged as a candidate instead of being promoted to Total Steps until its day offset is correlated with the watch history UI.
 
 Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
 

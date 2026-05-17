@@ -6,6 +6,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +22,12 @@ import com.labbaslabs.jampsfit.ui.components.SleekCard
 import kotlinx.coroutines.launch
 
 @Composable
-fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
+fun LogsScreen(
+    state: WatchState,
+    unknownScrollState: ScrollState = rememberScrollState(),
+    systemScrollState: ScrollState = rememberScrollState(),
+    onResetClick: () -> Unit
+) {
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -29,7 +35,7 @@ fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(text = "Logs", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        TabRow(selectedTabIndex = selectedTab, containerColor = androidx.compose.ui.graphics.Color.Transparent, divider = {}) {
+        SecondaryTabRow(selectedTabIndex = selectedTab, containerColor = Color.Transparent, divider = {}) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Unknown") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("System Log") })
         }
@@ -55,8 +61,7 @@ fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
                 }
             }
         )) {
-            val scrollState = rememberScrollState()
-            LaunchedEffect(state.unknownMessages) { scrollState.animateScrollTo(scrollState.maxValue) }
+            LaunchedEffect(state.unknownMessages) { unknownScrollState.animateScrollTo(unknownScrollState.maxValue) }
             if (state.unknownMessages.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = "No unknown messages", color = androidx.compose.ui.graphics.Color.Gray)
@@ -64,7 +69,7 @@ fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
             } else {
                 Text(
                     text = state.unknownMessages.joinToString("\n"),
-                    modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
+                    modifier = Modifier.fillMaxSize().verticalScroll(unknownScrollState),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     lineHeight = 18.sp
@@ -81,11 +86,10 @@ fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
                     }
                 }
             )) {
-                val scrollState = rememberScrollState()
-                LaunchedEffect(state.debugLog) { scrollState.animateScrollTo(scrollState.maxValue) }
+                LaunchedEffect(state.debugLog) { systemScrollState.animateScrollTo(systemScrollState.maxValue) }
                 Text(
                     text = state.debugLog,
-                    modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
+                    modifier = Modifier.fillMaxSize().verticalScroll(systemScrollState),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     lineHeight = 18.sp

@@ -51,6 +51,7 @@ data class WatchState(
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
     val isFindingPhone: Boolean = false,
+    val volumeSteps: Int = 1,
     val batteryHistory: List<Int> = emptyList(),
     val heartRateHistory: List<Int> = emptyList(),
     val spo2History: List<Int> = emptyList(),
@@ -59,6 +60,9 @@ data class WatchState(
     val distanceHistory: List<Int> = emptyList(),
     val caloriesHistory: List<Int> = emptyList(),
     val activityHistory: List<Int> = emptyList(),
+    val dailyStats: List<HealthEntry> = emptyList(),
+    val weeklyStats: List<HealthEntry> = emptyList(),
+    val monthlyStats: List<HealthEntry> = emptyList(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
@@ -95,6 +99,7 @@ class WatchManager(private val context: Context) {
         playPauseAction = prefs.getString("playPauseAction", "Play/Pause") ?: "Play/Pause",
         nextAction = prefs.getString("nextAction", "Next Track") ?: "Next Track",
         prevAction = prefs.getString("prevAction", "Previous Track") ?: "Previous Track",
+        volumeSteps = prefs.getInt("volumeSteps", 1),
         firmwareVersion = prefs.getString("firmwareVersion", null),
         notificationsEnabled = prefs.getBoolean("notificationsEnabled", false)
     ))
@@ -162,6 +167,21 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             healthDao.getCaloriesHistory().collect { history ->
                 _state.update { it.copy(caloriesHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getDailyStats().collect { stats ->
+                _state.update { it.copy(dailyStats = stats.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getWeeklyStats().collect { stats ->
+                _state.update { it.copy(weeklyStats = stats.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getMonthlyStats().collect { stats ->
+                _state.update { it.copy(monthlyStats = stats.reversed()) }
             }
         }
         managerScope.launch {
@@ -468,6 +488,17 @@ class WatchManager(private val context: Context) {
             "b9-ecard-config" -> nativePacket(0xB9, 0x12, 0x00, 0x02)
             "b9-ecard-content" -> nativePacket(0xB9, 0x12, 0x00, 0x03)
             "b9-weather-19" -> nativePacket(0xB9, 0x19, 0x00)
+            "steps-33-00" -> nativePacket(0x33, 0x00)
+            "steps-33-01" -> nativePacket(0x33, 0x01)
+            "steps-33-02" -> nativePacket(0x33, 0x02)
+            "steps-59-00" -> nativePacket(0x59, 0x00)
+            "steps-59-01" -> nativePacket(0x59, 0x01)
+            "steps-59-02" -> nativePacket(0x59, 0x02)
+            "steps-59-03" -> nativePacket(0x59, 0x03)
+            "steps-10-59-00" -> legacyPacket(0x59, 0x00)
+            "steps-10-59-01" -> legacyPacket(0x59, 0x01)
+            "steps-10-59-02" -> legacyPacket(0x59, 0x02)
+            "steps-10-59-03" -> legacyPacket(0x59, 0x03)
             else -> {
                 updateDebugLog("Unknown Gadgetbridge probe: $kind")
                 return
@@ -566,6 +597,17 @@ class WatchManager(private val context: Context) {
         return packet
     }
 
+    private fun legacyPacket(cmd: Int, vararg payload: Int): ByteArray {
+        val packet = ByteArray(5 + payload.size)
+        packet[0] = 0xFE.toByte()
+        packet[1] = 0xEA.toByte()
+        packet[2] = 0x10.toByte()
+        packet[3] = (packet.size - 1).toByte()
+        packet[4] = cmd.toByte()
+        payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
+        return packet
+    }
+
     private fun buildDaFitTimestampPacket(): ByteArray {
         val now = ((System.currentTimeMillis() + TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000).toInt()
         return nativePacket(
@@ -632,6 +674,12 @@ class WatchManager(private val context: Context) {
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
+
+    fun updateVolumeSteps(steps: Int) {
+        val s = steps.coerceIn(1, 5)
+        prefs.edit { putInt("volumeSteps", s) }
+        _state.update { it.copy(volumeSteps = s) }
+    }
 
     fun setFindingPhone(active: Boolean) {
         _state.update { it.copy(isFindingPhone = active) }
@@ -1162,11 +1210,13 @@ class WatchManager(private val context: Context) {
         val steps = readUInt24LE(b, 6)
         val distance = readUInt24LE(b, 9)
         val calories = readUInt24LE(b, 12)
-        if (dayOffset == 0x01 || _state.value.steps == null) {
+        if (dayOffset == 0x00 || dayOffset == 0x01) {
             _state.update { it.copy(steps = steps, distance = distance, calories = calories) }
             saveToDb(steps = steps, distance = distance, calories = calories)
+            updateDebugLog("Daily totals[$dayOffset]: steps=$steps distance=${distance}m calories=$calories")
+        } else {
+            updateDebugLog("Daily totals candidate[$dayOffset]: value=$steps distance=${distance}m calories=$calories")
         }
-        updateDebugLog("Daily totals[$dayOffset]: steps=$steps distance=${distance}m calories=$calories")
     }
 
     private fun parseHourlyActivityPacket(b: ByteArray) {
@@ -1174,18 +1224,36 @@ class WatchManager(private val context: Context) {
         var steps = 0
         var distance = 0
         var calories = 0
+        val nonZeroRecords = mutableListOf<String>()
         var offset = 6
+        var record = 0
         while (offset + 5 < b.size) {
-            steps += readUInt16LE(b, offset)
-            distance += readUInt16LE(b, offset + 2)
-            calories += readUInt16LE(b, offset + 4)
+            val recordSteps = readUInt16LE(b, offset)
+            val recordDistance = readUInt16LE(b, offset + 2)
+            val recordCalories = readUInt16LE(b, offset + 4)
+            steps += recordSteps
+            distance += recordDistance
+            calories += recordCalories
+            if (recordSteps != 0 || recordDistance != 0 || recordCalories != 0) {
+                nonZeroRecords.add("$record:$recordSteps/$recordDistance/$recordCalories")
+            }
             offset += 6
+            record += 1
         }
-        if (steps > 0 && _state.value.steps == null) {
-            _state.update { it.copy(steps = steps, distance = distance, calories = calories) }
-            saveToDb(steps = steps, distance = distance, calories = calories)
+        val detail = if (nonZeroRecords.isEmpty()) "none" else nonZeroRecords.joinToString(", ")
+        if (bucket == 0x00) {
+            val stepsDown = steps
+            val stepsUp = distance
+            val stepsOther = calories
+            val totalSteps = stepsUp + stepsDown + stepsOther
+            if (totalSteps > 0) {
+                _state.update { it.copy(steps = totalSteps) }
+                saveToDb(steps = totalSteps)
+            }
+            updateDebugLog("Activity buckets[0]: stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther totalSteps=$totalSteps records=$detail")
+        } else {
+            updateDebugLog("Activity buckets[$bucket]: stepsCandidate=$steps distance=${distance}m calories=$calories records=$detail")
         }
-        updateDebugLog("Activity buckets[$bucket]: steps=$steps distance=${distance}m calories=$calories")
     }
 
     private fun parseSleepPacket(b: ByteArray) {

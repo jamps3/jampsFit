@@ -182,7 +182,11 @@ class WatchService : Service() {
             "Previous Track" -> {
                 when (musicMode) {
                     "Media" -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-                    "Volume" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                    "Volume" -> {
+                        repeat(state.volumeSteps) {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                        }
+                    }
                     "Utility" -> takeScreenshot()
                     "Custom" -> executeAction(state.prevAction)
                 }
@@ -190,7 +194,11 @@ class WatchService : Service() {
             "Next Track" -> {
                 when (musicMode) {
                     "Media" -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
-                    "Volume" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                    "Volume" -> {
+                        repeat(state.volumeSteps) {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                        }
+                    }
                     "Utility" -> openAssistant()
                     "Custom" -> executeAction(state.nextAction)
                 }

@@ -39,11 +39,12 @@
 - [x] Confirm direct `0x41` notification payloads through 80 text bytes.
 
 ## Planned Features
-- [ ] **Decode Real Steps**: Identify the packet/channel that carries actual step count; `FEE1` field is now named `activityCount`.
+- [x] **Decode Real Steps**: `59 00` contains Steps Down, Steps Up, and a third step component; the app now computes Total Steps as `Steps Up + Steps Down + Steps Other`. `FEE1` remains `activityCount`, not true steps.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
-- [ ] **Gadgetbridge-Derived Queries**: Test `0x21` get alarms, `0x26` get step goal, `0x64` heartbeat, and `0xB9` advanced-command probes.
+- [ ] **Step Query Probes**: Continue validating step history and offsets. `59 00` gives current Total Steps from Steps Up + Steps Down + Steps Other; native `59 01`/`59 02` returned zero, native `59 03` returned only tail candidate values, and legacy `10/59 xx` collapses back to native `59 00`. `33 00` gives no visible reply, while `33 01` and `33 02` return stable daily-total-shaped values and likely represent day offsets; compare them against the watch history UI.
+- [ ] **Gadgetbridge-Derived Queries**: Keep `0x64` heartbeat and `0xB9` advanced-command probes available; `0x21` get alarms, `0x26` get step goal, and `0x8D` get auto-lock are confirmed and now auto-query the controls.
 - [x] **Unified Controls/Logs UI**: Controls owns watch/app/manual settings; Logs owns Unknown and System Log.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.

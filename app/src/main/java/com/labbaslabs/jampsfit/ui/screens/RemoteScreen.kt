@@ -19,9 +19,9 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 
 @Composable
-fun RemoteScreen(state: WatchState) {
+fun RemoteScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(text = "Remote Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         
         SleekCard {
@@ -51,6 +51,28 @@ fun RemoteScreen(state: WatchState) {
                 CustomActionDropdown(label = "Play/Pause Button", currentAction = state.playPauseAction) { (context as? MainActivity)?.updateCustomAction("Play/Pause", it) }
                 CustomActionDropdown(label = "Next Button", currentAction = state.nextAction) { (context as? MainActivity)?.updateCustomAction("Next", it) }
                 CustomActionDropdown(label = "Previous Button", currentAction = state.prevAction) { (context as? MainActivity)?.updateCustomAction("Previous", it) }
+            }
+
+            if (state.musicAction == "Volume") {
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "Volume Steps", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(text = "${state.volumeSteps}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = state.volumeSteps.toFloat(),
+                    onValueChange = { (context as? MainActivity)?.updateVolumeSteps(it.toInt()) },
+                    valueRange = 1f..5f,
+                    steps = 3,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+                Text(
+                    text = "Controls how many volume steps are changed per button press.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
 

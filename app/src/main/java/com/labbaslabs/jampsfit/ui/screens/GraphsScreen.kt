@@ -1,6 +1,7 @@
 package com.labbaslabs.jampsfit.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
@@ -18,104 +19,171 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 
 @Composable
-fun GraphsScreen(state: WatchState) {
+fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
+    var selectedSubTab by remember { mutableIntStateOf(0) }
+    val subTabs = listOf("Today", "Daily", "Weekly", "Monthly")
+
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        SecondaryTabRow(
+            selectedTabIndex = selectedSubTab,
+            containerColor = Color.Transparent,
+            divider = {}
+        ) {
+            subTabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedSubTab == index,
+                    onClick = { selectedSubTab = index },
+                    text = { Text(text = title, style = MaterialTheme.typography.labelLarge) }
+                )
+            }
+        }
 
-        SleekGraphCard(title = "Battery (%)", data = state.batteryHistory, currentValue = state.battery?.let { "$it%" }, color = Color(0xFF4CAF50))
-        SleekGraphCard(title = "Activity Count", data = state.activityHistory, currentValue = state.activityCount?.toString(), color = Color(0xFF8BC34A))
-        SleekGraphCard(title = "Distance (m)", data = state.distanceHistory, currentValue = state.distance?.let { "${it}m" }, color = Color(0xFF2196F3))
-        SleekGraphCard(title = "Heart Rate (BPM)", data = state.heartRateHistory, currentValue = state.heartRate?.let { "$it bpm" }, color = Color(0xFFE91E63))
-        SleekGraphCard(title = "SpO2 (%)", data = state.spo2History, currentValue = state.spo2?.let { "$it%" }, color = Color(0xFF00BCD4))
-        
-        SleekCard {
-            Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            if (state.sleepMinutes == null) {
-                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
-                    Text(text = "Waiting for data...", color = Color.Gray)
-                }
-            } else {
-                Row(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
-                    val total = state.sleepMinutes.toFloat()
-                    val deep = (state.deepSleepMinutes ?: 0).toFloat()
-                    val light = (state.lightSleepMinutes ?: 0).toFloat()
-                    val awake = (total - deep - light).coerceAtLeast(0f)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            when (selectedSubTab) {
+                0 -> TodayGraphs(state)
+                1 -> HistoryGraphs(title = "Daily History", stats = state.dailyStats)
+                2 -> HistoryGraphs(title = "Weekly History", stats = state.weeklyStats)
+                3 -> HistoryGraphs(title = "Monthly History", stats = state.monthlyStats)
+            }
+        }
+    }
+}
 
-                    SleepBar(weight = deep / total, color = Color(0xFF311B92), label = "Deep")
-                    SleepBar(weight = light / total, color = Color(0xFF7E57C2), label = "Light")
-                    if (awake > 0) {
-                        SleepBar(weight = awake / total, color = Color(0xFFFFEB3B), label = "Awake")
-                    }
+@Composable
+fun TodayGraphs(state: WatchState) {
+    Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+    SleekGraphCard(title = "Battery (%)", data = state.batteryHistory, currentValue = state.battery?.let { "$it%" }, color = Color(0xFF4CAF50))
+    SleekGraphCard(title = "Activity Count", data = state.activityHistory, currentValue = state.activityCount?.toString(), color = Color(0xFF8BC34A))
+    SleekGraphCard(title = "Distance (m)", data = state.distanceHistory, currentValue = state.distance?.let { "${it}m" }, color = Color(0xFF2196F3))
+    SleekGraphCard(title = "Heart Rate (BPM)", data = state.heartRateHistory, currentValue = state.heartRate?.let { "$it bpm" }, color = Color(0xFFE91E63))
+    SleekGraphCard(title = "SpO2 (%)", data = state.spo2History, currentValue = state.spo2?.let { "$it%" }, color = Color(0xFF00BCD4))
+    
+    SleekCard {
+        Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (state.sleepMinutes == null) {
+            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Text(text = "Waiting for data...", color = Color.Gray)
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
+                val total = state.sleepMinutes.toFloat()
+                val deep = (state.deepSleepMinutes ?: 0).toFloat()
+                val light = (state.lightSleepMinutes ?: 0).toFloat()
+                val awake = (total - deep - light).coerceAtLeast(0f)
+
+                SleepBar(weight = deep / total, color = Color(0xFF311B92), label = "Deep")
+                SleepBar(weight = light / total, color = Color(0xFF7E57C2), label = "Light")
+                if (awake > 0) {
+                    SleepBar(weight = awake / total, color = Color(0xFFFFEB3B), label = "Awake")
                 }
             }
         }
-        
-        SleekCard {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                if (state.systolic != null && state.diastolic != null) {
-                    Text(
-                        text = "${state.systolic}/${state.diastolic}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFF5722)
-                    )
-                }
+    }
+    
+    SleekCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            if (state.systolic != null && state.diastolic != null) {
+                Text(
+                    text = "${state.systolic}/${state.diastolic}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFF5722)
+                )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                LegendItem(label = "Systolic", color = Color(0xFFFF5722))
-                LegendItem(label = "Diastolic", color = Color(0xFF3F51B5))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LegendItem(label = "Systolic", color = Color(0xFFFF5722))
+            LegendItem(label = "Diastolic", color = Color(0xFF3F51B5))
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val bpData = if (state.bpHistory.isNotEmpty()) state.bpHistory 
+                     else if (state.systolic != null && state.diastolic != null) listOf(Pair(state.systolic, state.diastolic))
+                     else emptyList()
+
+        if (bpData.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Text(text = "Waiting for data...", color = Color.Gray)
             }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val bpData = if (state.bpHistory.isNotEmpty()) state.bpHistory 
-                         else if (state.systolic != null && state.diastolic != null) listOf(Pair(state.systolic, state.diastolic))
-                         else emptyList()
-
-            if (bpData.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
-                    Text(text = "Waiting for data...", color = Color.Gray)
-                }
-            } else {
-                Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
-                    val width = size.width
-                    val height = size.height
-                    val maxVal = (bpData.maxOf { it.first }.toFloat()).coerceAtLeast(140f)
-                    val minVal = (bpData.minOf { it.second }.toFloat()).coerceAtMost(60f)
-                    val range = (maxVal - minVal).coerceAtLeast(1f)
-                    
-                    if (bpData.size == 1) {
-                        val pair = bpData[0]
+        } else {
+            Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+                val width = size.width
+                val height = size.height
+                val maxVal = (bpData.maxOf { it.first }.toFloat()).coerceAtLeast(140f)
+                val minVal = (bpData.minOf { it.second }.toFloat()).coerceAtMost(60f)
+                val range = (maxVal - minVal).coerceAtLeast(1f)
+                
+                if (bpData.size == 1) {
+                    val pair = bpData[0]
+                    val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
+                    val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
+                    drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, sysY))
+                    drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, diaY))
+                } else {
+                    val sysPath = Path()
+                    val diaPath = Path()
+                    bpData.forEachIndexed { i, pair ->
+                        val x = (i.toFloat() / (bpData.size - 1)) * width
                         val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
                         val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
-                        drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, sysY))
-                        drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, diaY))
-                    } else {
-                        val sysPath = Path()
-                        val diaPath = Path()
-                        bpData.forEachIndexed { i, pair ->
-                            val x = (i.toFloat() / (bpData.size - 1)) * width
-                            val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
-                            val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
-                            if (i == 0) {
-                                sysPath.moveTo(x, sysY)
-                                diaPath.moveTo(x, diaY)
-                            } else {
-                                sysPath.lineTo(x, sysY)
-                                diaPath.lineTo(x, diaY)
-                            }
+                        if (i == 0) {
+                            sysPath.moveTo(x, sysY)
+                            diaPath.moveTo(x, diaY)
+                        } else {
+                            sysPath.lineTo(x, sysY)
+                            diaPath.lineTo(x, diaY)
                         }
-                        drawPath(sysPath, color = Color(0xFFFF5722), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                        drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
+                    drawPath(sysPath, color = Color(0xFFFF5722), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
             }
         }
+    }
+}
+
+@Composable
+fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>) {
+    Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+    if (stats.isEmpty()) {
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            Text(text = "No history data available yet.", color = Color.Gray)
+        }
+    } else {
+        SleekGraphCard(
+            title = "Steps (Max)",
+            data = stats.map { it.steps ?: 0 },
+            currentValue = stats.lastOrNull()?.steps?.toString(),
+            color = Color(0xFF03A9F4)
+        )
+        SleekGraphCard(
+            title = "Calories (Max)",
+            data = stats.map { it.calories ?: 0 },
+            currentValue = stats.lastOrNull()?.calories?.toString(),
+            color = Color(0xFFFF9800)
+        )
+        SleekGraphCard(
+            title = "Heart Rate (Avg)",
+            data = stats.map { it.heartRate ?: 0 },
+            currentValue = stats.lastOrNull()?.heartRate?.toString(),
+            color = Color(0xFFE91E63)
+        )
+        SleekGraphCard(
+            title = "SpO2 (Avg)",
+            data = stats.map { it.spo2 ?: 0 },
+            currentValue = stats.lastOrNull()?.spo2?.toString(),
+            color = Color(0xFF00BCD4)
+        )
     }
 }
 

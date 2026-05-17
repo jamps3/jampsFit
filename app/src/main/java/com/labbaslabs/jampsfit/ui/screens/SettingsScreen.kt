@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,7 +37,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(text = "Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-        TabRow(
+        SecondaryTabRow(
             selectedTabIndex = settingsTab,
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.primary,
@@ -354,7 +355,7 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                     ) {
-                        Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Filled.BluetoothSearching, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Find My Watch")
                     }
@@ -425,8 +426,8 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                 ) {
                     val icon = when {
                         state.isConnected -> Icons.Default.BluetoothDisabled
-                        isConnecting -> Icons.Default.BluetoothSearching
-                        else -> Icons.Default.BluetoothSearching
+                        isConnecting -> Icons.AutoMirrored.Filled.BluetoothSearching
+                        else -> Icons.AutoMirrored.Filled.BluetoothSearching
                     }
                     Icon(icon, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))

@@ -72,6 +72,13 @@ class MainActivity : ComponentActivity() {
                 val state = service?.watchManager?.state?.collectAsState()?.value ?: WatchState()
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
                 
+                val homeScrollState = rememberScrollState()
+                val graphsScrollState = rememberScrollState()
+                val controlsScrollState = rememberScrollState()
+                val remoteScrollState = rememberScrollState()
+                val logsUnknownScrollState = rememberScrollState()
+                val logsSystemScrollState = rememberScrollState()
+
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Box(modifier = Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -101,16 +108,19 @@ class MainActivity : ComponentActivity() {
                         ) { innerPadding ->
                             Box(modifier = Modifier.padding(innerPadding)) {
                                 when (selectedTab) {
-                                    0 -> HomeScreen(state = state)
-                                    1 -> GraphsScreen(state = state)
+                                    0 -> HomeScreen(state = state, scrollState = homeScrollState)
+                                    1 -> GraphsScreen(state = state, scrollState = graphsScrollState)
                                     2 -> ControlsScreen(
                                         state = state,
+                                        scrollState = controlsScrollState,
                                         onScanClick = { checkPermissionsAndStart() },
                                         onDisconnectClick = { disconnect() }
                                     )
-                                    3 -> RemoteScreen(state = state)
+                                    3 -> RemoteScreen(state = state, scrollState = remoteScrollState)
                                     4 -> LogsScreen(
                                         state = state,
+                                        unknownScrollState = logsUnknownScrollState,
+                                        systemScrollState = logsSystemScrollState,
                                         onResetClick = { watchService?.watchManager?.clearUnknownPackets() }
                                     )
                                 }
@@ -211,6 +221,10 @@ class MainActivity : ComponentActivity() {
 
     fun toggleNotifications(enabled: Boolean) {
         watchService?.watchManager?.toggleNotifications(enabled)
+    }
+
+    fun updateVolumeSteps(steps: Int) {
+        watchService?.watchManager?.updateVolumeSteps(steps)
     }
 
     fun disconnect() {

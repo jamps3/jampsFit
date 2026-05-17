@@ -53,6 +53,69 @@ interface HealthDao {
     @Query("SELECT calories FROM health_data WHERE calories IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
     fun getCaloriesHistory(): Flow<List<Int>>
 
+    @Query("""
+        SELECT 
+            MIN(timestamp) as id,
+            date(timestamp / 1000, 'unixepoch', 'localtime') as day,
+            MAX(steps) as steps,
+            MAX(distance) as distance,
+            MAX(calories) as calories,
+            AVG(heartRate) as heartRate,
+            AVG(spo2) as spo2,
+            0 as timestamp,
+            NULL as battery,
+            NULL as systolic,
+            NULL as diastolic,
+            NULL as activityCount
+        FROM health_data 
+        GROUP BY day 
+        ORDER BY day DESC 
+        LIMIT 30
+    """)
+    fun getDailyStats(): Flow<List<HealthEntry>>
+
+    @Query("""
+        SELECT 
+            MIN(timestamp) as id,
+            strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') as week,
+            MAX(steps) as steps,
+            MAX(distance) as distance,
+            MAX(calories) as calories,
+            AVG(heartRate) as heartRate,
+            AVG(spo2) as spo2,
+            0 as timestamp,
+            NULL as battery,
+            NULL as systolic,
+            NULL as diastolic,
+            NULL as activityCount
+        FROM health_data 
+        GROUP BY week 
+        ORDER BY week DESC 
+        LIMIT 12
+    """)
+    fun getWeeklyStats(): Flow<List<HealthEntry>>
+
+    @Query("""
+        SELECT 
+            MIN(timestamp) as id,
+            strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') as month,
+            MAX(steps) as steps,
+            MAX(distance) as distance,
+            MAX(calories) as calories,
+            AVG(heartRate) as heartRate,
+            AVG(spo2) as spo2,
+            0 as timestamp,
+            NULL as battery,
+            NULL as systolic,
+            NULL as diastolic,
+            NULL as activityCount
+        FROM health_data 
+        GROUP BY month 
+        ORDER BY month DESC 
+        LIMIT 12
+    """)
+    fun getMonthlyStats(): Flow<List<HealthEntry>>
+
     @Query("DELETE FROM health_data")
     suspend fun deleteAll()
 
