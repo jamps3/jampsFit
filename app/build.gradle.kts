@@ -14,7 +14,7 @@ android {
 
     defaultConfig {
         applicationId = "com.labbaslabs.jampsfit"
-        minSdk = 28
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"

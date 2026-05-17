@@ -60,8 +60,8 @@ class WatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         watchManager = WatchManager(this)
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         createNotificationChannels()
         
         if (watchManager.state.value.autoConnect) {
@@ -69,11 +69,7 @@ class WatchService : Service() {
         }
 
         val filter = IntentFilter("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(notificationReceiver, filter)
-        }
+        registerReceiver(notificationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
 
         watchManager.state.onEach { state ->
             updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
@@ -149,19 +145,12 @@ class WatchService : Service() {
                 findPhoneJob = serviceScope.launch {
                     val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                     activeRingtone = RingtoneManager.getRingtone(applicationContext, notification).apply {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            isLooping = true
-                        }
+                        isLooping = true
                         play()
                     }
                     
-                    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                        vibratorManager.defaultVibrator
-                    } else {
-                        @Suppress("DEPRECATION")
-                        getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                    }
+                    val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                    val vibrator = vibratorManager.defaultVibrator
 
                     while (isActive) {
                         vibrator.vibrate(VibrationEffect.createOneShot(1000, VibrationEffect.DEFAULT_AMPLITUDE))
@@ -231,11 +220,12 @@ class WatchService : Service() {
     }
 
     private fun toggleMute() {
-        val isMuted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-        } else false
-        @Suppress("DEPRECATION")
-        audioManager.setStreamMute(AudioManager.STREAM_MUSIC, !isMuted)
+        val isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+        audioManager.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            if (isMuted) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE,
+            AudioManager.FLAG_SHOW_UI
+        )
     }
 
     private fun toggleFlashlight() {
@@ -366,27 +356,25 @@ class WatchService : Service() {
     }
 
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "Watch Connection Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            
-            val findPhoneChannel = NotificationChannel(
-                FIND_PHONE_CHANNEL_ID,
-                "Find My Phone Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Used for high-priority 'Find My Phone' alerts"
-                enableVibration(true)
-                setSound(null, null) // Sound is handled by RingtoneManager in the service
-            }
-
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
-            manager.createNotificationChannel(findPhoneChannel)
+        val serviceChannel = NotificationChannel(
+            CHANNEL_ID,
+            "Watch Connection Service",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        
+        val findPhoneChannel = NotificationChannel(
+            FIND_PHONE_CHANNEL_ID,
+            "Find My Phone Alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Used for high-priority 'Find My Phone' alerts"
+            enableVibration(true)
+            setSound(null, null) // Sound is handled by RingtoneManager in the service
         }
+
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(serviceChannel)
+        manager.createNotificationChannel(findPhoneChannel)
     }
 
     private fun updateNotification(status: String) {

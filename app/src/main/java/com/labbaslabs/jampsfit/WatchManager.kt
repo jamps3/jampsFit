@@ -5,7 +5,6 @@ import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
-import android.os.Build
 import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
@@ -65,7 +64,7 @@ data class WatchState(
     val autoLockSecondsSetting: Int? = null,
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
-    val payloadLengthOnly: Boolean = false
+    val payloadLengthOnly: Boolean = false,
 )
 
 data class WatchAlarm(
@@ -78,7 +77,6 @@ data class WatchAlarm(
 )
 
 @SuppressLint("MissingPermission")
-@Suppress("DEPRECATION")
 class WatchManager(private val context: Context) {
     private val db = AppDatabase.getDatabase(context)
     private val healthDao = db.healthDao()
@@ -668,17 +666,32 @@ class WatchManager(private val context: Context) {
             isOperating = true; lastOpTime = System.currentTimeMillis()
             managerScope.launch {
                 val gatt = bluetoothGatt ?: run { synchronized(operationQueue) { isOperating = false }; return@launch }
-                val success = when (operation) {
-                    is GattOperation.WriteDescriptor -> { operation.descriptor.value = operation.value; gatt.writeDescriptor(operation.descriptor) }
+                val errorCode = when (operation) {
+                    is GattOperation.WriteDescriptor -> gatt.writeDescriptor(operation.descriptor, operation.value)
                     is GattOperation.WriteCharacteristic -> {
                         var found: BluetoothGattCharacteristic? = null
                         val short = (operation.charUuid?.toString()?.substring(4, 8) ?: _state.value.writeUuidShort).lowercase()
-                        for (s in gatt.services) { for (c in s.characteristics) { if (c.uuid.toString().substring(4, 8).lowercase() == short) { found = c; break } }; if (found != null) break }
-                        found?.let { it.value = operation.value; it.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE; gatt.writeCharacteristic(it) } ?: false
+                        for (s in gatt.services) {
+                            for (c in s.characteristics) {
+                                if (c.uuid.toString().substring(4, 8).lowercase() == short) {
+                                    found = c
+                                    break
+                                }
+                            }
+                            if (found != null) break
+                        }
+                        found?.let {
+                            gatt.writeCharacteristic(it, operation.value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                        } ?: BluetoothStatusCodes.ERROR_UNKNOWN
                     }
-                    is GattOperation.ReadCharacteristic -> gatt.readCharacteristic(operation.characteristic)
+                    is GattOperation.ReadCharacteristic -> {
+                        if (gatt.readCharacteristic(operation.characteristic)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
+                    }
                 }
-                if (!success) { synchronized(operationQueue) { isOperating = false }; doNextOperation() }
+                if (errorCode != BluetoothStatusCodes.SUCCESS) {
+                    synchronized(operationQueue) { isOperating = false }
+                    doNextOperation()
+                }
             }
         }
     }
@@ -787,15 +800,14 @@ class WatchManager(private val context: Context) {
             synchronized(operationQueue) { isOperating = false }
             doNextOperation()
         }
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { 
-            val hex = c.value?.joinToString("") { "%02X".format(it) } ?: "null"
-            updateDebugLog("Write ${c.uuid.toString().substring(4, 8)}: $hex")
-            synchronized(operationQueue) { isOperating = false }; doNextOperation() 
-        }
-        @Deprecated("Deprecated in Java")
-        override fun onCharacteristicRead(gatt: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { 
-            if (s == BluetoothGatt.GATT_SUCCESS) { managerScope.launch { handleData(c.uuid, c.value) } }
-            synchronized(operationQueue) { isOperating = false }; doNextOperation() 
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            c: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            updateDebugLog("Write ${c.uuid.toString().substring(4, 8)} status=$status")
+            synchronized(operationQueue) { isOperating = false }
+            doNextOperation()
         }
 
         override fun onCharacteristicRead(
@@ -809,12 +821,6 @@ class WatchManager(private val context: Context) {
             }
             synchronized(operationQueue) { isOperating = false }
             doNextOperation()
-        }
-
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, c: BluetoothGattCharacteristic) { 
-            val hex = c.value?.joinToString("") { "%02X".format(it) } ?: ""
-            logIncomingPacket(c.uuid, c.value)
-            managerScope.launch { handleData(c.uuid, c.value) }
         }
 
         override fun onCharacteristicChanged(
