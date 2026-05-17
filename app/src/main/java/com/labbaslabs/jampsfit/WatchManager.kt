@@ -60,9 +60,21 @@ data class WatchState(
     val distanceHistory: List<Int> = emptyList(),
     val caloriesHistory: List<Int> = emptyList(),
     val activityHistory: List<Int> = emptyList(),
+    val alarmSettings: List<WatchAlarm> = emptyList(),
+    val stepGoalSetting: Int? = null,
+    val autoLockSecondsSetting: Int? = null,
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false
+)
+
+data class WatchAlarm(
+    val slot: Int,
+    val enabled: Boolean,
+    val mode: Int,
+    val hour: Int,
+    val minute: Int,
+    val repeatMask: Int
 )
 
 @SuppressLint("MissingPermission")
@@ -359,6 +371,7 @@ class WatchManager(private val context: Context) {
         val safeSeconds = seconds.coerceIn(5, 60)
         val packet = nativePacket(0x7D, safeSeconds)
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        _state.update { it.copy(autoLockSecondsSetting = safeSeconds) }
         updateDebugLog("Auto-lock via FEE2: ${safeSeconds}s -> ${packet.toHexString()}")
     }
 
@@ -370,6 +383,7 @@ class WatchManager(private val context: Context) {
         val safeGoal = (goal / 1000).coerceIn(2, 35) * 1000
         val packet = nativePacket(0x16, 0x00, (safeGoal shr 8) and 0xFF, safeGoal and 0xFF)
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        _state.update { it.copy(stepGoalSetting = safeGoal) }
         updateDebugLog("Step goal via FEE2: $safeGoal -> ${packet.toHexString()}")
     }
 
@@ -443,6 +457,28 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Weather current probe $kind via FEE2 -> ${packet.toHexString()}")
     }
 
+    fun sendGadgetbridgeProbe(kind: String) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Gadgetbridge probe skipped: watch is not connected.")
+            return
+        }
+        val packet = when (kind) {
+            "get-alarms" -> nativePacket(0x21)
+            "get-step-goal" -> nativePacket(0x26)
+            "get-auto-lock" -> nativePacket(0x8D)
+            "heartbeat-64" -> nativePacket(0x64)
+            "b9-ecard-config" -> nativePacket(0xB9, 0x12, 0x00, 0x02)
+            "b9-ecard-content" -> nativePacket(0xB9, 0x12, 0x00, 0x03)
+            "b9-weather-19" -> nativePacket(0xB9, 0x19, 0x00)
+            else -> {
+                updateDebugLog("Unknown Gadgetbridge probe: $kind")
+                return
+            }
+        }
+        sendFee2NativeRaw(packet)
+        updateDebugLog("Gadgetbridge probe $kind via FEE2 -> ${packet.toHexString()}")
+    }
+
     fun sendWeightCandidate(weightTenthsKg: Int) {
         if (!_state.value.isConnected) {
             updateDebugLog("Weight test skipped: watch is not connected.")
@@ -482,6 +518,11 @@ class WatchManager(private val context: Context) {
             safeRepeatMask
         )
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        _state.update {
+            val alarms = it.alarmSettings.filterNot { alarm -> alarm.slot == safeSlot } +
+                WatchAlarm(safeSlot, enabled, mode, safeHour, safeMinute, safeRepeatMask)
+            it.copy(alarmSettings = alarms.sortedBy { alarm -> alarm.slot })
+        }
         updateDebugLog("Alarm ${safeSlot + 1} via FEE2: ${if (enabled) "on" else "off"} ${"%02d:%02d".format(safeHour, safeMinute)} repeat=0x${"%02X".format(safeRepeatMask)} -> ${packet.toHexString()}")
     }
 
@@ -912,7 +953,7 @@ class WatchManager(private val context: Context) {
     private fun isKnownFee3Packet(data: ByteArray): Boolean {
         if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
         return when (data[4].toInt() and 0xFF) {
-            0x66, 0x67, 0x69, 0x6B, 0x6D, 0xA4 -> true
+            0x21, 0x26, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
             else -> false
         }
     }
@@ -920,6 +961,25 @@ class WatchManager(private val context: Context) {
     private fun parseFee3Packet(uuid: UUID, data: ByteArray): Boolean {
         if (uuid != FEE3_NOTIFY || !isKnownFee3Packet(data)) return false
         when (data[4].toInt() and 0xFF) {
+            0x21 -> {
+                parseAlarmQueryResponse(data)
+            }
+            0x26 -> {
+                parseStepGoalResponse(data)
+            }
+            0x64 -> {
+                _state.update { it.copy(lastRemoteEvent = "Watch Command 0x64") }
+                updateDebugLog("Remote event: Watch Command 0x64 (unmapped)")
+            }
+            0x8D -> {
+                val seconds = data.getOrNull(5)?.toInt()?.and(0xFF)
+                if (seconds != null) {
+                    _state.update { it.copy(autoLockSecondsSetting = seconds) }
+                    updateDebugLog("Auto-lock response: ${seconds}s")
+                } else {
+                    updateDebugLog("Auto-lock response: empty")
+                }
+            }
             0x6D -> {
                 if (data.size > 5) {
                     val hr = data[5].toInt() and 0xFF
@@ -971,6 +1031,49 @@ class WatchManager(private val context: Context) {
             }
         }
         return true
+    }
+
+    private fun parseAlarmQueryResponse(data: ByteArray) {
+        if (data.size <= 5) {
+            updateDebugLog("Alarm query response: empty")
+            return
+        }
+        val payload = data.copyOfRange(5, data.size)
+        val records = payload.size / 8
+        if (records == 0) {
+            updateDebugLog("Alarm query response payload=${payload.toHexString()}")
+            return
+        }
+        val alarms = mutableListOf<WatchAlarm>()
+        val decoded = (0 until records).joinToString("; ") { index ->
+            val offset = index * 8
+            val slot = payload[offset].toInt() and 0xFF
+            val enabled = (payload[offset + 1].toInt() and 0xFF) == 1
+            val mode = payload[offset + 2].toInt() and 0xFF
+            val hour = payload[offset + 3].toInt() and 0xFF
+            val minute = payload[offset + 4].toInt() and 0xFF
+            val repeat = payload[offset + 7].toInt() and 0xFF
+            alarms.add(WatchAlarm(slot, enabled, mode, hour, minute, repeat))
+            "slot=${slot + 1} ${if (enabled) "on" else "off"} ${"%02d:%02d".format(hour, minute)} mode=$mode repeat=0x${"%02X".format(repeat)}"
+        }
+        _state.update { it.copy(alarmSettings = alarms.sortedBy { alarm -> alarm.slot }) }
+        updateDebugLog("Alarm query response: $decoded")
+    }
+
+    private fun parseStepGoalResponse(data: ByteArray) {
+        val payload = if (data.size > 5) data.copyOfRange(5, data.size) else byteArrayOf()
+        val goal = when {
+            payload.size >= 4 && payload[0] == 0x00.toByte() -> (payload[1].toInt() and 0xFF) or ((payload[2].toInt() and 0xFF) shl 8)
+            payload.size >= 3 && payload[0] == 0x00.toByte() -> ((payload[1].toInt() and 0xFF) shl 8) or (payload[2].toInt() and 0xFF)
+            payload.size >= 2 -> ((payload[payload.size - 2].toInt() and 0xFF) shl 8) or (payload[payload.size - 1].toInt() and 0xFF)
+            else -> null
+        }
+        if (goal != null) {
+            _state.update { it.copy(stepGoalSetting = goal) }
+            updateDebugLog("Step goal response: $goal payload=${payload.toHexString()}")
+        } else {
+            updateDebugLog("Step goal response payload=${payload.toHexString()}")
+        }
     }
 
     private fun parseActivityPacket(data: ByteArray, source: String): Boolean {

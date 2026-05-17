@@ -3,7 +3,7 @@
 ## Overview
 The watch communicates using a proprietary BLE protocol (MoYoung/DaFit). It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
 
-Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. Treat the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
+Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. The watch identifies as `MOYOUNG-V2`, so it is using the Gadgetbridge-documented Moyoung V2 protocol or a very close variant. Treat the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
 
 Da Fit notification mirroring is not a product workaround. It proves the watch accepts notifications when Da Fit owns the native session, but jampsFit must replace Da Fit entirely and cannot rely on Da Fit being connected in parallel.
 
@@ -12,6 +12,7 @@ Da Fit notification mirroring is not a product workaround. It proves the watch a
 These references are useful clues, but they may describe different watches or older protocol variants:
 
 - [krzys-h/Gadgetbridge-MT863](https://github.com/krzys-h/Gadgetbridge-MT863): Gadgetbridge fork described as Da Fit / `MOYOUNG-V2` support for MT863-class watches. Use it as the closest known Android implementation reference, especially for command routing, init sequence, and characteristic selection.
+- [Gadgetbridge Moyoung Protocol](https://gadgetbridge.org/internals/specifics/moyoung-protocol/): Primary protocol notes for Moyoung / Da Fit devices. Confirms the V2 packet layout, that the size includes UUID/size/command bytes, and that a no-payload command has `size=5`.
 - [kabbi/uwatch2-protocol.md](https://gist.github.com/kabbi/854a541c1a32e15fb0dfa3338f4ee4a9): Uwatch2 reverse-engineering notes. It documents `FE EA 10 [LEN] [CMD]` packets and many command IDs. The packet format matches our working clock sync pattern closely enough to be high-value.
 - [rogerdahl/uwatch2-client `_uwatch2ble.py`](https://github.com/rogerdahl/uwatch2-client/blob/master/_uwatch2ble.py): Python BLE client reference for the same Uwatch2 family. Use this as a secondary check for command ordering and BLE write/notify setup, not as proof for Kospet TANK M1.
 
@@ -33,6 +34,8 @@ These references are useful clues, but they may describe different watches or ol
 - **Important correction**: Earlier notes treated handle `0x0047` as `6387`. The captured service discovery shows handle `0x0047` is the value handle for `FEE2`; `6387` is a later handle in service `6287`. Many reboots were likely caused by sending Da Fit `FE EA 20` traffic to `6387` instead of `FEE2`.
 - **Current risk**: `6387` should not be used for Da Fit `FE EA 20` packets unless a capture proves that exact packet was written to `6387`.
 
+Gadgetbridge V2 notes that the packet size includes the UUID/header, size bytes, command byte, and payload. This matches our observed no-payload packets such as `FE EA 20 05 64`. Gadgetbridge also notes that command IDs often come in set/get pairs where `get = set + 0x10`; this is the basis for the `0x21` alarm query and `0x26` step-goal query probes below.
+
 ## Passive Listening Findings
 
 The current stable receive setup:
@@ -48,9 +51,24 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 - `2A19`: standard battery read/notify.
 - `2A37`: standard heart-rate notify.
 - `FEE1`: live walking/activity notify.
-- `FEE3`: legacy notify.
+- `FEE3`: legacy notify. Confirmed to carry manual measurement updates (HR, SpO2, BP) and remote events.
 - `FEA1`: mirrored activity/health notify. Walking frames observed as `07` plus the same 9-byte payload from `FEE1`.
 - `6487`: native MoYoung notify.
+
+### `FEE3` Manual Measurement Packets
+
+Manual measurements started from the watch or app arrive as `FE EA 20` packets on `FEE3`:
+
+| CMD | Description | Format |
+| :--- | :--- | :--- |
+| `0x6D` | Heart Rate | `FE EA 20 06 6D [BPM]` |
+| `0x6B` | SpO2 | `FE EA 20 06 6B [%]` |
+| `0x69` | Blood Pressure | `FE EA 20 08 69 [unknown] [Systolic] [Diastolic]` |
+| `0x64` | Probable keep-alive / heartbeat | `FE EA 20 05 64` |
+
+These values are now persisted to the `health_data` table in the Room database to maintain accurate history.
+
+`0x64` has no payload. Per the Gadgetbridge Moyoung V2 packet layout, `FE EA 20 05 64` decodes as UUID/header `FE EA`, V2 size marker `20 05` for total size 5, and command `0x64`. It is not a battery percentage byte; standard battery still arrives on `2A19`. Because it appears without a user action, it is likely a keep-alive / heartbeat packet.
 
 ### `FEE1` Live Activity Packet
 
@@ -110,6 +128,38 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Da Fit UI allows 2000-35000 in 1000-step increments. Added as a connected-only experimental control; still needs live confirmation. |
 | `20` | `1A` | `42` | **Forecast data** | Confirmed working from jampsFit on `FEE2`. Seven triples: `[icon/weatherCode] [high C] [low C]`. First triple updates today's range; next six appear as future forecast days. |
 | `20` | `0C` | `45` | Weather city name | Captured as the final city-name packet in the weather sequence. Added as a connected-only experimental control with the captured surrounding weather packets; still needs live confirmation. |
+
+## Gadgetbridge-Derived Probes
+
+These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested on this watch:
+
+| Button | Packet | Rationale |
+| :--- | :--- | :--- |
+| Get Alarms | `FE EA 20 05 21` | Gadgetbridge documents `0x11` set alarms and `0x21` get alarms. |
+| Get Step Goal | `FE EA 20 05 26` | Hypothesis from set/get convention: step goal set is `0x16`, so get may be `0x26`. |
+| Get Auto-lock | `FE EA 20 05 8D` | Hypothesis from observed `0x8D` auto-lock response/ack for set command `0x7D`. |
+| Heartbeat 64 | `FE EA 20 05 64` | Mirrors the watch-origin no-payload heartbeat/keepalive candidate. |
+| B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |
+| B9 Card Cfg | `FE EA 20 09 B9 12 00 02` | Gadgetbridge example advanced command / eCard config request. |
+| B9 Card Data | `FE EA 20 09 B9 12 00 03` | Gadgetbridge example advanced command / eCard content request. |
+
+Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
+
+App behavior: when the Controls tab becomes visible while connected, jampsFit queries `0x21`, `0x26`, and `0x8D` once for that connection/session and hydrates the alarm controls, Step goal slider, and Auto-lock slider from the watch response.
+
+Live results:
+
+```text
+Get Alarms request:  FE EA 20 05 21
+Get Alarms response: FE EA 20 1D 21
+  00 01 02 07 05 00 00 3E  -> alarm 1 on, 07:05, weekdays
+  01 01 01 17 3B 00 00 7F  -> alarm 2 on, 23:59, every day
+  02 01 01 0D 24 00 00 7F  -> alarm 3 on, 13:36, every day
+
+Get Step Goal request:  FE EA 20 05 26
+Get Step Goal response: FE EA 20 09 26 00 D0 07 00
+  Payload `00 D0 07 00` decodes as little-endian 0x07D0 = 2000.
+```
 
 ## Current Safety Notes
 

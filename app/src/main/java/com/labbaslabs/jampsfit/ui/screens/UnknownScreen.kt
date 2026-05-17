@@ -21,25 +21,31 @@ import com.labbaslabs.jampsfit.ui.components.SleekCard
 import kotlinx.coroutines.launch
 
 @Composable
-fun UnknownScreen(state: WatchState, onResetClick: () -> Unit) {
+fun LogsScreen(state: WatchState, onResetClick: () -> Unit) {
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "Unknown Packets", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onResetClick) {
-                Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = MaterialTheme.colorScheme.error)
-            }
+        Text(text = "Logs", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        TabRow(selectedTabIndex = selectedTab, containerColor = androidx.compose.ui.graphics.Color.Transparent, divider = {}) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Unknown") })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("System Log") })
         }
-        Text(text = "Long-press to copy all entries.", style = MaterialTheme.typography.bodyMedium, color = androidx.compose.ui.graphics.Color.Gray)
 
-        SleekCard(modifier = Modifier.weight(1f).combinedClickable(
+        if (selectedTab == 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Long-press to copy all entries.", style = MaterialTheme.typography.bodyMedium, color = androidx.compose.ui.graphics.Color.Gray)
+                IconButton(onClick = onResetClick) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+            SleekCard(modifier = Modifier.weight(1f).combinedClickable(
             onClick = {},
             onLongClick = {
                 val allText = state.unknownMessages.joinToString("\n")
@@ -58,6 +64,27 @@ fun UnknownScreen(state: WatchState, onResetClick: () -> Unit) {
             } else {
                 Text(
                     text = state.unknownMessages.joinToString("\n"),
+                    modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+        } else {
+            SleekCard(modifier = Modifier.weight(1f).combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    if (state.debugLog.isNotEmpty()) {
+                        scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(null, state.debugLog))) }
+                        Toast.makeText(context, "System log copied to clipboard!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )) {
+                val scrollState = rememberScrollState()
+                LaunchedEffect(state.debugLog) { scrollState.animateScrollTo(scrollState.maxValue) }
+                Text(
+                    text = state.debugLog,
                     modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,

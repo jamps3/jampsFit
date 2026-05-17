@@ -91,8 +91,7 @@ class MainActivity : ComponentActivity() {
                                     TabSpec("Graphs", Icons.Default.Timeline),
                                     TabSpec("Controls", Icons.Default.Tune),
                                     TabSpec("Remote", Icons.Default.SettingsRemote),
-                                    TabSpec("Unknown", Icons.Default.Warning),
-                                    TabSpec("Settings", Icons.Default.Settings)
+                                    TabSpec("Logs", Icons.Default.Article)
                                 )
                                 SleekNavigationBar(
                                     selectedTab = selectedTab,
@@ -105,16 +104,15 @@ class MainActivity : ComponentActivity() {
                                 when (selectedTab) {
                                     0 -> HomeScreen(state = state)
                                     1 -> GraphsScreen(state = state)
-                                    2 -> ControlsScreen(state = state)
-                                    3 -> RemoteScreen(state = state)
-                                    4 -> UnknownScreen(
-                                        state = state,
-                                        onResetClick = { watchService?.watchManager?.clearUnknownPackets() }
-                                    )
-                                    5 -> SettingsScreen(
+                                    2 -> ControlsScreen(
                                         state = state,
                                         onScanClick = { checkPermissionsAndStart() },
                                         onDisconnectClick = { disconnect() }
+                                    )
+                                    3 -> RemoteScreen(state = state)
+                                    4 -> LogsScreen(
+                                        state = state,
+                                        onResetClick = { watchService?.watchManager?.clearUnknownPackets() }
                                     )
                                 }
                             }
@@ -297,6 +295,10 @@ class MainActivity : ComponentActivity() {
 
     fun sendWeatherCurrentProbe(kind: String) {
         watchService?.watchManager?.sendWeatherCurrentProbe(kind)
+    }
+
+    fun sendGadgetbridgeProbe(kind: String) {
+        watchService?.watchManager?.sendGadgetbridgeProbe(kind)
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {

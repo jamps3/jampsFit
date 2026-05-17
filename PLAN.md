@@ -14,6 +14,7 @@
 - [x] **Background Prominence**: Use high-priority notifications and full-screen intents to ensure "Find My Phone" UI appears even when the app is in the background or the device is locked.
 - [x] Data Persistence: Health data is saved to a local Room database.
 - [x] **Graph Persistence**: Load historical health data from the database into the Graphs screen to ensure data persists across app restarts.
+- [x] **Blood Pressure Dual-Graph**: Display both Systolic and Diastolic values in a single unified chart with support for single-point markers.
 - [x] Battery Monitoring: Graph, configurable low battery alerts, and time-remaining estimation.
 - [x] Connection Resilience: Automatic retry (5 times) and notification on disconnect.
 - [x] UI Controls: Disconnect button and configurable start/connect behavior.
@@ -41,6 +42,9 @@
 - [ ] **Decode Real Steps**: Identify the packet/channel that carries actual step count; `FEE1` field is now named `activityCount`.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
+- [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
+- [ ] **Gadgetbridge-Derived Queries**: Test `0x21` get alarms, `0x26` get step goal, `0x64` heartbeat, and `0xB9` advanced-command probes.
+- [x] **Unified Controls/Logs UI**: Controls owns watch/app/manual settings; Logs owns Unknown and System Log.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
 - [ ] **Weather Current Conditions**: Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
