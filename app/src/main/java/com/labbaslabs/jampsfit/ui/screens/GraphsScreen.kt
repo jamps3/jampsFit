@@ -55,9 +55,29 @@ fun GraphsScreen(state: WatchState) {
         }
         
         SleekCard {
-            Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                if (state.systolic != null && state.diastolic != null) {
+                    Text(
+                        text = "${state.systolic}/${state.diastolic}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFF5722)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                LegendItem(label = "Systolic", color = Color(0xFFFF5722))
+                LegendItem(label = "Diastolic", color = Color(0xFF3F51B5))
+            }
             Spacer(modifier = Modifier.height(16.dp))
-            if (state.bpHistory.isEmpty()) {
+
+            val bpData = if (state.bpHistory.isNotEmpty()) state.bpHistory 
+                         else if (state.systolic != null && state.diastolic != null) listOf(Pair(state.systolic, state.diastolic))
+                         else emptyList()
+
+            if (bpData.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                     Text(text = "Waiting for data...", color = Color.Gray)
                 }
@@ -65,23 +85,45 @@ fun GraphsScreen(state: WatchState) {
                 Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
                     val width = size.width
                     val height = size.height
-                    val maxVal = (state.bpHistory.maxOf { it.first }.toFloat()).coerceAtLeast(140f)
-                    val minVal = (state.bpHistory.minOf { it.second }.toFloat()).coerceAtMost(60f)
+                    val maxVal = (bpData.maxOf { it.first }.toFloat()).coerceAtLeast(140f)
+                    val minVal = (bpData.minOf { it.second }.toFloat()).coerceAtMost(60f)
                     val range = (maxVal - minVal).coerceAtLeast(1f)
-                    val sysPath = Path()
-                    val diaPath = Path()
-                    state.bpHistory.forEachIndexed { i, pair ->
-                        val x = (i.toFloat() / (state.bpHistory.size - 1).coerceAtLeast(1)) * width
+                    
+                    if (bpData.size == 1) {
+                        val pair = bpData[0]
                         val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
                         val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
-                        if (i == 0) { sysPath.moveTo(x, sysY); diaPath.moveTo(x, diaY) }
-                        else { sysPath.lineTo(x, sysY); diaPath.lineTo(x, diaY) }
+                        drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, sysY))
+                        drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, diaY))
+                    } else {
+                        val sysPath = Path()
+                        val diaPath = Path()
+                        bpData.forEachIndexed { i, pair ->
+                            val x = (i.toFloat() / (bpData.size - 1)) * width
+                            val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
+                            val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
+                            if (i == 0) {
+                                sysPath.moveTo(x, sysY)
+                                diaPath.moveTo(x, diaY)
+                            } else {
+                                sysPath.lineTo(x, sysY)
+                                diaPath.lineTo(x, diaY)
+                            }
+                        }
+                        drawPath(sysPath, color = Color(0xFFFF5722), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                        drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
-                    drawPath(sysPath, color = Color(0xFFFF5722), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
             }
         }
+    }
+}
+
+@Composable
+fun LegendItem(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(modifier = Modifier.size(10.dp).background(color, RoundedCornerShape(2.dp)))
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
     }
 }
 
