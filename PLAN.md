@@ -17,7 +17,7 @@
 - [x] Sleek UI: Glassmorphism, animated shine effects, and modern layouts.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
 - [ ] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path.
-- [ ] Extended Notifications: Find safe payload limits above 80 bytes and formatting for direct `0x41` messages.
+- [x] Extended Notifications: Direct `0x41` display is confirmed through 238 bytes; 240 bytes truncates on-watch.
 - [x] Precise Time Sync: Big-endian local time synchronization.
 - [x] Restore passive Main screen data via no-MTU broad notification listening.
 - [x] Decode live `FEE1` walking packets as activity count, distance, and calories.

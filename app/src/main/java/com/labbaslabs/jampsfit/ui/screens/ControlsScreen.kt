@@ -192,6 +192,33 @@ fun ControlsScreen(state: WatchState) {
                 NotificationProbeButton("60 chars", "20-41-len60", state.isConnected, activity, Modifier.weight(1f))
                 NotificationProbeButton("80 chars", "20-41-len80", state.isConnected, activity, Modifier.weight(1f))
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                NotificationProbeButton("120 chars", "20-41-len120", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("160 chars", "20-41-len160", state.isConnected, activity, Modifier.weight(1f))
+            }
+            NotificationProbeButton("200 chars", "20-41-len200", state.isConnected, activity)
+            Text("Display boundary markers", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                NotificationProbeButton("M40", "20-41-marker40", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M60", "20-41-marker60", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M80", "20-41-marker80", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                NotificationProbeButton("M100", "20-41-marker100", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M140", "20-41-marker140", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M180", "20-41-marker180", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                NotificationProbeButton("M220", "20-41-marker220", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M240", "20-41-marker240", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M249", "20-41-marker249", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                NotificationProbeButton("M232", "20-41-marker232", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M236", "20-41-marker236", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M238", "20-41-marker238", state.isConnected, activity, Modifier.weight(1f))
+                NotificationProbeButton("M239", "20-41-marker239", state.isConnected, activity, Modifier.weight(1f))
+            }
 
             Text(
                 text = "Test one button at a time and wait a few seconds. Each probe logs exact bytes.",

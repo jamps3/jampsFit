@@ -163,7 +163,7 @@ class WatchManager(private val context: Context) {
             .filter { it.isNotBlank() }
             .joinToString(": ")
             .ifBlank { "jampsFit" }
-        sendNativeNotification41(message, maxBytes = 80, logLabel = "mirrored")
+        sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
     }
 
     fun sendNotificationProbe(kind: String) {
@@ -185,6 +185,22 @@ class WatchManager(private val context: Context) {
             "20-41-len40" -> sendNativeNotification41("Len40 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJ", maxBytes = 40, logLabel = "len40")
             "20-41-len60" -> sendNativeNotification41("Len60 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890", maxBytes = 60, logLabel = "len60")
             "20-41-len80" -> sendNativeNotification41("Len80 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail", maxBytes = 80, logLabel = "len80")
+            "20-41-len120" -> sendNativeNotification41("Len120 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing", maxBytes = 120, logLabel = "len120")
+            "20-41-len160" -> sendNativeNotification41("Len160 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing and still more plain ascii content", maxBytes = 160, logLabel = "len160")
+            "20-41-len200" -> sendNativeNotification41("Len200 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing and still more plain ascii content for a larger direct packet boundary test", maxBytes = 200, logLabel = "len200")
+            "20-41-marker40" -> sendNativeNotification41(buildMarkerMessage(40), maxBytes = 40, logLabel = "marker40")
+            "20-41-marker60" -> sendNativeNotification41(buildMarkerMessage(60), maxBytes = 60, logLabel = "marker60")
+            "20-41-marker80" -> sendNativeNotification41(buildMarkerMessage(80), maxBytes = 80, logLabel = "marker80")
+            "20-41-marker100" -> sendNativeNotification41(buildMarkerMessage(100), maxBytes = 100, logLabel = "marker100")
+            "20-41-marker140" -> sendNativeNotification41(buildMarkerMessage(140), maxBytes = 140, logLabel = "marker140")
+            "20-41-marker180" -> sendNativeNotification41(buildMarkerMessage(180), maxBytes = 180, logLabel = "marker180")
+            "20-41-marker220" -> sendNativeNotification41(buildMarkerMessage(220), maxBytes = 220, logLabel = "marker220")
+            "20-41-marker232" -> sendNativeNotification41(buildMarkerMessage(232), maxBytes = 232, logLabel = "marker232")
+            "20-41-marker236" -> sendNativeNotification41(buildMarkerMessage(236), maxBytes = 236, logLabel = "marker236")
+            "20-41-marker238" -> sendNativeNotification41(buildMarkerMessage(238), maxBytes = 238, logLabel = "marker238")
+            "20-41-marker239" -> sendNativeNotification41(buildMarkerMessage(239), maxBytes = 239, logLabel = "marker239")
+            "20-41-marker240" -> sendNativeNotification41(buildMarkerMessage(240), maxBytes = 240, logLabel = "marker240")
+            "20-41-marker249" -> sendNativeNotification41(buildMarkerMessage(249), maxBytes = 249, logLabel = "marker249")
             else -> updateDebugLog("Unknown notification probe: $kind")
         }
     }
@@ -205,13 +221,24 @@ class WatchManager(private val context: Context) {
     }
 
     private fun sendNativeNotification41(message: String, maxBytes: Int = 40, logLabel: String = "tiny") {
-        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxBytes.coerceIn(1, 180))
+        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxBytes.coerceIn(1, 249))
         val payload = IntArray(1 + textBytes.size)
         payload[0] = 0x80
         textBytes.forEachIndexed { index, byte -> payload[index + 1] = byte.toInt() and 0xFF }
         val packet = nativePacket(0x41, *payload)
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         updateDebugLog("Notification 20/41 $logLabel bytes=${textBytes.size} -> ${packet.toHexString()}")
+    }
+
+    private fun buildMarkerMessage(length: Int): String {
+        val safeLength = length.coerceAtLeast(8)
+        val prefix = "M$safeLength "
+        val suffix = " END"
+        val bodyLength = (safeLength - prefix.length - suffix.length).coerceAtLeast(0)
+        val digits = buildString {
+            while (this.length < bodyLength) append("0123456789")
+        }.take(bodyLength)
+        return prefix + digits + suffix
     }
 
     fun sendExperimentalNotification() {

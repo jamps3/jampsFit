@@ -243,7 +243,7 @@ Implementation update: jampsFit notification mirroring now formats incoming phon
 FE EA 20 [len] 41 80 [UTF-8 title/text]
 ```
 
-The Controls tab includes direct `0x41` length probes at 20, 40, 60, and 80 text bytes. Live result: all tested lengths through 80 bytes display successfully without reboot.
+The Controls tab includes direct `0x41` length probes at 20, 40, 60, 80, 120, 160, 180, 220, 232, 236, 238, 239, 240, and 249 text bytes. Live result: fixed marker probes through 238 bytes displayed with the `END` suffix. The 240-byte marker was accepted but displayed only through `...7890 E`, truncating before the final `ND`. Current mirroring cap is therefore 238 text bytes. The one-byte packet-length format can carry up to 249 text bytes (`255 total - 5 header/cmd bytes - 1 subtype byte`), but the watch UI display limit appears lower.
 
 The vendor capture shows long AccuBattery notifications using `6387` / handle `0x0047`. This is now implemented behind the experimental `Exp Notif` button only.
 
