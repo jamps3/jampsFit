@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,8 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
+import com.labbaslabs.jampsfit.ui.components.SleekCard
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
 import com.labbaslabs.jampsfit.ui.components.TabSpec
 import com.labbaslabs.jampsfit.ui.screens.*
@@ -52,6 +56,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         enableEdgeToEdge()
         
         Intent(this, WatchService::class.java).also { intent ->
@@ -107,6 +116,49 @@ class MainActivity : ComponentActivity() {
                                         onScanClick = { checkPermissionsAndStart() },
                                         onDisconnectClick = { disconnect() }
                                     )
+                                }
+                            }
+                        }
+
+                        if (state.isFindingPhone) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.8f))
+                                    .clickable(enabled = false) {},
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                SleekCard(modifier = Modifier.padding(32.dp)) {
+                                    Column(
+                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.NotificationsActive,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(64.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            "Finding Phone...",
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            "Your watch is looking for this phone.",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Button(
+                                            onClick = { watchService?.watchManager?.setFindingPhone(false) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.error
+                                            )
+                                        ) {
+                                            Text("Stop Ringing")
+                                        }
+                                    }
                                 }
                             }
                         }

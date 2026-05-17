@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.*
 import android.util.Log
@@ -42,14 +43,18 @@ class WatchService : Service() {
     private var lowBatteryNotified = false
     private var lastConnectionState = false
     private var isFlashlightOn = false
+    private var activeRingtone: Ringtone? = null
+    private var findPhoneJob: Job? = null
 
     companion object {
         private const val CHANNEL_ID = "WatchServiceChannel"
+        private const val FIND_PHONE_CHANNEL_ID = "FindPhoneChannel"
         private const val NOTIFICATION_ID = 1
         private const val LOW_BATTERY_NOTIFICATION_ID = 2
         private const val DISCONNECT_NOTIFICATION_ID = 3
         private const val CONNECTED_NOTIFICATION_ID = 4
         private const val TEST_NOTIFICATION_ID = 5
+        private const val FIND_PHONE_NOTIFICATION_ID = 6
     }
 
     override fun onCreate() {
@@ -57,7 +62,7 @@ class WatchService : Service() {
         watchManager = WatchManager(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        createNotificationChannel()
+        createNotificationChannels()
         
         if (watchManager.state.value.autoConnect) {
             watchManager.startScan()
@@ -96,11 +101,82 @@ class WatchService : Service() {
                 }
             }
 
-            if (state.lastRemoteEvent != null && state.lastRemoteEvent != lastEvent) {
-                lastEvent = state.lastRemoteEvent
-                handleRemoteEvent(state.lastRemoteEvent, state.shutterAction, state.musicAction)
+            if (state.lastRemoteEvent != null) {
+                if (state.lastRemoteEvent != lastEvent) {
+                    lastEvent = state.lastRemoteEvent
+                    handleRemoteEvent(state.lastRemoteEvent, state.shutterAction, state.musicAction)
+                }
+            } else {
+                lastEvent = null
             }
+
+            handleFindPhoneState(state.isFindingPhone)
         }.launchIn(serviceScope)
+    }
+
+    private fun handleFindPhoneState(active: Boolean) {
+        if (active) {
+            if (findPhoneJob == null) {
+                // High-priority notification with full-screen intent to bring app to foreground
+                val launchIntent = Intent(this, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                val pendingIntent = PendingIntent.getActivity(
+                    this, 0, launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val notificationManager = getSystemService(NotificationManager::class.java)
+                val notification = NotificationCompat.Builder(this, FIND_PHONE_CHANNEL_ID)
+                    .setContentTitle("Find My Phone")
+                    .setContentText("Your watch is looking for this phone!")
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setFullScreenIntent(pendingIntent, true)
+                    .setAutoCancel(false)
+                    .setOngoing(true)
+                    .build()
+
+                notificationManager.notify(FIND_PHONE_NOTIFICATION_ID, notification)
+
+                try {
+                    startActivity(launchIntent)
+                } catch (e: Exception) {
+                    Log.e("WatchService", "Background startActivity failed: ${e.message}")
+                }
+
+                findPhoneJob = serviceScope.launch {
+                    val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                    activeRingtone = RingtoneManager.getRingtone(applicationContext, notification).apply {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            isLooping = true
+                        }
+                        play()
+                    }
+                    
+                    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                        vibratorManager.defaultVibrator
+                    } else {
+                        @Suppress("DEPRECATION")
+                        getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    }
+
+                    while (isActive) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(1000, VibrationEffect.DEFAULT_AMPLITUDE))
+                        delay(2000)
+                    }
+                }
+            }
+        } else {
+            findPhoneJob?.cancel()
+            findPhoneJob = null
+            activeRingtone?.stop()
+            activeRingtone = null
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.cancel(FIND_PHONE_NOTIFICATION_ID)
+        }
     }
 
     private fun handleRemoteEvent(event: String, shutterAction: String, musicMode: String) {
@@ -197,20 +273,7 @@ class WatchService : Service() {
     }
 
     private fun findMyPhone() {
-        val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        val r = RingtoneManager.getRingtone(applicationContext, notification)
-        r.isLooping = false
-        r.play()
-        
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-        
-        vibrator.vibrate(VibrationEffect.createOneShot(2000, VibrationEffect.DEFAULT_AMPLITUDE))
+        watchManager.setFindingPhone(true)
     }
 
     private fun sendLowBatteryNotification(battery: Int) {
@@ -302,15 +365,27 @@ class WatchService : Service() {
             .build()
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
                 "Watch Connection Service",
                 NotificationManager.IMPORTANCE_LOW
             )
+            
+            val findPhoneChannel = NotificationChannel(
+                FIND_PHONE_CHANNEL_ID,
+                "Find My Phone Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Used for high-priority 'Find My Phone' alerts"
+                enableVibration(true)
+                setSound(null, null) // Sound is handled by RingtoneManager in the service
+            }
+
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(serviceChannel)
+            manager.createNotificationChannel(findPhoneChannel)
         }
     }
 

@@ -10,6 +10,8 @@
 - [x] Copy Unknown packets to clipboard.
 - [x] **Unknown Packet Persistence**: Persist unknown packets to the database and add a reset button to the Unknown tab.
 - [x] Active Phone Control: Media and Camera/Find My Phone.
+- [x] **Visual Find My Phone**: Show a full-screen overlay with a stop button when "Find My Phone" is triggered from the watch.
+- [x] **Background Prominence**: Use high-priority notifications and full-screen intents to ensure "Find My Phone" UI appears even when the app is in the background or the device is locked.
 - [x] Data Persistence: Health data is saved to a local Room database.
 - [x] **Graph Persistence**: Load historical health data from the database into the Graphs screen to ensure data persists across app restarts.
 - [x] Battery Monitoring: Graph, configurable low battery alerts, and time-remaining estimation.

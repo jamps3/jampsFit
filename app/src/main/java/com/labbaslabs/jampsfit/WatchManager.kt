@@ -51,6 +51,7 @@ data class WatchState(
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
+    val isFindingPhone: Boolean = false,
     val batteryHistory: List<Int> = emptyList(),
     val heartRateHistory: List<Int> = emptyList(),
     val spo2History: List<Int> = emptyList(),
@@ -593,6 +594,10 @@ class WatchManager(private val context: Context) {
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
 
+    fun setFindingPhone(active: Boolean) {
+        _state.update { it.copy(isFindingPhone = active) }
+    }
+
     private fun updateDebugLog(msg: String) {
         Log.d(TAG, msg)
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -943,6 +948,7 @@ class WatchManager(private val context: Context) {
             0x66 -> {
                 _state.update { it.copy(lastRemoteEvent = "Wrist Shake / Shutter") }
                 updateDebugLog("Remote event: Wrist Shake / Shutter")
+                managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
             }
             0x67 -> {
                 val event = when (data.getOrNull(5)?.toInt()?.and(0xFF)) {
@@ -954,6 +960,7 @@ class WatchManager(private val context: Context) {
                 if (event != null) {
                     _state.update { it.copy(lastRemoteEvent = event) }
                     updateDebugLog("Remote event: $event")
+                    managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
                 }
             }
             0xA4 -> {
