@@ -64,9 +64,12 @@ Manual measurements started from the watch or app arrive as `FE EA 20` packets o
 | `0x6D` | Heart Rate | `FE EA 20 06 6D [BPM]` |
 | `0x6B` | SpO2 | `FE EA 20 06 6B [%]` |
 | `0x69` | Blood Pressure | `FE EA 20 08 69 [unknown] [Systolic] [Diastolic]` |
+| `0x5A` | Device info | `FE EA 20 10 5A 00 4D 4F 59 4F 55 4E 47 2D 56 32` -> `MOYOUNG-V2` |
 | `0x64` | Probable keep-alive / heartbeat | `FE EA 20 05 64` |
 
 These values are now persisted to the `health_data` table in the Room database to maintain accurate history.
+
+`0x5A` is known device information and should not be stored as Unknown. Info type `0x00` is the device/protocol name (`MOYOUNG-V2` in current captures); info type `0x01` is firmware (`MOY-QGF3-2.0.3` in earlier captures).
 
 `0x64` has no payload. Per the Gadgetbridge Moyoung V2 packet layout, `FE EA 20 05 64` decodes as UUID/header `FE EA`, V2 size marker `20 05` for total size 5, and command `0x64`. It is not a battery percentage byte; standard battery still arrives on `2A19`. Because it appears without a user action, it is likely a keep-alive / heartbeat packet.
 
@@ -119,7 +122,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
 | `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
 | `20` | `VAR` | `08` | Notification Push | `[Type] [TitleLen] [Title] [TextLen] [Text] [Checksum]` |
-| `20` | `VAR` | `41` | **Notification Push** | Confirmed working for small direct payloads on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Large payload support still needs length-limit testing. |
+| `20` | `VAR` | `41` | **Notification Push** | Confirmed working on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Display testing is complete through the current UI set; mirroring is capped at 238 text bytes. |
 | `20` | `06` | `B4` | Buffer Allocation | Part of extended data handshake (Params: 00, 12, 10, 20) |
 | `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
 | `20` | `05` | `61` | **Find My Watch** | Confirmed working from jampsFit on `FEE2` / handle `0x0047`. Previous reboot was from wrong characteristic. |
@@ -138,7 +141,17 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | Get Alarms | `FE EA 20 05 21` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
 | Get Step Goal | `FE EA 20 05 26` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
 | Get Auto-lock | `FE EA 20 05 8D` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
-| Heartbeat 64 | `FE EA 20 05 64` | Mirrors the watch-origin no-payload heartbeat/keepalive candidate. |
+| Heartbeat 64 | `FE EA 20 05 64` | Retired from UI: no visible effect in live testing. Still treated as a known incoming keep-alive candidate when watch-originated. |
+| HR 6D | `FE EA 20 05 6D` | Retired from UI: starts visible HR measurement, with watch vibration and display wake. Need a different silent HR probe. |
+| HR Stop | `FE EA 20 06 6D 00` | Retired from UI: also starts visible HR measurement, with watch vibration and display wake. `FE EA 20 06 6D 01` remains blocked because it rebooted this watch. |
+| Time 12h | `FE EA 20 06 17 01` | Captured from Da Fit at 2026-05-18 03:35 when changing time mode to 12h. |
+| Time 24h | `FE EA 20 06 17 00` | Captured from Da Fit at 2026-05-18 03:36 when changing time mode to 24h. |
+| Quick Off | `FE EA 20 06 18 00` | Captured from Da Fit at 2026-05-18 03:37 when disabling Quick View / wrist raise. |
+| Quick On | `FE EA 20 06 18 01` | Captured from Da Fit at 2026-05-18 03:38 when enabling Quick View / wrist raise. The time range may be stored separately; no obvious range packet was isolated. |
+| Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. |
+| Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. |
+| Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |
+| Move Reminder Off | `FE EA 20 06 1D 00` | Captured from Da Fit at 2026-05-18 03:43 when disabling sedentary / move reminder. |
 | B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |
 | B9 Card Cfg | `FE EA 20 09 B9 12 00 02` | Gadgetbridge example advanced command / eCard config request. |
 | B9 Card Data | `FE EA 20 09 B9 12 00 03` | Gadgetbridge example advanced command / eCard content request. |
@@ -147,19 +160,19 @@ Step priority probes:
 
 | Button | Packet | Expected useful reply |
 | :--- | :--- | :--- |
-| 33 00 | `FE EA 20 06 33 00` | No visible reply in repeated live tests at 2026-05-18 01:19:14 and 01:21:11. |
-| 33 01 | `FE EA 20 06 33 01` | Stable reply: `FE EA 20 0F 33 01 AC 02 00 30 02 00 1E 00 00` = 684 / 560m / 30 cal. Seen at 01:14:58, 01:19:16, and 01:21:14. Likely a day-offset daily total. |
-| 33 02 | `FE EA 20 06 33 02` | Stable reply: `FE EA 20 0F 33 02 D3 0D 00 79 0B 00 B0 00 00` = 3539 / 2937m / 176 cal. Seen at 01:15:23, 01:19:18, 01:21:18, and 01:22:21. Likely another day-offset daily total, but still needs watch-history correlation. |
-| 59 00 | `FE EA 20 06 59 00` | Confirmed current step split. First 16-bit field is **Steps Down**, second is **Steps Up**, third is another step component. At 01:24:37 the watch showed Steps Up 291, Steps Down 80, Total Steps 435; packet returned `80 / 291 / 64`, so Total Steps is `80 + 291 + 64 = 435`. |
-| 59 01 | `FE EA 20 06 59 01` | Returned all zeros at 01:19:21 and 01:24:47. Not Steps Up in these captures. |
-| 59 02 | `FE EA 20 06 59 02` | Returned all zeros at 01:19:23 and 01:25:06. |
-| 59 03 | `FE EA 20 06 59 03` | Stable mostly-zero reply with tail values `597 / 87` at 01:19:24 and 01:25:17. Needs per-record decoding; not enough to identify Steps Up. |
-| 10/59 00 | `FE EA 10 05 59 00` | Legacy query is accepted but the watch responds with native `59 00`: `80 / 291m / 45`. |
-| 10/59 01 | `FE EA 10 05 59 01` | Legacy query collapses to native `59 00` on this watch. |
-| 10/59 02 | `FE EA 10 05 59 02` | Legacy query collapses to native `59 00` on this watch. |
-| 10/59 03 | `FE EA 10 05 59 03` | Legacy query collapses to native `59 00` on this watch. |
+| 33 00 | `FE EA 20 06 33 00` | No visible reply in repeated tests, including the latest round. |
+| 33 01 | `FE EA 20 06 33 01` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
+| 33 02 | `FE EA 20 06 33 02` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
+| 59 00 | `FE EA 20 06 59 00` | Latest live value: `6939`, while watch face showed `11379`. Do not treat as complete current steps until the missing component/source is found. |
+| 59 01 | `FE EA 20 06 59 01` | Latest live value: `6939`, while watch face showed `11379`. |
+| 59 02 | `FE EA 20 06 59 02` | Latest live value: `6939`, while watch face showed `11379`. |
+| 59 03 | `FE EA 20 06 59 03` | Latest live value: `6939`, while watch face showed `11379`. |
+| 10/59 00 | `FE EA 10 05 59 00` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
+| 10/59 01 | `FE EA 10 05 59 01` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
+| 10/59 02 | `FE EA 10 05 59 02` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
+| 10/59 03 | `FE EA 10 05 59 03` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
 
-The app decodes known `0x33` daily-total-shaped replies and logs `0x59` bucket replies as forensic candidate values. `59 00` is promoted to Home/Graphs as `totalSteps = stepsUp + stepsDown + stepsOther`. Other `59` replies remain forensic only. `33 02` is logged as a candidate instead of being promoted to Total Steps until its day offset is correlated with the watch history UI.
+The app decodes known `0x33` daily-total-shaped replies and logs `0x59` bucket replies as forensic candidate values. `59 00` was previously promoted as `totalSteps = stepsUp + stepsDown + stepsOther`, but the latest 6939 vs watch-face 11379 result proves this is incomplete on the current watch state. Keep searching for the missing current-step source before treating any probe as authoritative.
 
 Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
 
@@ -179,11 +192,34 @@ Get Step Goal response: FE EA 20 09 26 00 D0 07 00
   Payload `00 D0 07 00` decodes as little-endian 0x07D0 = 2000.
 ```
 
+## Da Fit Settings Capture 2026-05-18
+
+Capture file: ignored local archive `dafit_hr_settings_capture.zip`. The btsnoop log shows all relevant Da Fit writes on `FEE2` / ATT handle `0x0047`.
+
+Timeline supplied by tester and packet matches:
+
+| Time | Action | Packet(s) |
+| :--- | :--- | :--- |
+| 03:35 | Time mode 12h | `FE EA 20 06 17 01` |
+| 03:36 | Time mode 24h | `FE EA 20 06 17 00` |
+| 03:37 | Quick View / wrist raise off | `FE EA 20 06 18 00` |
+| 03:38 | Quick View / wrist raise on | `FE EA 20 06 18 01` |
+| 03:39 | Weather off | No distinct `FE EA` watch write isolated in this capture. |
+| 03:40 | Weather on, Celsius, Joensuu | Working Joensuu sequence: `43`, `B5`, `45`, `42` packets. |
+| 03:41 | Auto HR interval 10 minutes | `FE EA 20 06 1F 02` |
+| 03:41 | Auto HR interval 5 minutes | `FE EA 20 06 1F 01` |
+| 03:42 | Move reminder on | `FE EA 20 06 1D 01` |
+| 03:43 | Move reminder off | `FE EA 20 06 1D 00` |
+
+The capture also shows Da Fit querying history during reconnect/session sync: `33`, `35`, `36`, `37`, `59`, `AB`, plus `B6` / `BC` page selectors. These are promising sources for HR and historical activity data.
+
 ## Current Safety Notes
 
 - `FE EA 10 09 31 [timestamp BE] 08` written to `FEE2` is confirmed good for clock sync.
 - `FE EA 20 05 61` written to `FEE2` is confirmed good for Find My Watch.
 - `FE EA 20 0D 11 ...` written to `FEE2` is confirmed good for alarm writes; alarm slots 1 and 3 were live-tested.
+- App-origin measurement start commands such as `FE EA 20 06 6D 01` for Heart Rate are unsafe on this watch and can reboot it. jampsFit currently listens for watch-origin `FEE3` measurement results instead.
+- Public references confirm MoYoung/Da Fit has distinct HR APIs such as `startMeasureOnceHeartRate`, `stopMeasureOnceHeartRate`, `queryTodayHeartRate`, `queryPastHeartRate`, and `queryHistoryHeartRate`, but the public API docs do not reveal the raw BLE bytes. HR buttons should therefore remain cautious probes until verified against Da Fit captures.
 - Main screen passive data is restored through `FEE1`: `activityCount`, live distance, calories, and standard battery.
 - The vendor phone capture confirms `MOYOUNG-V2`, `FEE2`, `FEE3`, `6387`, and `6487` are present. Use `btlog.txt` and `btsnoop_hci.log` as ground truth before promoting any command to verified.
 - Real steps are still not decoded from the live `FEE1` packet. Candidate sources remain snapshot packets such as `33`/`59` from captures.

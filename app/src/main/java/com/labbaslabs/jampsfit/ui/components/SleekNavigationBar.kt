@@ -17,8 +17,8 @@ data class TabSpec(val label: String, val icon: ImageVector)
 @Composable
 fun SleekNavigationBar(selectedTab: Int, onTabSelected: (Int) -> Unit, tabs: List<TabSpec>) {
     NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-        tonalElevation = 8.dp,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         modifier = Modifier.clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             .border(1.dp, Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.1f), Color.Transparent, Color.White.copy(alpha = 0.1f))), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
     ) {

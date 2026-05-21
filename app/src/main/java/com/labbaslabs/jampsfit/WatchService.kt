@@ -60,6 +60,7 @@ class WatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         watchManager = WatchManager(this)
+        watchManager.setServiceRunning(true)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         createNotificationChannels()
@@ -391,6 +392,7 @@ class WatchService : Service() {
     }
 
     override fun onDestroy() {
+        watchManager.setServiceRunning(false)
         serviceScope.cancel()
         unregisterReceiver(notificationReceiver)
         watchManager.disconnect()

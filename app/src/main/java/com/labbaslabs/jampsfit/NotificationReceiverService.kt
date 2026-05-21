@@ -18,7 +18,7 @@ class NotificationReceiverService : NotificationListenerService() {
         Log.d("NotificationReceiver", "Notification from $packageName: $title - $text")
 
         // Broadcast the notification to the WatchService
-        val intent = Intent("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
+        val intent = Intent("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED").setPackage(applicationContext.packageName)
         intent.putExtra("title", title)
         intent.putExtra("text", text)
         sendBroadcast(intent)

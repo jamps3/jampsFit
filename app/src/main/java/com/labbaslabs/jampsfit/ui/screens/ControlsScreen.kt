@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,7 +34,7 @@ fun ControlsScreen(
     onScanClick: () -> Unit,
     onDisconnectClick: () -> Unit
 ) {
-    val activity = LocalContext.current as? MainActivity
+    val activity = LocalActivity.current as? MainActivity
     var queriedSettings by rememberSaveable { mutableStateOf(false) }
     var controlsTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -144,7 +144,7 @@ fun ControlsScreen(
         }
 
         SleekCard {
-            Text(text = "Experimental FEE2 Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = "Display", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
 
             var autoLockSeconds by remember { mutableFloatStateOf((state.autoLockSecondsSetting ?: 20).toFloat()) }
@@ -156,6 +156,11 @@ fun ControlsScreen(
                 Slider(value = autoLockSeconds, onValueChange = { autoLockSeconds = it.toInt().toFloat() }, valueRange = 5f..60f, steps = 10, modifier = Modifier.weight(1f))
                 Button(onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
             }
+        }
+
+        SleekCard {
+            Text(text = "Experimental FEE2 Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
 
             var stepGoal by remember { mutableFloatStateOf((state.stepGoalSetting ?: 9000).toFloat()) }
             LaunchedEffect(state.stepGoalSetting) {
@@ -242,45 +247,9 @@ fun ControlsScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Tiny 0x41")
             }
-            Text("0x41 length tests", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("20 chars", "20-41-len20", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("40 chars", "20-41-len40", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("60 chars", "20-41-len60", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("80 chars", "20-41-len80", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("120 chars", "20-41-len120", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("160 chars", "20-41-len160", state.isConnected, activity, Modifier.weight(1f))
-            }
-            NotificationProbeButton("200 chars", "20-41-len200", state.isConnected, activity)
-            Text("Display boundary markers", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("M40", "20-41-marker40", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M60", "20-41-marker60", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M80", "20-41-marker80", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("M100", "20-41-marker100", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M140", "20-41-marker140", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M180", "20-41-marker180", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("M220", "20-41-marker220", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M240", "20-41-marker240", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M249", "20-41-marker249", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("M232", "20-41-marker232", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M236", "20-41-marker236", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M238", "20-41-marker238", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("M239", "20-41-marker239", state.isConnected, activity, Modifier.weight(1f))
-            }
 
             Text(
-                text = "Test one button at a time and wait a few seconds. Each probe logs exact bytes.",
+                text = "Direct 0x41 display length testing is complete; mirroring is capped at 238 text bytes.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
@@ -309,7 +278,6 @@ fun ControlsScreen(
             }
             Text("Advanced/unknown probes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("Heartbeat 64", "heartbeat-64", state.isConnected, activity, Modifier.weight(1f))
                 GadgetProbeButton("B9 Weather", "b9-weather-19", state.isConnected, activity, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -317,7 +285,7 @@ fun ControlsScreen(
                 GadgetProbeButton("B9 Card Data", "b9-ecard-content", state.isConnected, activity, Modifier.weight(1f))
             }
             Text(
-                text = "59 00 is Steps Down. Test nearby buckets to find Steps Up; settings queries now run automatically.",
+                text = "HR 6D/HR Stop trigger visible watch HR measurement, and Heartbeat 64 had no visible effect; all three are retired from the UI.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
@@ -372,6 +340,9 @@ private fun AppSettingsControls(
         Text(text = "App Behavior", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { activity?.toggleAutoStart(it) }
+        SettingSwitch(label = "Persistent Background Service", checked = state.isServiceRunning) {
+            if (it) activity?.checkPermissionsAndStart() else activity?.stopWatchService()
+        }
         SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
         SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
     }
@@ -381,6 +352,51 @@ private fun AppSettingsControls(
         Spacer(modifier = Modifier.height(8.dp))
         Text("Notify at ${state.batteryThreshold}%")
         Slider(value = state.batteryThreshold.toFloat(), onValueChange = { activity?.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
+    }
+
+    SleekCard {
+        Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
+        }
+        Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("Quick Off", "quick-view-off", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("Quick On", "quick-view-on", state.isConnected, activity, Modifier.weight(1f))
+        }
+        Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("HR 10m", "auto-hr-10m", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("HR 5m", "auto-hr-5m", state.isConnected, activity, Modifier.weight(1f))
+        }
+        Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
+        }
+        Text("Weather", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { activity?.setWeatherCity("Joensuu") },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp)
+            ) { Text("Weather On", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = { activity?.sendGadgetbridgeProbe("b9-weather-19") },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp)
+            ) { Text("Weather Probe", fontSize = 12.sp) }
+        }
+        Text(
+            text = "Weather-off did not show a clear FE EA write in the capture; Weather On replays the working Joensuu sequence.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
     }
 }
 

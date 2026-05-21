@@ -3,6 +3,7 @@ package com.labbaslabs.jampsfit.ui.screens
 import android.content.ClipData
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick: () -> Unit) {
     val context = LocalContext.current
-    val activity = context as? MainActivity
+    val activity = LocalActivity.current as? MainActivity
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var settingsTab by remember { mutableIntStateOf(0) }
@@ -214,25 +215,6 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Captured Da Fit Tests:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 
-                    var autoLockSeconds by remember { mutableFloatStateOf(20f) }
-                    Text("Auto-lock: ${autoLockSeconds.toInt()}s", style = MaterialTheme.typography.bodySmall)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Slider(
-                            value = autoLockSeconds,
-                            onValueChange = { autoLockSeconds = it },
-                            valueRange = 5f..60f,
-                            steps = 10,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Button(
-                            onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) },
-                            enabled = false,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                        ) { Text("Send", fontSize = 12.sp) }
-                    }
-                    Text("Disabled: 5s/20s rebooted this watch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-
                     var stepGoal by remember { mutableFloatStateOf(9000f) }
                     Text("Step goal: ${stepGoal.toInt()}", style = MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -401,6 +383,9 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     Text(text = "App Behavior", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { activity?.toggleAutoStart(it) }
+                    SettingSwitch(label = "Persistent Background Service", checked = state.isServiceRunning) { 
+                        if (it) activity?.checkPermissionsAndStart() else activity?.stopWatchService()
+                    }
                     SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
                     SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
                 }

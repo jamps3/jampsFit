@@ -80,14 +80,7 @@ class MainActivity : ComponentActivity() {
                 val logsSystemScrollState = rememberScrollState()
 
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Box(modifier = Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
-                        )
-                    )) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         Scaffold(
                             containerColor = Color.Transparent,
                             modifier = Modifier.fillMaxSize(),
@@ -181,7 +174,12 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.startScan()
     }
 
-    private fun checkPermissionsAndStart() {
+    fun stopWatchService() {
+        val intent = Intent(this, WatchService::class.java)
+        stopService(intent)
+    }
+
+    fun checkPermissionsAndStart() {
         val permissions = listOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -213,6 +211,9 @@ class MainActivity : ComponentActivity() {
 
     fun toggleAutoStart(enabled: Boolean) {
         watchService?.watchManager?.toggleAutoStart(enabled)
+        if (enabled) {
+            checkPermissionsAndStart()
+        }
     }
 
     fun toggleAutoConnect(enabled: Boolean) {

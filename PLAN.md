@@ -19,7 +19,7 @@
 - [x] Connection Resilience: Automatic retry (5 times) and notification on disconnect.
 - [x] UI Controls: Disconnect button and configurable start/connect behavior.
 - [x] Custom Button Mapping: Selectable actions for watch buttons (Media, Volume, Utility).
-- [x] Sleek UI: Glassmorphism, animated shine effects, and modern layouts.
+- [x] OLED-dark UI: true black app background/surfaces with low-glow borders and no animated shine.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
 - [ ] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path.
 - [x] Extended Notifications: Direct `0x41` display is confirmed through 238 bytes; 240 bytes truncates on-watch.
@@ -39,16 +39,18 @@
 - [x] Confirm direct `0x41` notification payloads through 80 text bytes.
 
 ## Planned Features
-- [x] **Decode Real Steps**: `59 00` contains Steps Down, Steps Up, and a third step component; the app now computes Total Steps as `Steps Up + Steps Down + Steps Other`. `FEE1` remains `activityCount`, not true steps.
+- [ ] **Decode Real Steps**: Latest live probes show `59 xx` and legacy `10/59 xx` all returning `6939` while the watch shows `11379`; `33 01`/`33 02` return `13259`, and `33 00` has no visible effect. Find the missing current-step source before promoting probe values as authoritative. `FEE1` remains `activityCount`, not true steps.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
-- [ ] **Step Query Probes**: Continue validating step history and offsets. `59 00` gives current Total Steps from Steps Up + Steps Down + Steps Other; native `59 01`/`59 02` returned zero, native `59 03` returned only tail candidate values, and legacy `10/59 xx` collapses back to native `59 00`. `33 00` gives no visible reply, while `33 01` and `33 02` return stable daily-total-shaped values and likely represent day offsets; compare them against the watch history UI.
-- [ ] **Gadgetbridge-Derived Queries**: Keep `0x64` heartbeat and `0xB9` advanced-command probes available; `0x21` get alarms, `0x26` get step goal, and `0x8D` get auto-lock are confirmed and now auto-query the controls.
+- [ ] **Step Query Probes**: Continue validating step history and offsets. Current known results: `59 00`/`59 01`/`59 02`/`59 03` plus `10/59 00`/`01`/`02`/`03` all produce `6939`; `33 01` and `33 02` produce `13259`; `33 00` does nothing.
+- [ ] **Gadgetbridge-Derived Queries**: Keep `0xB9` advanced-command probes available; `0x21` get alarms, `0x26` get step goal, and `0x8D` get auto-lock are confirmed and now auto-query the controls. `0x64` heartbeat is retired from UI after no visible effect.
 - [x] **Unified Controls/Logs UI**: Controls owns watch/app/manual settings; Logs owns Unknown and System Log.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
+- [ ] **Heart Rate Retrieval**: Avoid app-origin `0x6D 01` start writes because they reboot this watch. `0x6D` no-payload and `0x6D 00` both trigger visible HR measurement with vibration/display wake, so they are retired from UI. Capture a silent Da Fit HR query/start sequence before re-enabling active app HR commands.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
 - [ ] **Weather Current Conditions**: Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
+- [ ] **Da Fit Settings Probes**: Live-test captured time format (`0x17`), Quick View (`0x18`), auto-HR interval (`0x1F`), and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
 - [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
 - [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
 - [ ] **Data Export**: Save session data to CSV files.

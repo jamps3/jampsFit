@@ -19,6 +19,12 @@
 *.dex
 
 # Capture files
+bugreport*.zip
+bugreport*.txt
+btlog*.txt
+btsnoop*.log
+dafit_*.zip
+FS/
 dafit_connect_preamble_find.zip
 dafit_find_alarm_capture.zip
 dafit_multi_actions.zip

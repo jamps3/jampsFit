@@ -18,6 +18,11 @@ data class HealthEntry(
     val calories: Int? = null
 )
 
+data class HistoryPoint(
+    val value: Int,
+    val timestamp: Long
+)
+
 @Dao
 interface HealthDao {
     @Insert
@@ -29,47 +34,66 @@ interface HealthDao {
     @Query("SELECT * FROM health_data ORDER BY timestamp DESC")
     fun getAllEntries(): Flow<List<HealthEntry>>
 
-    @Query("SELECT battery FROM health_data WHERE battery IS NOT NULL ORDER BY timestamp DESC LIMIT 100")
-    fun getBatteryHistory(): Flow<List<Int>>
+    @Query("SELECT battery as value, timestamp FROM health_data WHERE battery IS NOT NULL ORDER BY timestamp DESC LIMIT 100")
+    fun getBatteryHistory(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT heartRate FROM health_data WHERE heartRate IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getHeartRateHistory(): Flow<List<Int>>
+    @Query("SELECT heartRate as value, timestamp FROM health_data WHERE heartRate IS NOT NULL AND heartRate > 0 ORDER BY timestamp DESC LIMIT 200")
+    fun getHeartRateHistory(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT spo2 FROM health_data WHERE spo2 IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getSpO2History(): Flow<List<Int>>
+    @Query("SELECT spo2 as value, timestamp FROM health_data WHERE spo2 IS NOT NULL AND spo2 > 0 ORDER BY timestamp DESC LIMIT 50")
+    fun getSpO2History(): Flow<List<HistoryPoint>>
 
     @Query("SELECT id, timestamp, systolic, diastolic FROM health_data WHERE systolic IS NOT NULL AND diastolic IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
     fun getBloodPressureHistory(): Flow<List<HealthEntry>>
 
-    @Query("SELECT steps FROM health_data WHERE steps IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getStepsHistory(): Flow<List<Int>>
+    @Query("SELECT steps as value, timestamp FROM health_data WHERE steps IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
+    fun getStepsHistory(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT distance FROM health_data WHERE distance IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getDistanceHistory(): Flow<List<Int>>
+    @Query("SELECT distance as value, timestamp FROM health_data WHERE distance IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
+    fun getDistanceHistory(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT activityCount FROM health_data WHERE activityCount IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getActivityHistory(): Flow<List<Int>>
+    @Query("SELECT activityCount as value, timestamp FROM health_data WHERE activityCount IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
+    fun getActivityHistory(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT calories FROM health_data WHERE calories IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
-    fun getCaloriesHistory(): Flow<List<Int>>
+    @Query("SELECT calories as value, timestamp FROM health_data WHERE calories IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
+    fun getCaloriesHistory(): Flow<List<HistoryPoint>>
 
     @Query("""
         SELECT 
             MIN(timestamp) as id,
-            date(timestamp / 1000, 'unixepoch', 'localtime') as day,
+            MIN(timestamp) as timestamp,
             MAX(steps) as steps,
             MAX(distance) as distance,
             MAX(calories) as calories,
-            AVG(heartRate) as heartRate,
-            AVG(spo2) as spo2,
-            0 as timestamp,
+            AVG(NULLIF(heartRate, 0)) as heartRate,
+            AVG(NULLIF(spo2, 0)) as spo2,
             NULL as battery,
             NULL as systolic,
             NULL as diastolic,
             NULL as activityCount
         FROM health_data 
-        GROUP BY day 
-        ORDER BY day DESC 
+        WHERE timestamp > (strftime('%s', 'now') - 86400) * 1000
+        GROUP BY strftime('%Y-%m-%d %H', timestamp / 1000, 'unixepoch', 'localtime') 
+        ORDER BY timestamp DESC
+    """)
+    fun getLast24hStats(): Flow<List<HealthEntry>>
+
+    @Query("""
+        SELECT 
+            MIN(timestamp) as id,
+            MIN(timestamp) as timestamp,
+            MAX(steps) as steps,
+            MAX(distance) as distance,
+            MAX(calories) as calories,
+            AVG(NULLIF(heartRate, 0)) as heartRate,
+            AVG(NULLIF(spo2, 0)) as spo2,
+            NULL as battery,
+            NULL as systolic,
+            NULL as diastolic,
+            NULL as activityCount
+        FROM health_data 
+        GROUP BY date(timestamp / 1000, 'unixepoch', 'localtime') 
+        ORDER BY timestamp DESC 
         LIMIT 30
     """)
     fun getDailyStats(): Flow<List<HealthEntry>>
@@ -77,20 +101,19 @@ interface HealthDao {
     @Query("""
         SELECT 
             MIN(timestamp) as id,
-            strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') as week,
+            MIN(timestamp) as timestamp,
             MAX(steps) as steps,
             MAX(distance) as distance,
             MAX(calories) as calories,
-            AVG(heartRate) as heartRate,
-            AVG(spo2) as spo2,
-            0 as timestamp,
+            AVG(NULLIF(heartRate, 0)) as heartRate,
+            AVG(NULLIF(spo2, 0)) as spo2,
             NULL as battery,
             NULL as systolic,
             NULL as diastolic,
             NULL as activityCount
         FROM health_data 
-        GROUP BY week 
-        ORDER BY week DESC 
+        GROUP BY strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') 
+        ORDER BY timestamp DESC 
         LIMIT 12
     """)
     fun getWeeklyStats(): Flow<List<HealthEntry>>
@@ -98,20 +121,19 @@ interface HealthDao {
     @Query("""
         SELECT 
             MIN(timestamp) as id,
-            strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') as month,
+            MIN(timestamp) as timestamp,
             MAX(steps) as steps,
             MAX(distance) as distance,
             MAX(calories) as calories,
-            AVG(heartRate) as heartRate,
-            AVG(spo2) as spo2,
-            0 as timestamp,
+            AVG(NULLIF(heartRate, 0)) as heartRate,
+            AVG(NULLIF(spo2, 0)) as spo2,
             NULL as battery,
             NULL as systolic,
             NULL as diastolic,
             NULL as activityCount
-        FROM health_data 
-        GROUP BY month 
-        ORDER BY month DESC 
+        FROM health_data
+        GROUP BY strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') 
+        ORDER BY timestamp DESC
         LIMIT 12
     """)
     fun getMonthlyStats(): Flow<List<HealthEntry>>

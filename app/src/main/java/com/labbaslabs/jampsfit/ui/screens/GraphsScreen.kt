@@ -11,17 +11,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     var selectedSubTab by remember { mutableIntStateOf(0) }
-    val subTabs = listOf("Today", "Daily", "Weekly", "Monthly")
+    val subTabs = listOf("Last 24h", "Today", "Daily", "Weekly", "Monthly")
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -45,10 +51,11 @@ fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             when (selectedSubTab) {
-                0 -> TodayGraphs(state)
-                1 -> HistoryGraphs(title = "Daily History", stats = state.dailyStats)
-                2 -> HistoryGraphs(title = "Weekly History", stats = state.weeklyStats)
-                3 -> HistoryGraphs(title = "Monthly History", stats = state.monthlyStats)
+                0 -> HistoryGraphs(title = "Last 24 Hours", stats = state.last24hStats, timeFormat = "HH:00")
+                1 -> TodayGraphs(state)
+                2 -> HistoryGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM")
+                3 -> HistoryGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w")
+                4 -> HistoryGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM")
             }
         }
     }
@@ -56,13 +63,48 @@ fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
 
 @Composable
 fun TodayGraphs(state: WatchState) {
+    val timeFormat = "HH:mm"
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
+    val sdf = remember { SimpleDateFormat(timeFormat, Locale.getDefault()) }
+
     Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-    SleekGraphCard(title = "Battery (%)", data = state.batteryHistory, currentValue = state.battery?.let { "$it%" }, color = Color(0xFF4CAF50))
-    SleekGraphCard(title = "Activity Count", data = state.activityHistory, currentValue = state.activityCount?.toString(), color = Color(0xFF8BC34A))
-    SleekGraphCard(title = "Distance (m)", data = state.distanceHistory, currentValue = state.distance?.let { "${it}m" }, color = Color(0xFF2196F3))
-    SleekGraphCard(title = "Heart Rate (BPM)", data = state.heartRateHistory, currentValue = state.heartRate?.let { "$it bpm" }, color = Color(0xFFE91E63))
-    SleekGraphCard(title = "SpO2 (%)", data = state.spo2History, currentValue = state.spo2?.let { "$it%" }, color = Color(0xFF00BCD4))
+    SleekGraphCard(
+        title = "Battery (%)", 
+        dataPoints = state.batteryHistory, 
+        currentValue = state.battery?.let { "$it%" }, 
+        color = Color(0xFF4CAF50),
+        timeFormat = timeFormat
+    )
+    SleekGraphCard(
+        title = "Activity Count", 
+        dataPoints = state.activityHistory, 
+        currentValue = state.activityCount?.toString(), 
+        color = Color(0xFF8BC34A),
+        timeFormat = timeFormat
+    )
+    SleekGraphCard(
+        title = "Distance (m)", 
+        dataPoints = state.distanceHistory, 
+        currentValue = state.distance?.let { "${it}m" }, 
+        color = Color(0xFF2196F3),
+        timeFormat = timeFormat
+    )
+    SleekGraphCard(
+        title = "Heart Rate (BPM)", 
+        dataPoints = state.heartRateHistory, 
+        currentValue = state.heartRate?.let { "$it bpm" }, 
+        color = Color(0xFFE91E63),
+        timeFormat = timeFormat
+    )
+    SleekGraphCard(
+        title = "SpO2 (%)", 
+        dataPoints = state.spo2History, 
+        currentValue = state.spo2?.let { "$it%" }, 
+        color = Color(0xFF00BCD4),
+        timeFormat = timeFormat
+    )
     
     SleekCard {
         Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -106,35 +148,73 @@ fun TodayGraphs(state: WatchState) {
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        val bpData = if (state.bpHistory.isNotEmpty()) state.bpHistory 
-                     else if (state.systolic != null && state.diastolic != null) listOf(Pair(state.systolic, state.diastolic))
-                     else emptyList()
+        val bpData = state.bpHistory
 
         if (bpData.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                 Text(text = "Waiting for data...", color = Color.Gray)
             }
         } else {
-            Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
-                val width = size.width
-                val height = size.height
-                val maxVal = (bpData.maxOf { it.first }.toFloat()).coerceAtLeast(140f)
-                val minVal = (bpData.minOf { it.second }.toFloat()).coerceAtMost(60f)
+            Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                val leftPadding = 45.dp.toPx()
+                val bottomPadding = 30.dp.toPx()
+                val graphWidth = size.width - leftPadding
+                val graphHeight = size.height - bottomPadding
+                
+                val maxVal = (bpData.maxOf { it.systolic ?: 0 }.toFloat()).coerceAtLeast(140f)
+                val minVal = (bpData.minOf { it.diastolic ?: 0 }.toFloat()).coerceAtMost(60f)
                 val range = (maxVal - minVal).coerceAtLeast(1f)
+
+                // Draw Y axis labels and grid
+                val ySteps = 4
+                for (i in 0..ySteps) {
+                    val yVal = minVal + (range * i / ySteps)
+                    val yPos = graphHeight - (graphHeight * i / ySteps)
+                    
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = yVal.toInt().toString(),
+                        style = labelStyle,
+                        topLeft = Offset(0f, yPos - 10.dp.toPx())
+                    )
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.1f),
+                        start = Offset(leftPadding, yPos),
+                        end = Offset(size.width, yPos),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                // Draw X axis labels
+                if (bpData.size >= 2) {
+                    val indices = listOf(0, bpData.size / 2, bpData.size - 1)
+                    indices.forEach { index ->
+                        val entry = bpData[index]
+                        val xPos = leftPadding + (index.toFloat() / (bpData.size - 1)) * graphWidth
+                        val timeStr = sdf.format(Date(entry.timestamp))
+                        
+                        drawText(
+                            textMeasurer = textMeasurer,
+                            text = timeStr,
+                            style = labelStyle,
+                            topLeft = Offset(xPos - 15.dp.toPx(), graphHeight + 5.dp.toPx())
+                        )
+                    }
+                }
                 
                 if (bpData.size == 1) {
-                    val pair = bpData[0]
-                    val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
-                    val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
-                    drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, sysY))
-                    drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, diaY))
+                    val entry = bpData[0]
+                    val sysY = graphHeight - ((entry.systolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
+                    val diaY = graphHeight - ((entry.diastolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
+                    drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = Offset(leftPadding + graphWidth / 2f, sysY))
+                    drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = Offset(leftPadding + graphWidth / 2f, diaY))
                 } else {
                     val sysPath = Path()
                     val diaPath = Path()
-                    bpData.forEachIndexed { i, pair ->
-                        val x = (i.toFloat() / (bpData.size - 1)) * width
-                        val sysY = height - ((pair.first.toFloat() - minVal) / range) * height
-                        val diaY = height - ((pair.second.toFloat() - minVal) / range) * height
+                    bpData.forEachIndexed { i, entry ->
+                        val x = leftPadding + (i.toFloat() / (bpData.size - 1)) * graphWidth
+                        val sysY = graphHeight - ((entry.systolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
+                        val diaY = graphHeight - ((entry.diastolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                         if (i == 0) {
                             sysPath.moveTo(x, sysY)
                             diaPath.moveTo(x, diaY)
@@ -146,13 +226,17 @@ fun TodayGraphs(state: WatchState) {
                     drawPath(sysPath, color = Color(0xFFFF5722), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                     drawPath(diaPath, color = Color(0xFF3F51B5), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
+
+                // Draw Axis lines
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width, graphHeight), 2.dp.toPx())
             }
         }
     }
 }
 
 @Composable
-fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>) {
+fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     if (stats.isEmpty()) {
@@ -160,29 +244,58 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             Text(text = "No history data available yet.", color = Color.Gray)
         }
     } else {
+        // Calculate hourly calorie burn if we are looking at the 24h view
+        if (title.contains("24 Hours", ignoreCase = true)) {
+            val hourlyCalories = mutableListOf<com.labbaslabs.jampsfit.database.HistoryPoint>()
+            for (i in stats.indices) {
+                val current = stats[i].calories ?: 0
+                val previous = if (i > 0) stats[i - 1].calories ?: 0 else 0
+                
+                // If current < previous, it likely means a day rollover (calories reset to 0 at midnight)
+                val burn = if (current >= previous) current - previous else current
+                hourlyCalories.add(com.labbaslabs.jampsfit.database.HistoryPoint(burn, stats[i].timestamp))
+            }
+            
+            SleekGraphCard(
+                title = "Calories Burned (per hour)",
+                dataPoints = hourlyCalories,
+                currentValue = hourlyCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
+                color = Color(0xFFFF5722),
+                timeFormat = timeFormat
+            )
+        }
+
         SleekGraphCard(
-            title = "Steps (Max)",
-            data = stats.map { it.steps ?: 0 },
+            title = if (title.contains("24 Hours", ignoreCase = true)) "Steps (Hourly Max)" else "Steps (Max)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.steps ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull()?.steps?.toString(),
-            color = Color(0xFF03A9F4)
+            color = Color(0xFF03A9F4),
+            timeFormat = timeFormat
         )
         SleekGraphCard(
             title = "Calories (Max)",
-            data = stats.map { it.calories ?: 0 },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull()?.calories?.toString(),
-            color = Color(0xFFFF9800)
+            color = Color(0xFFFF9800),
+            timeFormat = timeFormat
         )
         SleekGraphCard(
             title = "Heart Rate (Avg)",
-            data = stats.map { it.heartRate ?: 0 },
-            currentValue = stats.lastOrNull()?.heartRate?.toString(),
-            color = Color(0xFFE91E63)
+            dataPoints = stats.mapNotNull { entry -> 
+                entry.heartRate?.takeIf { it > 0 }?.let { com.labbaslabs.jampsfit.database.HistoryPoint(it, entry.timestamp) }
+            },
+            currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
+            color = Color(0xFFE91E63),
+            timeFormat = timeFormat
         )
         SleekGraphCard(
             title = "SpO2 (Avg)",
-            data = stats.map { it.spo2 ?: 0 },
-            currentValue = stats.lastOrNull()?.spo2?.toString(),
-            color = Color(0xFF00BCD4)
+            dataPoints = stats.mapNotNull { entry -> 
+                entry.spo2?.takeIf { it > 0 }?.let { com.labbaslabs.jampsfit.database.HistoryPoint(it, entry.timestamp) }
+            },
+            currentValue = stats.lastOrNull { (it.spo2 ?: 0) > 0 }?.spo2?.toString(),
+            color = Color(0xFF00BCD4),
+            timeFormat = timeFormat
         )
     }
 }
@@ -206,43 +319,100 @@ fun RowScope.SleepBar(weight: Float, color: Color, label: String) {
 }
 
 @Composable
-fun SleekGraphCard(title: String, data: List<Int>, currentValue: String?, color: Color) {
+fun SleekGraphCard(
+    title: String, 
+    dataPoints: List<com.labbaslabs.jampsfit.database.HistoryPoint>, 
+    currentValue: String?, 
+    color: Color,
+    timeFormat: String = "HH:mm"
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
+    val sdf = remember { SimpleDateFormat(timeFormat, Locale.getDefault()) }
+
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Text(text = currentValue ?: "--", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
         }
         Spacer(modifier = Modifier.height(16.dp))
-        val graphData = if (data.isNotEmpty()) data else currentValue?.filter { it.isDigit() }?.toIntOrNull()?.let { listOf(it) }.orEmpty()
-        if (graphData.isEmpty()) {
+        
+        if (dataPoints.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                 Text(text = "Waiting for data...", color = Color.Gray)
             }
         } else {
-            Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
-                val width = size.width
-                val height = size.height
-                val currentMax = (graphData.maxOrNull()?.toFloat() ?: 100f).coerceAtLeast(1f)
-                val currentMin = (graphData.minOrNull()?.toFloat() ?: 0f)
+            Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                val leftPadding = 45.dp.toPx()
+                val bottomPadding = 30.dp.toPx()
+                val graphWidth = size.width - leftPadding
+                val graphHeight = size.height - bottomPadding
+                
+                val currentMax = (dataPoints.maxOf { it.value }.toFloat()).coerceAtLeast(1f)
+                val currentMin = (dataPoints.minOf { it.value }.toFloat())
                 val range = (currentMax - currentMin).coerceAtLeast(1f)
+                
+                // Draw Y axis labels and grid
+                val ySteps = 4
+                for (i in 0..ySteps) {
+                    val yVal = currentMin + (range * i / ySteps)
+                    val yPos = graphHeight - (graphHeight * i / ySteps)
+                    
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = yVal.toInt().toString(),
+                        style = labelStyle,
+                        topLeft = Offset(0f, yPos - 10.dp.toPx())
+                    )
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.1f),
+                        start = Offset(leftPadding, yPos),
+                        end = Offset(size.width, yPos),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                // Draw X axis labels (start, middle, end)
+                if (dataPoints.size >= 2) {
+                    val indices = listOf(0, dataPoints.size / 2, dataPoints.size - 1)
+                    indices.forEach { index ->
+                        val point = dataPoints[index]
+                        val xPos = leftPadding + (index.toFloat() / (dataPoints.size - 1)) * graphWidth
+                        val timeStr = sdf.format(Date(point.timestamp))
+                        
+                        drawText(
+                            textMeasurer = textMeasurer,
+                            text = timeStr,
+                            style = labelStyle,
+                            topLeft = Offset(xPos - 15.dp.toPx(), graphHeight + 5.dp.toPx())
+                        )
+                    }
+                }
+
                 val path = Path()
-                graphData.forEachIndexed { i, value ->
-                    val x = if (graphData.size == 1) width / 2f else (i.toFloat() / (graphData.size - 1)) * width
-                    val y = height - ((value.toFloat() - currentMin) / range) * height
+                dataPoints.forEachIndexed { i, point ->
+                    val x = if (dataPoints.size == 1) leftPadding + graphWidth / 2f 
+                            else leftPadding + (i.toFloat() / (dataPoints.size - 1)) * graphWidth
+                    val y = graphHeight - ((point.value.toFloat() - currentMin) / range) * graphHeight
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
-                if (graphData.size == 1) {
-                    drawCircle(color = color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(width / 2f, height / 2f))
+                
+                if (dataPoints.size == 1) {
+                    drawCircle(color = color, radius = 5.dp.toPx(), center = Offset(leftPadding + graphWidth / 2f, graphHeight / 2f))
                 } else {
                     drawPath(path, color = color, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                     val fillPath = Path().apply {
                         addPath(path)
-                        lineTo(width, height)
-                        lineTo(0f, height)
+                        lineTo(leftPadding + graphWidth, graphHeight)
+                        lineTo(leftPadding, graphHeight)
                         close()
                     }
                     drawPath(fillPath, brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.2f), Color.Transparent)))
                 }
+                
+                // Draw Axis lines
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width, graphHeight), 2.dp.toPx())
             }
         }
     }

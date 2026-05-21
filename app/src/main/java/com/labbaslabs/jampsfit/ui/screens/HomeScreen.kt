@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -13,10 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.labbaslabs.jampsfit.MainActivity
+import com.labbaslabs.jampsfit.R
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.DataCard
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,16 +38,15 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "jampsFit",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary
+        Image(
+            painter = painterResource(id = R.drawable.jampsfit_logo),
+            contentDescription = "jampsFit Logo",
+            modifier = Modifier.height(60.dp).fillMaxWidth().padding(horizontal = 32.dp)
         )
         
         Card(
             shape = RoundedCornerShape(32.dp),
-            colors = CardDefaults.cardColors(containerColor = if (state.isConnected) Color(0xFF4CAF50).copy(alpha = 0.1f) else Color.Gray.copy(alpha = 0.1f)),
+            colors = CardDefaults.cardColors(containerColor = Color.Black),
             modifier = Modifier.border(1.dp, if (state.isConnected) Color(0xFF4CAF50).copy(alpha = 0.3f) else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
         ) {
             Text(

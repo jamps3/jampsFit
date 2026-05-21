@@ -47,19 +47,21 @@ data class WatchState(
     val weatherTemp: Int = 20,
     val weatherCondition: String = "Sunny",
     val activeMeasurement: String? = null,
+    val isServiceRunning: Boolean = false,
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
     val isFindingPhone: Boolean = false,
     val volumeSteps: Int = 1,
-    val batteryHistory: List<Int> = emptyList(),
-    val heartRateHistory: List<Int> = emptyList(),
-    val spo2History: List<Int> = emptyList(),
-    val bpHistory: List<Pair<Int, Int>> = emptyList(),
-    val stepsHistory: List<Int> = emptyList(),
-    val distanceHistory: List<Int> = emptyList(),
-    val caloriesHistory: List<Int> = emptyList(),
-    val activityHistory: List<Int> = emptyList(),
+    val batteryHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val heartRateHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val spo2History: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val bpHistory: List<com.labbaslabs.jampsfit.database.HealthEntry> = emptyList(),
+    val stepsHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val distanceHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val caloriesHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val activityHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
     val weeklyStats: List<HealthEntry> = emptyList(),
     val monthlyStats: List<HealthEntry> = emptyList(),
@@ -143,10 +145,7 @@ class WatchManager(private val context: Context) {
         }
         managerScope.launch {
             healthDao.getBloodPressureHistory().collect { history ->
-                val pairs = history.mapNotNull { 
-                    if (it.systolic != null && it.diastolic != null) Pair(it.systolic, it.diastolic) else null
-                }
-                _state.update { it.copy(bpHistory = pairs.reversed()) }
+                _state.update { it.copy(bpHistory = history.reversed()) }
             }
         }
         managerScope.launch {
@@ -167,6 +166,11 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             healthDao.getCaloriesHistory().collect { history ->
                 _state.update { it.copy(caloriesHistory = history.reversed()) }
+            }
+        }
+        managerScope.launch {
+            healthDao.getLast24hStats().collect { stats ->
+                _state.update { it.copy(last24hStats = stats.reversed()) }
             }
         }
         managerScope.launch {
@@ -485,9 +489,19 @@ class WatchManager(private val context: Context) {
             "get-step-goal" -> nativePacket(0x26)
             "get-auto-lock" -> nativePacket(0x8D)
             "heartbeat-64" -> nativePacket(0x64)
+            "time-12h" -> nativePacket(0x17, 0x00)
+            "time-24h" -> nativePacket(0x17, 0x01)
+            "quick-view-off" -> nativePacket(0x18, 0x00)
+            "quick-view-on" -> nativePacket(0x18, 0x01)
+            "auto-hr-10m" -> nativePacket(0x1F, 0x02)
+            "auto-hr-5m" -> nativePacket(0x1F, 0x01)
+            "move-reminder-on" -> nativePacket(0x1D, 0x01)
+            "move-reminder-off" -> nativePacket(0x1D, 0x00)
             "b9-ecard-config" -> nativePacket(0xB9, 0x12, 0x00, 0x02)
             "b9-ecard-content" -> nativePacket(0xB9, 0x12, 0x00, 0x03)
             "b9-weather-19" -> nativePacket(0xB9, 0x19, 0x00)
+            "hr-6d-query" -> nativePacket(0x6D)
+            "hr-6d-stop" -> nativePacket(0x6D, 0x00)
             "steps-33-00" -> nativePacket(0x33, 0x00)
             "steps-33-01" -> nativePacket(0x33, 0x01)
             "steps-33-02" -> nativePacket(0x33, 0x02)
@@ -650,14 +664,13 @@ class WatchManager(private val context: Context) {
     }
 
     fun startMeasurement(type: String) {
-        val cmd = when (type) { "Heart Rate" -> 0x6D.toByte(); "SpO2" -> 0x6B.toByte(); "Blood Pressure" -> 0x69.toByte(); else -> return }
-        enqueueOperation(GattOperation.WriteCharacteristic(null, formatPacket(cmd, byteArrayOf(0x01.toByte()))))
-        _state.update { it.copy(activeMeasurement = type) }
+        val cmd = when (type) { "Heart Rate" -> 0x6D; "SpO2" -> 0x6B; "Blood Pressure" -> 0x69; else -> return }
+        updateDebugLog("$type app-start disabled: FE EA 20 06 ${"%02X".format(cmd)} 01 reboots this watch. Start the measurement on the watch; jampsFit will listen for FEE3 results.")
     }
 
     fun stopMeasurement() {
-        val cmd = when (_state.value.activeMeasurement) { "Heart Rate" -> 0x6D.toByte(); "SpO2" -> 0x6B.toByte(); "Blood Pressure" -> 0x69.toByte(); else -> return }
-        enqueueOperation(GattOperation.WriteCharacteristic(null, formatPacket(cmd, byteArrayOf(0x00.toByte()))))
+        val type = _state.value.activeMeasurement ?: return
+        updateDebugLog("$type app-stop ignored: app-origin measurement commands are disabled to avoid watch reboot.")
         _state.update { it.copy(activeMeasurement = null) }
     }
 
@@ -683,6 +696,10 @@ class WatchManager(private val context: Context) {
 
     fun setFindingPhone(active: Boolean) {
         _state.update { it.copy(isFindingPhone = active) }
+    }
+
+    fun setServiceRunning(running: Boolean) {
+        _state.update { it.copy(isServiceRunning = running) }
     }
 
     private fun updateDebugLog(msg: String) {
@@ -929,7 +946,12 @@ class WatchManager(private val context: Context) {
                     updateDebugLog("Battery: $b%")
                 }
             }
-            HEART_RATE_CHAR -> parseStandardHeartRate(data)?.let { _state.update { s -> s.copy(heartRate = it) }; saveToDb(heartRate = it) }
+            HEART_RATE_CHAR -> parseStandardHeartRate(data)?.let {
+                if (it > 0) {
+                    _state.update { s -> s.copy(heartRate = it) }
+                    saveToDb(heartRate = it)
+                }
+            }
             FEE1_CHAR -> {
                 if (!parseActivityPacket(data, "FEE1")) parseKospetPacket(data)
             }
@@ -991,6 +1013,14 @@ class WatchManager(private val context: Context) {
         else (if (data.size < 2) null else data[1].toInt() and 0xFF)
     }
 
+    private fun extractHeartRateCandidate(data: ByteArray, start: Int): Int? {
+        for (index in start until data.size) {
+            val candidate = data[index].toInt() and 0xFF
+            if (candidate in 30..220) return candidate
+        }
+        return null
+    }
+
     private fun isFea1ActivityMirror(data: ByteArray): Boolean = data.size == 10 && data[0] == 0x07.toByte()
 
     private fun isActivityPayload(data: ByteArray): Boolean = data.size == 9
@@ -1007,7 +1037,7 @@ class WatchManager(private val context: Context) {
     private fun isKnownFee3Packet(data: ByteArray): Boolean {
         if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
         return when (data[4].toInt() and 0xFF) {
-            0x21, 0x26, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
+            0x21, 0x26, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
             else -> false
         }
     }
@@ -1020,6 +1050,15 @@ class WatchManager(private val context: Context) {
             }
             0x26 -> {
                 parseStepGoalResponse(data)
+            }
+            0x33 -> {
+                if (data.size >= 15) parseDailyTotalsPacket(data) else updateDebugLog("Daily totals response too short: ${data.toHexString()}")
+            }
+            0x59 -> {
+                if (data.size >= 54) parseHourlyActivityPacket(data) else updateDebugLog("Activity bucket response too short: ${data.toHexString()}")
+            }
+            0x5A -> {
+                parseDeviceInfoPacket(data)
             }
             0x64 -> {
                 _state.update { it.copy(lastRemoteEvent = "Watch Command 0x64") }
@@ -1035,19 +1074,23 @@ class WatchManager(private val context: Context) {
                 }
             }
             0x6D -> {
-                if (data.size > 5) {
-                    val hr = data[5].toInt() and 0xFF
+                val hr = extractHeartRateCandidate(data, start = 5)
+                if (hr != null) {
                     _state.update { it.copy(heartRate = hr) }
                     saveToDb(heartRate = hr)
-                    updateDebugLog("Manual HR: $hr bpm")
+                    updateDebugLog("Manual HR: $hr bpm payload=${data.copyOfRange(5, data.size).toHexString()}")
+                } else if (data.size > 5) {
+                    updateDebugLog("Manual HR response without bpm payload=${data.copyOfRange(5, data.size).toHexString()}")
                 }
             }
             0x6B -> {
                 if (data.size > 5) {
                     val spo2 = data[5].toInt() and 0xFF
-                    _state.update { it.copy(spo2 = spo2) }
-                    saveToDb(spo2 = spo2)
-                    updateDebugLog("Manual SpO2: $spo2%")
+                    if (spo2 > 0) {
+                        _state.update { it.copy(spo2 = spo2) }
+                        saveToDb(spo2 = spo2)
+                        updateDebugLog("Manual SpO2: $spo2%")
+                    }
                 }
             }
             0x69 -> {
@@ -1210,7 +1253,7 @@ class WatchManager(private val context: Context) {
         val steps = readUInt24LE(b, 6)
         val distance = readUInt24LE(b, 9)
         val calories = readUInt24LE(b, 12)
-        if (dayOffset == 0x00 || dayOffset == 0x01) {
+        if (dayOffset == 0x00) {
             _state.update { it.copy(steps = steps, distance = distance, calories = calories) }
             saveToDb(steps = steps, distance = distance, calories = calories)
             updateDebugLog("Daily totals[$dayOffset]: steps=$steps distance=${distance}m calories=$calories")
@@ -1246,11 +1289,7 @@ class WatchManager(private val context: Context) {
             val stepsUp = distance
             val stepsOther = calories
             val totalSteps = stepsUp + stepsDown + stepsOther
-            if (totalSteps > 0) {
-                _state.update { it.copy(steps = totalSteps) }
-                saveToDb(steps = totalSteps)
-            }
-            updateDebugLog("Activity buckets[0]: stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther totalSteps=$totalSteps records=$detail")
+            updateDebugLog("Activity buckets[0] candidate: stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther totalSteps=$totalSteps records=$detail")
         } else {
             updateDebugLog("Activity buckets[$bucket]: stepsCandidate=$steps distance=${distance}m calories=$calories records=$detail")
         }
