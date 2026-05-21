@@ -68,6 +68,8 @@ data class WatchState(
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
+    val notificationFilters: Set<String> = emptySet(),
+    val useLegacyCallNotifications: Boolean = false,
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false,
@@ -103,7 +105,9 @@ class WatchManager(private val context: Context) {
         prevAction = prefs.getString("prevAction", "Previous Track") ?: "Previous Track",
         volumeSteps = prefs.getInt("volumeSteps", 1),
         firmwareVersion = prefs.getString("firmwareVersion", null),
-        notificationsEnabled = prefs.getBoolean("notificationsEnabled", false)
+        notificationsEnabled = prefs.getBoolean("notificationsEnabled", false),
+        notificationFilters = prefs.getStringSet("notificationFilters", setOf("com.digibites.accubattery")) ?: emptySet(),
+        useLegacyCallNotifications = prefs.getBoolean("useLegacyCallNotifications", false)
     ))
     val state = _state.asStateFlow()
 
@@ -264,20 +268,28 @@ class WatchManager(private val context: Context) {
         sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
     }
 
+    fun sendLegacyShortNotification(title: String, text: String) {
+        sendNativeNotification08(title.ifBlank { "jampsFit" }, text.ifBlank { "Hello from jampsFit" }, type = 0x01, checksum = false, logLabel = "legacy-short")
+    }
+
+    fun sendLegacyCallNotification(title: String, text: String) {
+        sendNativeNotification08(title.ifBlank { "Call" }, text.ifBlank { "Incoming call" }, type = 0x02, checksum = false, logLabel = "legacy-call")
+    }
+
     fun sendNotificationProbe(kind: String) {
         if (!_state.value.isConnected) {
             updateDebugLog("Notification probe skipped: watch is not connected.")
             return
         }
         when (kind) {
-            "legacy-short" -> sendNotification("jampsFit", "Legacy short", 0x08, 0x01)
-            "legacy-call" -> sendNotification("Call", "Ada Lovelace", 0x08, 0x02)
-            "20-08-type1" -> sendNativeNotification08("jampsFit", "Type 1 short", 0x01, checksum = false)
-            "20-08-type2" -> sendNativeNotification08("Phone", "Type 2 message", 0x02, checksum = false)
-            "20-08-type3" -> sendNativeNotification08("SMS", "Type 3 message", 0x03, checksum = false)
-            "20-08-type5" -> sendNativeNotification08("App", "Type 5 message", 0x05, checksum = false)
-            "20-08-csum1" -> sendNativeNotification08("jampsFit", "Checksum type 1", 0x01, checksum = true)
-            "20-08-csum3" -> sendNativeNotification08("SMS", "Checksum type 3", 0x03, checksum = true)
+            "legacy-short" -> sendLegacyShortNotification("jampsFit", "Legacy short")
+            "legacy-call" -> sendLegacyCallNotification("Call", "Ada Lovelace")
+            "20-08-type1" -> sendNativeNotification08("jampsFit", "Type 1 short", 0x01, checksum = false, logLabel = "type1")
+            "20-08-type2" -> sendNativeNotification08("Phone", "Type 2 message", 0x02, checksum = false, logLabel = "type2")
+            "20-08-type3" -> sendNativeNotification08("SMS", "Type 3 message", 0x03, checksum = false, logLabel = "type3")
+            "20-08-type5" -> sendNativeNotification08("App", "Type 5 message", 0x05, checksum = false, logLabel = "type5")
+            "20-08-csum1" -> sendNativeNotification08("jampsFit", "Checksum type 1", 0x01, checksum = true, logLabel = "csum1")
+            "20-08-csum3" -> sendNativeNotification08("SMS", "Checksum type 3", 0x03, checksum = true, logLabel = "csum3")
             "20-41-tiny" -> sendNativeNotification41("jampsFit tiny 41")
             "20-41-len20" -> sendNativeNotification41("Len20 abcdefghijklmn", maxBytes = 20, logLabel = "len20")
             "20-41-len40" -> sendNativeNotification41("Len40 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJ", maxBytes = 40, logLabel = "len40")
@@ -303,7 +315,7 @@ class WatchManager(private val context: Context) {
         }
     }
 
-    private fun sendNativeNotification08(title: String, text: String, type: Int, checksum: Boolean) {
+    private fun sendNativeNotification08(title: String, text: String, type: Int, checksum: Boolean, logLabel: String) {
         val titleBytes = title.take(18).toByteArray(Charsets.UTF_8)
         val textBytes = text.take(40).toByteArray(Charsets.UTF_8)
         val payload = mutableListOf<Int>()
@@ -315,7 +327,7 @@ class WatchManager(private val context: Context) {
         val base = nativePacket(0x08, *payload.toIntArray())
         val packet = if (checksum) base.withTrailingSumChecksum() else base
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Notification probe 20/08 type=$type checksum=$checksum -> ${packet.toHexString()}")
+        updateDebugLog("Notification 20/08 $logLabel type=$type checksum=$checksum -> ${packet.toHexString()}")
     }
 
     private fun sendNativeNotification41(message: String, maxBytes: Int = 40, logLabel: String = "tiny") {
@@ -685,6 +697,20 @@ class WatchManager(private val context: Context) {
     fun toggleAutoStart(e: Boolean) { prefs.edit { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
     fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
+    fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
+    
+    fun addNotificationFilter(pkg: String) {
+        val newFilters = _state.value.notificationFilters + pkg
+        prefs.edit { putStringSet("notificationFilters", newFilters) }
+        _state.update { it.copy(notificationFilters = newFilters) }
+    }
+
+    fun removeNotificationFilter(pkg: String) {
+        val newFilters = _state.value.notificationFilters - pkg
+        prefs.edit { putStringSet("notificationFilters", newFilters) }
+        _state.update { it.copy(notificationFilters = newFilters) }
+    }
+
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
 

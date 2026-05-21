@@ -22,7 +22,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Unknown Packet Sniffer**: Dedicated tab for capturing and displaying unrecognized raw hex data from the watch.
 - **ADB-Friendly Capture**: Watch debug logs are mirrored to Logcat under `WatchManager` for direct packet collection from a connected phone.
 - **Easy Export**: Long-press any log to copy captured packets to the clipboard for further analysis.
-- **Controls Tab**: Connected-only watch controls, hydrated alarm/Step goal/Auto-lock settings, app behavior settings, and manual protocol tools.
+- **Controls Tab**: Connected-only watch controls, hydrated alarm/Step goal/Auto-lock settings, display settings, notification tools, app behavior settings, and manual protocol tools.
 
 ### 🛡️ Reliability & Background Support
 - **Persistent Connection**: Uses an Android Foreground Service to maintain the link even when the app is in the background or the screen is off.
@@ -48,7 +48,7 @@ The **Kospet TANK M1** appears to utilize the **MoYoung (DaFit)** protocol, iden
 
 Current reverse-engineering focus: passive main-screen data is restored, and the corrected `FEE2` route now has confirmed working controls for Clock Sync, Find My Watch, Alarm writes, Auto-lock, Weather forecast, and short direct `0x41` notifications. Da Fit can mirror Android notifications when it owns the watch connection, but that is only a capture clue, not a viable jampsFit feature path, because Da Fit and jampsFit cannot own the BLE link at the same time. See `PROTOCOL.md` for the active packet hypotheses and capture references.
 
-Current stable mode: the app skips MTU negotiation, broadly subscribes to watch notification channels, and passively decodes `FEE1` live walking packets into `activityCount`, distance, and calories. Outbound `FEE2` commands for Clock Sync, Find My Watch, alarms, Auto-lock, Weather forecast, and direct `0x41` notifications up to 238 text bytes are confirmed. Notification mirroring now uses direct `0x41` capped at 238 bytes. Controls query alarms, Step goal, and Auto-lock from the watch when opened; Auto-lock now lives in a dedicated Display control. Weather current conditions remain experimental.
+Current stable mode: the app skips MTU negotiation, broadly subscribes to watch notification channels, and passively decodes `FEE1` live walking packets into `activityCount`, distance, and calories. Outbound `FEE2` commands for Clock Sync, Find My Watch, alarms, Auto-lock, time format, Quick View / wrist raise, Weather On, and direct `0x41` notifications up to 238 text bytes are confirmed or partly confirmed. Legacy short notification and legacy call packets are also working and exposed as custom send tools. Notification mirroring uses direct `0x41` by default, supports package-name filters, and can use the confirmed call packet for Android call notifications. Controls query alarms, Step goal, and Auto-lock from the watch when opened. Weather current conditions remain experimental.
 
 Important capture correction: the Da Fit writes previously labelled as `6387` were ATT handle `0x0047`, which maps to the FEEA write characteristic `FEE2` in the captured service table. jampsFit was sending many `FE EA 20` packets to `6387`; that likely caused the reboots. The next send-path tests should route Da Fit-style `FE EA 20` packets through `FEE2`, where clock sync already works.
 

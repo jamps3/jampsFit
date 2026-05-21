@@ -224,6 +224,18 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleNotifications(enabled)
     }
 
+    fun toggleLegacyCallNotifications(enabled: Boolean) {
+        watchService?.watchManager?.toggleLegacyCallNotifications(enabled)
+    }
+
+    fun addNotificationFilter(pkg: String) {
+        watchService?.watchManager?.addNotificationFilter(pkg)
+    }
+
+    fun removeNotificationFilter(pkg: String) {
+        watchService?.watchManager?.removeNotificationFilter(pkg)
+    }
+
     fun updateVolumeSteps(steps: Int) {
         watchService?.watchManager?.updateVolumeSteps(steps)
     }
@@ -246,6 +258,14 @@ class MainActivity : ComponentActivity() {
 
     fun sendNotificationProbe(kind: String) {
         watchService?.watchManager?.sendNotificationProbe(kind)
+    }
+
+    fun sendLegacyShortNotification(title: String, text: String) {
+        watchService?.watchManager?.sendLegacyShortNotification(title, text)
+    }
+
+    fun sendLegacyCallNotification(title: String, text: String) {
+        watchService?.watchManager?.sendLegacyCallNotification(title, text)
     }
 
     fun sendExperimentalNotification() {

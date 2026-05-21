@@ -34,7 +34,10 @@
 - [x] Confirm Find My Watch through `FEE2`.
 - [x] Confirm Alarm 1 and Alarm 3 writes through `FEE2`.
 - [x] Confirm Auto-lock through `FEE2`.
+- [x] Confirm Time format 12h/24h through `FEE2`.
+- [x] Confirm Quick View / wrist raise on/off through `FEE2`.
 - [x] Confirm Weather forecast packet `0x42` through `FEE2`.
+- [x] Confirm Legacy Short and Legacy Call notification packet formats.
 - [x] Confirm short notification push with direct `0x41` through `FEE2`.
 - [x] Confirm direct `0x41` notification payloads through 80 text bytes.
 
@@ -49,8 +52,8 @@
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
 - [ ] **Heart Rate Retrieval**: Avoid app-origin `0x6D 01` start writes because they reboot this watch. `0x6D` no-payload and `0x6D 00` both trigger visible HR measurement with vibration/display wake, so they are retired from UI. Capture a silent Da Fit HR query/start sequence before re-enabling active app HR commands.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
-- [ ] **Weather Current Conditions**: Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
-- [ ] **Da Fit Settings Probes**: Live-test captured time format (`0x17`), Quick View (`0x18`), auto-HR interval (`0x1F`), and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
+- [ ] **Weather Current Conditions**: Weather On sends a partly working Joensuu sample sequence. Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
+- [ ] **Da Fit Settings Probes**: Time format (`0x17`) and Quick View (`0x18`) are confirmed and moved to Watch > Display. Live-test auto-HR interval (`0x1F`) and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
 - [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
 - [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
 - [ ] **Data Export**: Save session data to CSV files.

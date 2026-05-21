@@ -24,11 +24,22 @@ class WatchService : Service() {
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED") {
+                val pkg = intent.getStringExtra("package") ?: ""
                 val title = intent.getStringExtra("title") ?: ""
                 val text = intent.getStringExtra("text") ?: ""
+                val category = intent.getStringExtra("category") ?: ""
                 val state = watchManager.state.value
+                
                 if (state.isConnected && state.notificationsEnabled) {
-                    watchManager.sendNotification(title, text)
+                    if (state.notificationFilters.contains(pkg)) {
+                        Log.d("WatchService", "Filtered notification from $pkg")
+                        return
+                    }
+                    if (state.useLegacyCallNotifications && category == Notification.CATEGORY_CALL) {
+                        watchManager.sendLegacyCallNotification(title, text)
+                    } else {
+                        watchManager.sendNotification(title, text)
+                    }
                 }
             }
         }

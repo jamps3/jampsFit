@@ -8,16 +8,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BluetoothDisabled
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -156,6 +160,36 @@ fun ControlsScreen(
                 Slider(value = autoLockSeconds, onValueChange = { autoLockSeconds = it.toInt().toFloat() }, valueRange = 5f..60f, steps = 10, modifier = Modifier.weight(1f))
                 Button(onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
             }
+            Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
+            }
+            Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                GadgetProbeButton("Quick Off", "quick-view-off", state.isConnected, activity, Modifier.weight(1f))
+                GadgetProbeButton("Quick On", "quick-view-on", state.isConnected, activity, Modifier.weight(1f))
+            }
+        }
+
+        SleekCard {
+            Text(text = "Weather", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { activity?.setWeatherCity("Joensuu") },
+                enabled = state.isConnected,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.NotificationsActive, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Weather On")
+            }
+            Text(
+                text = "Sends the partly confirmed Joensuu weather sequence. Current conditions still need more verification.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
         }
 
         SleekCard {
@@ -172,24 +206,6 @@ fun ControlsScreen(
                 Button(onClick = { activity?.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
             }
 
-            var weatherCity by remember { mutableStateOf("Joensuu") }
-            OutlinedTextField(
-                value = weatherCity,
-                onValueChange = { weatherCity = it.take(12) },
-                label = { Text("Weather city") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            Button(
-                onClick = { activity?.setWeatherCity(weatherCity) },
-                enabled = state.isConnected && weatherCity.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Send Weather City")
-            }
             OutlinedButton(
                 onClick = { activity?.sendWeatherForecastSample() },
                 enabled = state.isConnected,
@@ -217,9 +233,6 @@ fun ControlsScreen(
         SleekCard {
             Text(text = "Notification Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
-
-            NotificationProbeButton("Legacy Short", "legacy-short", state.isConnected, activity)
-            NotificationProbeButton("Legacy Call", "legacy-call", state.isConnected, activity)
 
             Text("FE EA 20 / 0x08", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -345,6 +358,95 @@ private fun AppSettingsControls(
         }
         SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
         SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
+
+        if (state.notificationsEnabled) {
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.2f))
+            Text(text = "Notification Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(text = "Exclude apps by package name (e.g. com.digibites.accubattery)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            
+            var newPkg by remember { mutableStateOf("") }
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newPkg,
+                    onValueChange = { newPkg = it.trim().lowercase() },
+                    label = { Text("Package Name", fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                )
+                IconButton(onClick = { if (newPkg.isNotBlank()) { activity?.addNotificationFilter(newPkg); newPkg = "" } }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Filter", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                state.notificationFilters.sorted().forEach { pkg ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = pkg, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                        IconButton(onClick = { activity?.removeNotificationFilter(pkg) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SleekCard {
+        Text(text = "Watch Notifications", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        var customTitle by rememberSaveable { mutableStateOf("jampsFit") }
+        var customText by rememberSaveable { mutableStateOf("Hello from your phone") }
+        OutlinedTextField(
+            value = customTitle,
+            onValueChange = { customTitle = it.take(18) },
+            label = { Text("Title") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = customText,
+            onValueChange = { customText = it.take(40) },
+            label = { Text("Message") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { activity?.sendLegacyShortNotification(customTitle, customText) },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.NotificationsActive, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Send")
+            }
+            OutlinedButton(
+                onClick = { activity?.sendLegacyCallNotification(customTitle.ifBlank { "Call" }, customText.ifBlank { "Incoming call" }) },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Call, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Call")
+            }
+        }
+        SettingSwitch(
+            label = "Use Call Format for Incoming Calls",
+            checked = state.useLegacyCallNotifications
+        ) { activity?.toggleLegacyCallNotifications(it) }
+        Text(
+            text = "Uses the confirmed short notification and call packet formats; app notification mirroring still obeys the filters above.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
     }
 
     SleekCard {
@@ -357,16 +459,6 @@ private fun AppSettingsControls(
     SleekCard {
         Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
-        Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
-        }
-        Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("Quick Off", "quick-view-off", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("Quick On", "quick-view-on", state.isConnected, activity, Modifier.weight(1f))
-        }
         Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             GadgetProbeButton("HR 10m", "auto-hr-10m", state.isConnected, activity, Modifier.weight(1f))
@@ -378,22 +470,14 @@ private fun AppSettingsControls(
             GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
         }
         Text("Weather", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(
-                onClick = { activity?.setWeatherCity("Joensuu") },
-                enabled = state.isConnected,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp)
-            ) { Text("Weather On", fontSize = 12.sp) }
-            OutlinedButton(
-                onClick = { activity?.sendGadgetbridgeProbe("b9-weather-19") },
-                enabled = state.isConnected,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp)
-            ) { Text("Weather Probe", fontSize = 12.sp) }
-        }
+        OutlinedButton(
+            onClick = { activity?.sendGadgetbridgeProbe("b9-weather-19") },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) { Text("Weather Probe", fontSize = 12.sp) }
         Text(
-            text = "Weather-off did not show a clear FE EA write in the capture; Weather On replays the working Joensuu sequence.",
+            text = "Weather On moved to Watch > Weather because it partly works; these remain exploratory settings probes.",
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )

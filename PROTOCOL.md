@@ -121,7 +121,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `06` | `5A 01` | Firmware Info | Firmware Version ("MOY-QGF3-2.0.3") |
 | `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
 | `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
-| `20` | `VAR` | `08` | Notification Push | `[Type] [TitleLen] [Title] [TextLen] [Text] [Checksum]` |
+| `20` | `VAR` | `08` | **Notification Push** | Confirmed working without checksum for Legacy Short (`type=0x01`) and Legacy Call (`type=0x02`). Format: `[Type] [TitleLen] [Title] [TextLen] [Text]`; checksum variants remain probes. |
 | `20` | `VAR` | `41` | **Notification Push** | Confirmed working on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Display testing is complete through the current UI set; mirroring is capped at 238 text bytes. |
 | `20` | `06` | `B4` | Buffer Allocation | Part of extended data handshake (Params: 00, 12, 10, 20) |
 | `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
@@ -144,10 +144,10 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | Heartbeat 64 | `FE EA 20 05 64` | Retired from UI: no visible effect in live testing. Still treated as a known incoming keep-alive candidate when watch-originated. |
 | HR 6D | `FE EA 20 05 6D` | Retired from UI: starts visible HR measurement, with watch vibration and display wake. Need a different silent HR probe. |
 | HR Stop | `FE EA 20 06 6D 00` | Retired from UI: also starts visible HR measurement, with watch vibration and display wake. `FE EA 20 06 6D 01` remains blocked because it rebooted this watch. |
-| Time 12h | `FE EA 20 06 17 01` | Captured from Da Fit at 2026-05-18 03:35 when changing time mode to 12h. |
-| Time 24h | `FE EA 20 06 17 00` | Captured from Da Fit at 2026-05-18 03:36 when changing time mode to 24h. |
-| Quick Off | `FE EA 20 06 18 00` | Captured from Da Fit at 2026-05-18 03:37 when disabling Quick View / wrist raise. |
-| Quick On | `FE EA 20 06 18 01` | Captured from Da Fit at 2026-05-18 03:38 when enabling Quick View / wrist raise. The time range may be stored separately; no obvious range packet was isolated. |
+| Time 12h | `FE EA 20 06 17 00` | Confirmed working; moved to Watch > Display. |
+| Time 24h | `FE EA 20 06 17 01` | Confirmed working; moved to Watch > Display. |
+| Quick Off | `FE EA 20 06 18 00` | Confirmed working; moved to Watch > Display. |
+| Quick On | `FE EA 20 06 18 01` | Confirmed working; moved to Watch > Display. The time range may be stored separately; no obvious range packet was isolated. |
 | Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. |
 | Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. |
 | Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |
@@ -155,6 +155,12 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |
 | B9 Card Cfg | `FE EA 20 09 B9 12 00 02` | Gadgetbridge example advanced command / eCard config request. |
 | B9 Card Data | `FE EA 20 09 B9 12 00 03` | Gadgetbridge example advanced command / eCard content request. |
+
+Weather:
+
+| Control | Packet / Sequence | Status |
+| :--- | :--- | :--- |
+| Weather On | `B9 19 00` -> `43 ... [city UTF-16LE]` -> `42 ... forecast triples` -> `B5 ... [city ASCII]` -> `45 [city ASCII]` | Partly confirmed working with the Joensuu sample sequence. Current conditions and exact field meanings need more testing. |
 
 Step priority probes:
 
@@ -353,13 +359,15 @@ Other: jampsFit tiny 41
 
 Current implication: direct `0x41` on `FEE2` is the best notification path. Next tests should vary only one factor at a time: payload length, subtype byte (`80`), and text encoding/content. Avoid the older B4/F1 prep sequence unless a later capture proves it is required for longer payloads.
 
-Implementation update: jampsFit notification mirroring now formats incoming phone notifications as direct `0x41` messages:
+Implementation update: jampsFit notification mirroring now formats normal incoming phone notifications as direct `0x41` messages:
 
 ```text
 FE EA 20 [len] 41 80 [UTF-8 title/text]
 ```
 
 The Controls tab includes direct `0x41` length probes at 20, 40, 60, 80, 120, 160, 180, 220, 232, 236, 238, 239, 240, and 249 text bytes. Live result: fixed marker probes through 238 bytes displayed with the `END` suffix. The 240-byte marker was accepted but displayed only through `...7890 E`, truncating before the final `ND`. Current mirroring cap is therefore 238 text bytes. The one-byte packet-length format can carry up to 249 text bytes (`255 total - 5 header/cmd bytes - 1 subtype byte`), but the watch UI display limit appears lower.
+
+Legacy short/call notification update: `FE EA 20 ... 08` type `0x01` and type `0x02` now work from jampsFit on `FEE2`. Controls > App exposes custom title/message fields for the short format and a call-format test button. Android notification mirroring also carries package names into the service so the app can filter noisy packages before sending to the watch; call-category Android notifications can be sent using the confirmed call packet when the option is enabled.
 
 The vendor capture shows long AccuBattery notifications using `6387` / handle `0x0047`. This is now implemented behind the experimental `Exp Notif` button only.
 
