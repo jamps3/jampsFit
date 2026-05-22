@@ -146,8 +146,8 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | HR Stop | `FE EA 20 06 6D 00` | Retired from UI: also starts visible HR measurement, with watch vibration and display wake. `FE EA 20 06 6D 01` remains blocked because it rebooted this watch. |
 | Time 12h | `FE EA 20 06 17 00` | Confirmed working; moved to Watch > Display. |
 | Time 24h | `FE EA 20 06 17 01` | Confirmed working; moved to Watch > Display. |
-| Quick Off | `FE EA 20 06 18 00` | Confirmed working; moved to Watch > Display. |
-| Quick On | `FE EA 20 06 18 01` | Confirmed working; moved to Watch > Display. The time range may be stored separately; no obvious range packet was isolated. |
+| Quick Off | `FE EA 20 06 18 00` | Confirmed working; exposed as a dedicated Watch > Display control instead of a generic probe button. |
+| Quick On | `FE EA 20 06 18 01` | Confirmed working; exposed as a dedicated Watch > Display control instead of a generic probe button. The time range may be stored separately; no obvious range packet was isolated. |
 | Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. |
 | Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. |
 | Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |
@@ -333,7 +333,7 @@ Alarm record fields currently decode as:
 
 ### Extended Data / Large Notification Handshake (Experimental)
 
-Current jampsFit notification probe buttons:
+Notification probes were removed from the Controls UI after the remaining `0x08` and checksum variants produced no useful watch behavior. Keep these notes for protocol history only:
 
 | Button | Packet family | Notes |
 | :--- | :--- | :--- |
@@ -342,8 +342,6 @@ Current jampsFit notification probe buttons:
 | Type 1/2/3/5 | `FE EA 20` / `0x08` | Da Fit-style native notification candidates without checksum. |
 | Csum 1/3 | `FE EA 20` / `0x08` | Same native `0x08` format with one trailing sum checksum byte. |
 | Tiny 0x41 | `FE EA 20` / `0x41` | Confirmed working. Displayed on watch as `Other: jampsFit tiny 41`. |
-
-Test one notification button at a time and capture the exact log line. If the watch reboots, the last `Notification probe ... ->` packet is the failing candidate.
 
 Live result: Only the `Tiny 0x41` probe worked. The confirmed packet was:
 

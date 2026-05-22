@@ -69,7 +69,11 @@ data class WatchState(
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
     val notificationFilters: Set<String> = emptySet(),
+    val ignoreDuplicateNotifications: Boolean = true,
     val useLegacyCallNotifications: Boolean = false,
+    val borderColor: Int = 0xFFFFFFFF.toInt(),
+    val borderThickness: Float = 1.0f,
+    val borderAlpha: Float = 0.4f,
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false,
@@ -107,7 +111,11 @@ class WatchManager(private val context: Context) {
         firmwareVersion = prefs.getString("firmwareVersion", null),
         notificationsEnabled = prefs.getBoolean("notificationsEnabled", false),
         notificationFilters = prefs.getStringSet("notificationFilters", setOf("com.digibites.accubattery")) ?: emptySet(),
-        useLegacyCallNotifications = prefs.getBoolean("useLegacyCallNotifications", false)
+        ignoreDuplicateNotifications = prefs.getBoolean("ignoreDuplicateNotifications", true),
+        useLegacyCallNotifications = prefs.getBoolean("useLegacyCallNotifications", false),
+        borderColor = prefs.getInt("borderColor", 0xFFFFFFFF.toInt()),
+        borderThickness = prefs.getFloat("borderThickness", 1.0f),
+        borderAlpha = prefs.getFloat("borderAlpha", 0.4f)
     ))
     val state = _state.asStateFlow()
 
@@ -129,6 +137,14 @@ class WatchManager(private val context: Context) {
 
     init {
         observeHistory()
+        cleanupSeenNotifications()
+    }
+
+    private fun cleanupSeenNotifications() {
+        managerScope.launch {
+            val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+            healthDao.cleanupOldNotifications(oneMonthAgo)
+        }
     }
 
     private fun observeHistory() {
@@ -260,20 +276,53 @@ class WatchManager(private val context: Context) {
         synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") }
     }
 
+    suspend fun exportDataToCsv(): String {
+        val entries = healthDao.getAllEntriesList()
+        val csv = StringBuilder()
+        csv.append("Timestamp,Time,Battery,HeartRate,SpO2,Systolic,Diastolic,Steps,ActivityCount,Distance,Calories\n")
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        entries.forEach { e ->
+            csv.append("${e.timestamp},")
+            csv.append("${sdf.format(Date(e.timestamp))},")
+            csv.append("${e.battery ?: ""},")
+            csv.append("${e.heartRate ?: ""},")
+            csv.append("${e.spo2 ?: ""},")
+            csv.append("${e.systolic ?: ""},")
+            csv.append("${e.diastolic ?: ""},")
+            csv.append("${e.steps ?: ""},")
+            csv.append("${e.activityCount ?: ""},")
+            csv.append("${e.distance ?: ""},")
+            csv.append("${e.calories ?: ""}\n")
+        }
+        return csv.toString()
+    }
+
     fun sendNotification(title: String, text: String, cmd: Int = 0x08, type: Int = 0x01) {
         val message = listOf(title.trim(), text.trim())
             .filter { it.isNotBlank() }
             .joinToString(": ")
             .ifBlank { "jampsFit" }
-        sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
+        
+        managerScope.launch {
+            if (_state.value.ignoreDuplicateNotifications) {
+                val hash = message.hashCode()
+                val since = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+                if (healthDao.countSeenNotification(hash, since) > 0) {
+                    updateDebugLog("Duplicate notification ignored: $message")
+                    return@launch
+                }
+                healthDao.insertSeenNotification(com.labbaslabs.jampsfit.database.SeenNotification(content_hash = hash))
+            }
+            sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
+        }
     }
 
     fun sendLegacyShortNotification(title: String, text: String) {
-        sendNativeNotification08(title.ifBlank { "jampsFit" }, text.ifBlank { "Hello from jampsFit" }, type = 0x01, checksum = false, logLabel = "legacy-short")
+        sendNotification(title.ifBlank { "jampsFit" }, text.ifBlank { "Hello from jampsFit" })
     }
 
     fun sendLegacyCallNotification(title: String, text: String) {
-        sendNativeNotification08(title.ifBlank { "Call" }, text.ifBlank { "Incoming call" }, type = 0x02, checksum = false, logLabel = "legacy-call")
+        sendNotification(title.ifBlank { "Call" }, text.ifBlank { "Incoming call" })
     }
 
     fun sendNotificationProbe(kind: String) {
@@ -407,6 +456,16 @@ class WatchManager(private val context: Context) {
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         _state.update { it.copy(autoLockSecondsSetting = safeSeconds) }
         updateDebugLog("Auto-lock via FEE2: ${safeSeconds}s -> ${packet.toHexString()}")
+    }
+
+    fun setQuickViewEnabled(enabled: Boolean) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Quick View skipped: watch is not connected.")
+            return
+        }
+        val packet = nativePacket(0x18, if (enabled) 0x01 else 0x00)
+        sendFee2NativeRaw(packet)
+        updateDebugLog("Quick View via FEE2: ${if (enabled) "on" else "off"} -> ${packet.toHexString()}")
     }
 
     fun setStepGoal(goal: Int) {
@@ -697,6 +756,7 @@ class WatchManager(private val context: Context) {
     fun toggleAutoStart(e: Boolean) { prefs.edit { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
     fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
+    fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
     
     fun addNotificationFilter(pkg: String) {
@@ -712,6 +772,22 @@ class WatchManager(private val context: Context) {
     }
 
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
+    
+    fun updateBorderColor(color: Int) {
+        prefs.edit { putInt("borderColor", color) }
+        _state.update { it.copy(borderColor = color) }
+    }
+
+    fun updateBorderThickness(thickness: Float) {
+        prefs.edit { putFloat("borderThickness", thickness) }
+        _state.update { it.copy(borderThickness = thickness) }
+    }
+
+    fun updateBorderAlpha(alpha: Float) {
+        prefs.edit { putFloat("borderAlpha", alpha) }
+        _state.update { it.copy(borderAlpha = alpha) }
+    }
+
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
 
     fun updateVolumeSteps(steps: Int) {

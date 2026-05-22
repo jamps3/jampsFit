@@ -157,8 +157,9 @@ fun TodayGraphs(state: WatchState) {
         } else {
             Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
                 val leftPadding = 45.dp.toPx()
+                val rightPadding = 20.dp.toPx()
                 val bottomPadding = 30.dp.toPx()
-                val graphWidth = size.width - leftPadding
+                val graphWidth = size.width - leftPadding - rightPadding
                 val graphHeight = size.height - bottomPadding
                 
                 val maxVal = (bpData.maxOf { it.systolic ?: 0 }.toFloat()).coerceAtLeast(140f)
@@ -175,12 +176,12 @@ fun TodayGraphs(state: WatchState) {
                         textMeasurer = textMeasurer,
                         text = yVal.toInt().toString(),
                         style = labelStyle,
-                        topLeft = Offset(0f, yPos - 10.dp.toPx())
+                        topLeft = Offset(0f, (yPos - 10.dp.toPx()).coerceAtLeast(0f))
                     )
                     drawLine(
                         color = Color.Gray.copy(alpha = 0.1f),
                         start = Offset(leftPadding, yPos),
-                        end = Offset(size.width, yPos),
+                        end = Offset(size.width - rightPadding, yPos),
                         strokeWidth = 1.dp.toPx()
                     )
                 }
@@ -193,11 +194,15 @@ fun TodayGraphs(state: WatchState) {
                         val xPos = leftPadding + (index.toFloat() / (bpData.size - 1)) * graphWidth
                         val timeStr = sdf.format(Date(entry.timestamp))
                         
+                        // Measure and shift labels appropriately
+                        val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
+                        val xOffset = if (index == bpData.size - 1) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
+                        
                         drawText(
                             textMeasurer = textMeasurer,
                             text = timeStr,
                             style = labelStyle,
-                            topLeft = Offset(xPos - 15.dp.toPx(), graphHeight + 5.dp.toPx())
+                            topLeft = Offset(xPos + xOffset, graphHeight + 5.dp.toPx())
                         )
                     }
                 }
@@ -229,7 +234,7 @@ fun TodayGraphs(state: WatchState) {
 
                 // Draw Axis lines
                 drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
-                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width, graphHeight), 2.dp.toPx())
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
             }
         }
     }
@@ -281,8 +286,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
         SleekGraphCard(
             title = "Heart Rate (Avg)",
-            dataPoints = stats.mapNotNull { entry -> 
-                entry.heartRate?.takeIf { it > 0 }?.let { com.labbaslabs.jampsfit.database.HistoryPoint(it, entry.timestamp) }
+            dataPoints = stats.map { entry -> 
+                com.labbaslabs.jampsfit.database.HistoryPoint(entry.heartRate ?: 0, entry.timestamp)
             },
             currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
             color = Color(0xFFE91E63),
@@ -290,8 +295,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
         SleekGraphCard(
             title = "SpO2 (Avg)",
-            dataPoints = stats.mapNotNull { entry -> 
-                entry.spo2?.takeIf { it > 0 }?.let { com.labbaslabs.jampsfit.database.HistoryPoint(it, entry.timestamp) }
+            dataPoints = stats.map { entry -> 
+                com.labbaslabs.jampsfit.database.HistoryPoint(entry.spo2 ?: 0, entry.timestamp)
             },
             currentValue = stats.lastOrNull { (it.spo2 ?: 0) > 0 }?.spo2?.toString(),
             color = Color(0xFF00BCD4),
@@ -344,12 +349,14 @@ fun SleekGraphCard(
         } else {
             Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
                 val leftPadding = 45.dp.toPx()
+                val rightPadding = 20.dp.toPx()
                 val bottomPadding = 30.dp.toPx()
-                val graphWidth = size.width - leftPadding
+                val graphWidth = size.width - leftPadding - rightPadding
                 val graphHeight = size.height - bottomPadding
                 
-                val currentMax = (dataPoints.maxOf { it.value }.toFloat()).coerceAtLeast(1f)
-                val currentMin = (dataPoints.minOf { it.value }.toFloat())
+                val validPoints = dataPoints.filter { it.value > 0 }
+                val currentMax = (validPoints.maxOfOrNull { it.value }?.toFloat() ?: 100f).coerceAtLeast(1f)
+                val currentMin = (validPoints.minOfOrNull { it.value }?.toFloat() ?: 0f)
                 val range = (currentMax - currentMin).coerceAtLeast(1f)
                 
                 // Draw Y axis labels and grid
@@ -362,39 +369,60 @@ fun SleekGraphCard(
                         textMeasurer = textMeasurer,
                         text = yVal.toInt().toString(),
                         style = labelStyle,
-                        topLeft = Offset(0f, yPos - 10.dp.toPx())
+                        topLeft = Offset(0f, (yPos - 10.dp.toPx()).coerceAtLeast(0f))
                     )
                     drawLine(
                         color = Color.Gray.copy(alpha = 0.1f),
                         start = Offset(leftPadding, yPos),
-                        end = Offset(size.width, yPos),
+                        end = Offset(size.width - rightPadding, yPos),
                         strokeWidth = 1.dp.toPx()
                     )
                 }
 
                 // Draw X axis labels (start, middle, end)
-                if (dataPoints.size >= 2) {
-                    val indices = listOf(0, dataPoints.size / 2, dataPoints.size - 1)
+                if (dataPoints.isNotEmpty()) {
+                    val indices = if (dataPoints.size >= 3) {
+                        listOf(0, dataPoints.size / 2, dataPoints.size - 1)
+                    } else if (dataPoints.size == 2) {
+                        listOf(0, 1)
+                    } else {
+                        listOf(0)
+                    }
+                    
                     indices.forEach { index ->
                         val point = dataPoints[index]
-                        val xPos = leftPadding + (index.toFloat() / (dataPoints.size - 1)) * graphWidth
+                        val xPos = if (dataPoints.size == 1) leftPadding + graphWidth / 2f
+                                   else leftPadding + (index.toFloat() / (dataPoints.size - 1)) * graphWidth
                         val timeStr = sdf.format(Date(point.timestamp))
                         
+                        // Measure and shift labels appropriately
+                        val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
+                        val xOffset = if (index == dataPoints.size - 1) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
+
                         drawText(
                             textMeasurer = textMeasurer,
                             text = timeStr,
                             style = labelStyle,
-                            topLeft = Offset(xPos - 15.dp.toPx(), graphHeight + 5.dp.toPx())
+                            topLeft = Offset(xPos + xOffset, graphHeight + 5.dp.toPx())
                         )
                     }
                 }
 
                 val path = Path()
+                var firstPoint = true
                 dataPoints.forEachIndexed { i, point ->
                     val x = if (dataPoints.size == 1) leftPadding + graphWidth / 2f 
                             else leftPadding + (i.toFloat() / (dataPoints.size - 1)) * graphWidth
-                    val y = graphHeight - ((point.value.toFloat() - currentMin) / range) * graphHeight
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    
+                    if (point.value > 0) {
+                        val y = graphHeight - ((point.value.toFloat() - currentMin) / range) * graphHeight
+                        if (firstPoint) {
+                            path.moveTo(x, y)
+                            firstPoint = false
+                        } else {
+                            path.lineTo(x, y)
+                        }
+                    }
                 }
                 
                 if (dataPoints.size == 1) {
@@ -412,7 +440,7 @@ fun SleekGraphCard(
                 
                 // Draw Axis lines
                 drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
-                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width, graphHeight), 2.dp.toPx())
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
             }
         }
     }

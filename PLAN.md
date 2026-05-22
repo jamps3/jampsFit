@@ -20,7 +20,21 @@
 - [x] UI Controls: Disconnect button and configurable start/connect behavior.
 - [x] Custom Button Mapping: Selectable actions for watch buttons (Media, Volume, Utility).
 - [x] OLED-dark UI: true black app background/surfaces with low-glow borders and no animated shine.
+- [x] **Sub-tabs for Graphs**: Daily, Weekly, Monthly, and Today stats.
+- [x] **Persistent Scroll Position**: Remembers scroll position when changing tabs.
+- [x] **Graph Axes and Labels**: Added full X/Y axis markings to all charts.
+- [x] **Notification Deduplication**: Ignore duplicate notifications for 30 days.
+- [x] **Notification Filtering**: Exclude apps by package name (e.g., AccuBattery).
+- [x] **Customizable Borders**: Adjustable thickness, brightness, and color for all UI borders.
+- [x] **Start on Boot**: Option to automatically start the service when the phone restarts.
+- [x] **Persistent Background Service**: Toggle for a reliable, always-on connection.
+- [x] **Last 24h View**: Hourly granularity health stats for the previous 24 hours.
+- [x] **Hourly Calories Graph**: Calculates active burn in 1-hour slices.
+- [x] **Custom Branding**: Integrated jampsFit logo and adaptive launcher icon with OLED optimization.
+- [x] **Watch-tab Connection Controls**: Scan/connect, clock sync, battery refresh, and queue clearing live with watch controls instead of App settings.
+- [x] **Retire Notification Probes**: Removed dead notification probe controls after they produced no useful watch behavior.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
+- [x] Data Export: Save session data to CSV files.
 - [ ] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path.
 - [x] Extended Notifications: Direct `0x41` display is confirmed through 238 bytes; 240 bytes truncates on-watch.
 - [x] Precise Time Sync: Big-endian local time synchronization.
@@ -53,7 +67,7 @@
 - [ ] **Heart Rate Retrieval**: Avoid app-origin `0x6D 01` start writes because they reboot this watch. `0x6D` no-payload and `0x6D 00` both trigger visible HR measurement with vibration/display wake, so they are retired from UI. Capture a silent Da Fit HR query/start sequence before re-enabling active app HR commands.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
 - [ ] **Weather Current Conditions**: Weather On sends a partly working Joensuu sample sequence. Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.
-- [ ] **Da Fit Settings Probes**: Time format (`0x17`) and Quick View (`0x18`) are confirmed and moved to Watch > Display. Live-test auto-HR interval (`0x1F`) and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
+- [ ] **Da Fit Settings Probes**: Time format (`0x17`) and Quick View (`0x18`) are confirmed; Quick View now uses dedicated Watch > Display commands instead of generic probe buttons. Live-test auto-HR interval (`0x1F`) and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
 - [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
 - [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
 - [ ] **Data Export**: Save session data to CSV files.

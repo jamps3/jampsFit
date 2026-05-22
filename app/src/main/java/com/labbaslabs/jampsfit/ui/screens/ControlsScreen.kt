@@ -1,11 +1,9 @@
 package com.labbaslabs.jampsfit.ui.screens
 
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Add
@@ -64,6 +62,8 @@ fun ControlsScreen(
         }
 
         if (controlsTab == 0) {
+        WatchConnectionCard(state, activity, onScanClick, onDisconnectClick)
+
         SleekCard {
             Text(text = "Watch Actions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
@@ -167,8 +167,18 @@ fun ControlsScreen(
             }
             Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("Quick Off", "quick-view-off", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("Quick On", "quick-view-on", state.isConnected, activity, Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = { activity?.setQuickViewEnabled(false) },
+                    enabled = state.isConnected,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("Quick Off", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { activity?.setQuickViewEnabled(true) },
+                    enabled = state.isConnected,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("Quick On", fontSize = 12.sp) }
             }
         }
 
@@ -231,44 +241,6 @@ fun ControlsScreen(
         }
 
         SleekCard {
-            Text(text = "Notification Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text("FE EA 20 / 0x08", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("Type 1", "20-08-type1", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("Type 2", "20-08-type2", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("Type 3", "20-08-type3", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("Type 5", "20-08-type5", state.isConnected, activity, Modifier.weight(1f))
-            }
-
-            Text("Checksum variants", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                NotificationProbeButton("Csum 1", "20-08-csum1", state.isConnected, activity, Modifier.weight(1f))
-                NotificationProbeButton("Csum 3", "20-08-csum3", state.isConnected, activity, Modifier.weight(1f))
-            }
-
-            OutlinedButton(
-                onClick = { activity?.sendNotificationProbe("20-41-tiny") },
-                enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Tiny 0x41")
-            }
-
-            Text(
-                text = "Direct 0x41 display length testing is complete; mirroring is capped at 238 text bytes.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-        }
-
-        SleekCard {
             Text(text = "Step Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
             Text("Real-step candidates", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -312,7 +284,7 @@ fun ControlsScreen(
 }
 
 @Composable
-private fun AppSettingsControls(
+private fun WatchConnectionCard(
     state: WatchState,
     activity: MainActivity?,
     onScanClick: () -> Unit,
@@ -348,6 +320,69 @@ private fun AppSettingsControls(
             Text("Clear Comm Queue")
         }
     }
+}
+
+@Composable
+private fun AppSettingsControls(
+    state: WatchState,
+    activity: MainActivity?,
+    onScanClick: () -> Unit,
+    onDisconnectClick: () -> Unit
+) {
+    SleekCard {
+        Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        
+        val colors = listOf(
+            "White" to 0xFFFFFFFF,
+            "Blue" to 0xFF2196F3,
+            "Green" to 0xFF4CAF50,
+            "Red" to 0xFFF44336,
+            "Orange" to 0xFFFF9800,
+            "Purple" to 0xFF9C27B0,
+            "Cyan" to 0xFF00BCD4
+        )
+        
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            colors.forEach { (name, colorVal) ->
+                val color = Color(colorVal)
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(color, RoundedCornerShape(16.dp))
+                        .border(
+                            2.dp,
+                            if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                            RoundedCornerShape(16.dp)
+                        )
+                        .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.borderThickness,
+            onValueChange = { activity?.updateBorderThickness(it) },
+            valueRange = 0.5f..4.0f,
+            steps = 6,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.borderAlpha,
+            onValueChange = { activity?.updateBorderAlpha(it) },
+            valueRange = 0.1f..1.0f,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+    }
 
     SleekCard {
         Text(text = "App Behavior", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -361,6 +396,15 @@ private fun AppSettingsControls(
 
         if (state.notificationsEnabled) {
             Spacer(modifier = Modifier.height(8.dp))
+            SettingSwitch(label = "Ignore Duplicate Notifications", checked = state.ignoreDuplicateNotifications) { 
+                activity?.toggleIgnoreDuplicates(it) 
+            }
+            Text(
+                text = "Prevents the same notification content from being sent multiple times (remembered for 30 days).",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+            )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.2f))
             Text(text = "Notification Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(text = "Exclude apps by package name (e.g. com.digibites.accubattery)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)

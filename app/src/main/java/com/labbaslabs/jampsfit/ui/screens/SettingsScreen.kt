@@ -54,6 +54,89 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
                     Text(text = "Protocol Configuration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(12.dp))
                     
@@ -83,6 +166,89 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
 
                     SettingSwitch(label = "Length = Payload Only", checked = state.payloadLengthOnly) {
                         activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, false, it)
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
                     }
                 }
 
@@ -318,12 +484,178 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                 }
 
                 SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text(text = "Watch Firmware", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                             Text(text = state.firmwareVersion ?: "Not detected yet (Reconnect watch)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                         Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
                     }
                 }
 
@@ -380,6 +712,89 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                 }
 
                 SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
                     Text(text = "App Behavior", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { activity?.toggleAutoStart(it) }
@@ -388,6 +803,135 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
                     SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
                     SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
+
+                    if (state.notificationsEnabled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SettingSwitch(label = "Ignore Duplicate Notifications", checked = state.ignoreDuplicateNotifications) { 
+                            activity?.toggleIgnoreDuplicates(it) 
+                        }
+                        Text(
+                            text = "Prevents sending the same notification text again (30-day memory).",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.2f))
+                        Text(text = "Notification Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text(text = "Exclude apps by package name", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        
+                        var newPkg by remember { mutableStateOf("") }
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = newPkg,
+                                onValueChange = { newPkg = it.trim().lowercase() },
+                                label = { Text("Package Name", fontSize = 12.sp) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                            )
+                            IconButton(onClick = { if (newPkg.isNotBlank()) { activity?.addNotificationFilter(newPkg); newPkg = "" } }) {
+                                Icon(Icons.Default.Add, contentDescription = "Add Filter", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            state.notificationFilters.sorted().forEach { pkg ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(text = pkg, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                                    IconButton(onClick = { activity?.removeNotificationFilter(pkg) }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
+                }
+
+                SleekCard {
+                    Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    
+                    val colors = listOf(
+                        "White" to 0xFFFFFFFF,
+                        "Blue" to 0xFF2196F3,
+                        "Green" to 0xFF4CAF50,
+                        "Red" to 0xFFF44336,
+                        "Orange" to 0xFFFF9800,
+                        "Purple" to 0xFF9C27B0,
+                        "Cyan" to 0xFF00BCD4
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        colors.forEach { (name, colorVal) ->
+                            val color = Color(colorVal)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(color, RoundedCornerShape(16.dp))
+                                    .border(
+                                        2.dp,
+                                        if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderThickness,
+                        onValueChange = { activity?.updateBorderThickness(it) },
+                        valueRange = 0.5f..4.0f,
+                        steps = 6
+                    )
+
+                    Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Slider(
+                        value = state.borderAlpha,
+                        onValueChange = { activity?.updateBorderAlpha(it) },
+                        valueRange = 0.1f..1.0f
+                    )
+                }
+
+                SleekCard {
+                    Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { activity?.exportData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Health Data (CSV)")
+                    }
                 }
 
                 SleekCard {

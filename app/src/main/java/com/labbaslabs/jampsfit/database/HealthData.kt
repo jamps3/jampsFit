@@ -34,6 +34,9 @@ interface HealthDao {
     @Query("SELECT * FROM health_data ORDER BY timestamp DESC")
     fun getAllEntries(): Flow<List<HealthEntry>>
 
+    @Query("SELECT * FROM health_data ORDER BY timestamp ASC")
+    suspend fun getAllEntriesList(): List<HealthEntry>
+
     @Query("SELECT battery as value, timestamp FROM health_data WHERE battery IS NOT NULL ORDER BY timestamp DESC LIMIT 100")
     fun getBatteryHistory(): Flow<List<HistoryPoint>>
 
@@ -149,6 +152,15 @@ interface HealthDao {
 
     @Query("DELETE FROM unknown_packets")
     suspend fun deleteAllUnknown()
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSeenNotification(notification: SeenNotification): Long
+
+    @Query("SELECT COUNT(*) FROM seen_notifications WHERE content_hash = :hash AND timestamp > :since")
+    suspend fun countSeenNotification(hash: Int, since: Long): Int
+
+    @Query("DELETE FROM seen_notifications WHERE timestamp < :threshold")
+    suspend fun cleanupOldNotifications(threshold: Long)
 }
 
 @Entity(tableName = "unknown_packets")
@@ -156,4 +168,11 @@ data class UnknownPacket(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val message: String
+)
+
+@Entity(tableName = "seen_notifications", indices = [Index(value = ["content_hash"])])
+data class SeenNotification(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val content_hash: Int
 )

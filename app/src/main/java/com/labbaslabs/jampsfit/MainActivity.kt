@@ -22,11 +22,14 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.*
 import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
 import com.labbaslabs.jampsfit.ui.components.TabSpec
 import com.labbaslabs.jampsfit.ui.screens.*
+
+val LocalWatchState = compositionLocalOf { WatchState() }
 
 class MainActivity : ComponentActivity() {
     private var watchService: WatchService? by mutableStateOf(null)
@@ -70,7 +73,9 @@ class MainActivity : ComponentActivity() {
             JampsFitTheme {
                 val service = watchService
                 val state = service?.watchManager?.state?.collectAsState()?.value ?: WatchState()
-                var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+                
+                CompositionLocalProvider(LocalWatchState provides state) {
+                    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
                 
                 val homeScrollState = rememberScrollState()
                 val graphsScrollState = rememberScrollState()
@@ -164,6 +169,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -224,6 +230,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleNotifications(enabled)
     }
 
+    fun toggleIgnoreDuplicates(enabled: Boolean) {
+        watchService?.watchManager?.toggleIgnoreDuplicates(enabled)
+    }
+
     fun toggleLegacyCallNotifications(enabled: Boolean) {
         watchService?.watchManager?.toggleLegacyCallNotifications(enabled)
     }
@@ -234,6 +244,18 @@ class MainActivity : ComponentActivity() {
 
     fun removeNotificationFilter(pkg: String) {
         watchService?.watchManager?.removeNotificationFilter(pkg)
+    }
+
+    fun updateBorderColor(color: Int) {
+        watchService?.watchManager?.updateBorderColor(color)
+    }
+
+    fun updateBorderThickness(thickness: Float) {
+        watchService?.watchManager?.updateBorderThickness(thickness)
+    }
+
+    fun updateBorderAlpha(alpha: Float) {
+        watchService?.watchManager?.updateBorderAlpha(alpha)
     }
 
     fun updateVolumeSteps(steps: Int) {
@@ -308,6 +330,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.setAutoLockSeconds(seconds)
     }
 
+    fun setQuickViewEnabled(enabled: Boolean) {
+        watchService?.watchManager?.setQuickViewEnabled(enabled)
+    }
+
     fun setStepGoal(goal: Int) {
         watchService?.watchManager?.setStepGoal(goal)
     }
@@ -354,6 +380,21 @@ class MainActivity : ComponentActivity() {
 
     fun queryHealth() {
         watchService?.watchManager?.queryHealth()
+    }
+
+    fun exportData() {
+        val scope = CoroutineScope(Dispatchers.Main + Job())
+        scope.launch {
+            val csv = watchService?.watchManager?.exportDataToCsv() ?: return@launch
+            val sendIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_TEXT, csv)
+                putExtra(Intent.EXTRA_TITLE, "jampsFit Health Data")
+                type = "text/csv"
+            }
+            val shareIntent = Intent.createChooser(sendIntent, "Export Health Data")
+            startActivity(shareIntent)
+        }
     }
 
     fun startMeasurement(type: String) {

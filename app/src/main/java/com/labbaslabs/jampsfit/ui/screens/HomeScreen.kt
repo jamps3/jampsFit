@@ -47,7 +47,11 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         Card(
             shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Black),
-            modifier = Modifier.border(1.dp, if (state.isConnected) Color(0xFF4CAF50).copy(alpha = 0.3f) else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
+            modifier = Modifier.border(
+                1.dp,
+                if (state.isConnected) Color(0xFF4CAF50).copy(alpha = 0.6f) else Color(state.borderColor).copy(alpha = 0.4f),
+                RoundedCornerShape(32.dp)
+            )
         ) {
             Text(
                 text = state.connectionStatus,

@@ -11,21 +11,30 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
+import com.labbaslabs.jampsfit.LocalWatchState
+
 @Composable
 fun SleekCard(
     modifier: Modifier = Modifier,
+    borderColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val state = LocalWatchState.current
+    val finalBorderColor = borderColor ?: Color(state.borderColor)
+    val thickness = state.borderThickness.dp
+    val alphaStartEnd = state.borderAlpha
+    val alphaMid = (state.borderAlpha * 0.375f).coerceIn(0f, 1f)
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .border(
-                width = 1.dp,
+                width = thickness,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.15f),
-                        Color.White.copy(alpha = 0.05f),
-                        Color.White.copy(alpha = 0.15f)
+                        finalBorderColor.copy(alpha = alphaStartEnd),
+                        finalBorderColor.copy(alpha = alphaMid),
+                        finalBorderColor.copy(alpha = alphaStartEnd)
                     )
                 ),
                 shape = RoundedCornerShape(24.dp)
