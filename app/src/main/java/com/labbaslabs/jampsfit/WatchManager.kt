@@ -1286,7 +1286,7 @@ class WatchManager(private val context: Context) {
     private fun isKnownFee3Packet(data: ByteArray): Boolean {
         if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
         return when (data[4].toInt() and 0xFF) {
-            0x21, 0x26, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
+            0x21, 0x26, 0x32, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
             else -> false
         }
     }
@@ -1299,6 +1299,9 @@ class WatchManager(private val context: Context) {
             }
             0x26 -> {
                 parseStepGoalResponse(data)
+            }
+            0x32 -> {
+                if (data.size >= 8) parseSleepBoundaryPacket(data) else updateDebugLog("Sleep boundary marker/query: ${data.toHexString()}")
             }
             0x33 -> {
                 if (data.size >= 15) parseDailyTotalsPacket(data) else updateDebugLog("Daily totals response too short: ${data.toHexString()}")

@@ -185,6 +185,8 @@ The app decodes known `0x33` daily-total-shaped replies and `0x59` bucket replie
 
 jampsFit fetches current steps by requesting `FE EA 20 06 59 00`, waiting briefly, then requesting `FE EA 20 06 59 01`. The Home tab Steps play button runs that fetch manually. Controls > App exposes `Fetch Steps Automatically`, with intervals such as 15m, 30m, 1h, 2h, and 4h; the scheduler only runs while the watch is connected.
 
+Implementation note: `0x32` is treated as known on `FEE3`; the no-payload packet `FE EA 20 05 32` can arrive as a sleep boundary marker/query echo and should not be stored as Unknown.
+
 Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
 
 App behavior: when the Controls tab becomes visible while connected, jampsFit queries `0x21`, `0x26`, and `0x8D` once for that connection/session and hydrates the alarm controls, Step goal slider, and Auto-lock slider from the watch response.
@@ -363,6 +365,8 @@ Current-weather probe buttons:
 | B5 Warm | `FE EA 20 16 B5 00 01 07 00 00 03 17 15 0F 6A 6F 65 6E 73 75 75` | Tests whether `0xB5` carries current/high/low plus city slug. |
 
 Live result: isolated `43 Cold`, `43 Warm`, and `B5 Warm` probes did not visibly change the watch weather. `Send Weather City` and `Send Forecast Sample` still update city/forecast/ranges, but today's current temperature remains `7C`. Current temperature may be cached, may require the complete weather transaction order, or may live in another packet/field not isolated yet.
+
+Live result on 2026-05-23 after `Weather On`: the watch showed an unknown current-weather icon, current temperature `7C`, today's range `14C-7C`, then forecast rows `05/24 partly cloudy 14C-6C`, `05/25 strong rain 19C-10C`, `05/26 strong rain 16C-12C`, `05/27 partly cloudy 15C-10C`, `05/28 strong rain 13C-9C`, and `05/29 strong rain 9C-7C`. This confirms the combined sequence can populate six future rows plus today's range, while the current icon/current temperature still need targeted transaction-order testing.
 
 Alarm record fields currently decode as:
 

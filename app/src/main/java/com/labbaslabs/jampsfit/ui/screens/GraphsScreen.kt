@@ -53,9 +53,9 @@ fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
             when (selectedSubTab) {
                 0 -> HistoryGraphs(title = "Last 24 Hours", stats = state.last24hStats, timeFormat = "HH:00")
                 1 -> TodayGraphs(state)
-                2 -> HistoryGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM")
-                3 -> HistoryGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w")
-                4 -> HistoryGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM")
+                2 -> HistoryBarGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM")
+                3 -> HistoryBarGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w")
+                4 -> HistoryBarGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM")
             }
         }
     }
@@ -254,6 +254,102 @@ fun TodayGraphs(state: WatchState) {
                 // Draw Axis lines
                 drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
                 drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
+            }
+        }
+    }
+}
+
+@Composable
+fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
+    Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+    if (stats.isEmpty()) {
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            Text(text = "No history data available yet.", color = Color.Gray)
+        }
+    } else {
+        SleekBarChartCard(
+            title = "Steps (Total)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.steps ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull()?.steps?.toString(),
+            color = Color(0xFF03A9F4),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        SleekBarChartCard(
+            title = "Distance (Total)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
+            color = Color(0xFF2196F3),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        SleekBarChartCard(
+            title = "Calories (Total)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull()?.calories?.toString()?.plus(" kcal"),
+            color = Color(0xFFFF9800),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        SleekBarChartCard(
+            title = "Heart Rate (Avg)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.heartRate ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
+            color = Color(0xFFE91E63),
+            timeFormat = timeFormat
+        )
+
+        SleekBarChartCard(
+            title = "SpO2 (Avg)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.spo2 ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.spo2 ?: 0) > 0 }?.spo2?.toString()?.plus("%"),
+            color = Color(0xFF00BCD4),
+            timeFormat = timeFormat
+        )
+
+        SleekBarChartCard(
+            title = "Activity Count",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
+            color = Color(0xFF8BC34A),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        SleekBarChartCard(
+            title = "Battery (Avg)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.battery ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.battery ?: 0) > 0 }?.battery?.toString()?.plus("%"),
+            color = Color(0xFF4CAF50),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+        
+        HistoryBloodPressureCard(stats, timeFormat)
+        
+        val sleepData = stats.filter { (it.sleepMinutes ?: 0) > 0 }
+        if (sleepData.isNotEmpty()) {
+            SleekCard {
+                Text(text = "Sleep History (Minutes)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LegendItem(label = "Deep", color = Color(0xFF311B92))
+                    LegendItem(label = "Light", color = Color(0xFF7E57C2))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                SleekBarChartCard(
+                    title = "Total Sleep",
+                    dataPoints = sleepData.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.sleepMinutes ?: 0, it.timestamp) },
+                    currentValue = sleepData.lastOrNull()?.sleepMinutes?.let { "${it / 60}h ${it % 60}m" },
+                    color = Color(0xFF9C27B0),
+                    timeFormat = timeFormat,
+                    forceZeroMin = true
+                )
             }
         }
     }
@@ -506,6 +602,122 @@ fun RowScope.SleepBar(weight: Float, color: Color, label: String) {
         Column(modifier = Modifier.fillMaxHeight().weight(weight).padding(horizontal = 2.dp)) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f).background(color, RoundedCornerShape(4.dp)))
             Text(text = label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
+        }
+    }
+}
+
+@Composable
+fun SleekBarChartCard(
+    title: String, 
+    dataPoints: List<com.labbaslabs.jampsfit.database.HistoryPoint>, 
+    currentValue: String?, 
+    color: Color,
+    timeFormat: String = "dd MMM",
+    forceZeroMin: Boolean = false
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
+    val sdf = remember { SimpleDateFormat(timeFormat, Locale.getDefault()) }
+
+    SleekCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = currentValue ?: "--", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (dataPoints.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Text(text = "Waiting for data...", color = Color.Gray)
+            }
+        } else {
+            Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                val leftPadding = 45.dp.toPx()
+                val rightPadding = 20.dp.toPx()
+                val bottomPadding = 30.dp.toPx()
+                val graphWidth = size.width - leftPadding - rightPadding
+                val graphHeight = size.height - bottomPadding
+                
+                val currentMax = (dataPoints.maxOfOrNull { it.value }?.toFloat() ?: 100f).coerceAtLeast(1f)
+                val currentMin = if (forceZeroMin) 0f else (dataPoints.minOfOrNull { it.value }?.toFloat() ?: 0f)
+                val range = (currentMax - currentMin).coerceAtLeast(1f)
+                
+                // Draw Y axis labels and grid
+                val ySteps = 4
+                for (i in 0..ySteps) {
+                    val yVal = currentMin + (range * i / ySteps)
+                    val yPos = graphHeight - (graphHeight * i / ySteps)
+                    
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = yVal.toInt().toString(),
+                        style = labelStyle,
+                        topLeft = Offset(0f, (yPos - 10.dp.toPx()).coerceAtLeast(0f))
+                    )
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.1f),
+                        start = Offset(leftPadding, yPos),
+                        end = Offset(size.width - rightPadding, yPos),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                // Draw X axis labels (start, middle, end)
+                if (dataPoints.isNotEmpty()) {
+                    val indices = if (dataPoints.size >= 3) {
+                        listOf(0, dataPoints.size / 2, dataPoints.size - 1)
+                    } else if (dataPoints.size == 2) {
+                        listOf(0, 1)
+                    } else {
+                        listOf(0)
+                    }
+                    
+                    indices.forEach { index ->
+                        val point = dataPoints[index]
+                        val xPos = if (dataPoints.size == 1) leftPadding + graphWidth / 2f
+                                   else leftPadding + (index.toFloat() / (dataPoints.size.coerceAtLeast(2) - 1)) * graphWidth
+                        val timeStr = sdf.format(Date(point.timestamp))
+                        
+                        // Measure and shift labels appropriately
+                        val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
+                        val xOffset = if (index == dataPoints.size - 1) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
+
+                        drawText(
+                            textMeasurer = textMeasurer,
+                            text = timeStr,
+                            style = labelStyle,
+                            topLeft = Offset(xPos + xOffset, graphHeight + 5.dp.toPx())
+                        )
+                    }
+                }
+
+                // Draw Bars
+                val barSpacing = 4.dp.toPx()
+                val barWidth = if (dataPoints.size > 0) {
+                    (graphWidth / dataPoints.size) - barSpacing
+                } else {
+                    graphWidth / 2f
+                }
+
+                dataPoints.forEachIndexed { i, point ->
+                    val x = leftPadding + (i.toFloat() / dataPoints.size) * graphWidth + barSpacing / 2f
+                    val h = ((point.value.toFloat() - currentMin) / range) * graphHeight
+                    val y = graphHeight - h
+
+                    if (h > 0) {
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(x, y),
+                            size = androidx.compose.ui.geometry.Size(barWidth.coerceAtLeast(1f), h),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                        )
+                    }
+                }
+                
+                // Draw Axis lines
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
+                drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
+            }
         }
     }
 }
