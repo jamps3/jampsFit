@@ -139,6 +139,16 @@ class WatchManager(private val context: Context) {
     private val recentActivityPayloadSet = mutableSetOf<String>()
     private val recentFee1Payloads = ArrayDeque<String>()
     private val recentFee1PayloadSet = mutableSetOf<String>()
+    private val recentStepBuckets = mutableMapOf<Int, StepBucketTotals>()
+
+    private data class StepBucketTotals(
+        val stepsDown: Int,
+        val stepsUp: Int,
+        val stepsOther: Int,
+        val timestamp: Long = System.currentTimeMillis()
+    ) {
+        val totalSteps: Int get() = stepsDown + stepsUp + stepsOther
+    }
 
     init {
         observeHistory()
@@ -269,7 +279,8 @@ class WatchManager(private val context: Context) {
     }
 
     fun queryHealth() {
-        updateDebugLog("Health query disabled; listening for watch activity packets.")
+        updateDebugLog("Querying current steps and listening for watch activity packets.")
+        queryCurrentSteps()
         readBattery()
     }
 
@@ -506,6 +517,19 @@ class WatchManager(private val context: Context) {
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         _state.update { it.copy(stepGoalSetting = safeGoal) }
         updateDebugLog("Step goal via FEE2: $safeGoal -> ${packet.toHexString()}")
+    }
+
+    fun queryCurrentSteps() {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Current steps query skipped: watch is not connected.")
+            return
+        }
+        managerScope.launch {
+            sendFee2NativeRaw(nativePacket(0x59, 0x00))
+            delay(180)
+            sendFee2NativeRaw(nativePacket(0x59, 0x01))
+            updateDebugLog("Current steps query via FEE2: requested 59 00 + 59 01")
+        }
     }
 
     fun setWeatherCity(city: String) {
@@ -1272,8 +1296,8 @@ class WatchManager(private val context: Context) {
                 }
             }
             0x66 -> {
-                _state.update { it.copy(lastRemoteEvent = "Wrist Shake / Shutter") }
-                updateDebugLog("Remote event: Wrist Shake / Shutter")
+                _state.update { it.copy(lastRemoteEvent = "Shutter") }
+                updateDebugLog("Remote event: Shutter")
                 managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
             }
             0x67 -> {
@@ -1433,34 +1457,44 @@ class WatchManager(private val context: Context) {
 
     private fun parseHourlyActivityPacket(b: ByteArray) {
         val bucket = b[5].toInt() and 0xFF
-        var steps = 0
-        var distance = 0
-        var calories = 0
+        var stepsDown = 0
+        var stepsUp = 0
+        var stepsOther = 0
         val nonZeroRecords = mutableListOf<String>()
         var offset = 6
         var record = 0
         while (offset + 5 < b.size) {
             val recordSteps = readUInt16LE(b, offset)
-            val recordDistance = readUInt16LE(b, offset + 2)
-            val recordCalories = readUInt16LE(b, offset + 4)
-            steps += recordSteps
-            distance += recordDistance
-            calories += recordCalories
-            if (recordSteps != 0 || recordDistance != 0 || recordCalories != 0) {
-                nonZeroRecords.add("$record:$recordSteps/$recordDistance/$recordCalories")
+            val recordUp = readUInt16LE(b, offset + 2)
+            val recordOther = readUInt16LE(b, offset + 4)
+            stepsDown += recordSteps
+            stepsUp += recordUp
+            stepsOther += recordOther
+            if (recordSteps != 0 || recordUp != 0 || recordOther != 0) {
+                nonZeroRecords.add("$record:$recordSteps/$recordUp/$recordOther")
             }
             offset += 6
             record += 1
         }
         val detail = if (nonZeroRecords.isEmpty()) "none" else nonZeroRecords.joinToString(", ")
-        if (bucket == 0x00) {
-            val stepsDown = steps
-            val stepsUp = distance
-            val stepsOther = calories
-            val totalSteps = stepsUp + stepsDown + stepsOther
-            updateDebugLog("Activity buckets[0] candidate: stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther totalSteps=$totalSteps records=$detail")
+        val totals = StepBucketTotals(stepsDown, stepsUp, stepsOther)
+        if (bucket == 0x00 || bucket == 0x01) {
+            recentStepBuckets[bucket] = totals
+            val bucket0 = recentStepBuckets[0x00]
+            val bucket1 = recentStepBuckets[0x01]
+            if (bucket0 != null && bucket1 != null && kotlin.math.abs(bucket0.timestamp - bucket1.timestamp) <= 30_000L) {
+                val currentSteps = bucket0.totalSteps + bucket1.totalSteps
+                _state.update { it.copy(steps = currentSteps) }
+                saveToDb(steps = currentSteps)
+                updateDebugLog(
+                    "Current steps from 59 buckets: bucket0=${bucket0.totalSteps} bucket1=${bucket1.totalSteps} " +
+                        "steps=$currentSteps records[$bucket]=$detail"
+                )
+            } else {
+                updateDebugLog("Activity buckets[$bucket] partial: totalSteps=${totals.totalSteps} stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther records=$detail")
+            }
         } else {
-            updateDebugLog("Activity buckets[$bucket]: stepsCandidate=$steps distance=${distance}m calories=$calories records=$detail")
+            updateDebugLog("Activity buckets[$bucket] history/forensic: totalSteps=${totals.totalSteps} stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther records=$detail")
         }
     }
 

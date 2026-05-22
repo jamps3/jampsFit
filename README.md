@@ -8,14 +8,16 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Live Dashboard**: Monitor Battery plus live watch activity count, distance, and calories at a glance.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
 - **Battery Intelligence**: High-resolution discharge graph and time-remaining estimation based on current usage.
+- **Health Data Export**: Export your historical health and activity data to CSV files for external analysis.
 
 ### 🎮 Watch-to-Phone Remote
-- **Unified Triggers**: Handles both physical button presses and wrist-shake events.
+- **Watch Triggers**: Handles physical music buttons and the watch Shutter screen event.
 - **Custom Mapping**: Configure watch buttons to control:
     - **Media**: Play/Pause, Next, Previous tracks.
     - **Volume**: Adjust system volume or toggle mute.
     - **Utility**: Toggle Flashlight, trigger Google Assistant, or take Screenshots.
 - **Find My Phone**: Trigger a high-volume alarm and vibration directly from your wrist. Includes a full-screen phone overlay with a manual stop button.
+- **Shutter Screen Note**: Wrist shake can emit the Shutter action when the watch is on its Shutter screen, including after the backlight has turned off; normal wrist raise outside that screen only wakes the watch display.
 
 ### 🛠️ Reverse Engineering Toolkit
 - **Live Debug Log**: Full visibility into the BLE communication lifecycle (GATT operations, service discovery, notifications).
@@ -28,7 +30,8 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Persistent Connection**: Uses an Android Foreground Service to maintain the link even when the app is in the background or the screen is off.
 - **Auto-Reconnect**: Intelligent retry logic (5 attempts with incremental delay) to recover from Bluetooth dropouts.
 - **Autostart on Boot**: Optionally starts the connection service as soon as your phone finishes booting.
-- **Full History**: All health metrics and captured unknown packets are automatically saved to a local Room database, ensuring graphs and logs survive app restarts.
+- **Smart Notification Mirroring**: Push phone notifications (calls, SMS, and app alerts) directly to the watch using the high-performance direct `0x41` protocol path. Includes automatic app discovery and package-name filtering.
+- **Full History**: All health metrics and captured unknown packets are automatically saved to a local Room database with non-destructive migrations, ensuring graphs and logs survive app restarts.
 
 ## 🎨 Design
 - **OLED-Dark UI**: Material 3 design pinned to true black backgrounds and surfaces for watch-companion use in low light.
@@ -62,9 +65,9 @@ Important capture correction: the Da Fit writes previously labelled as `6387` we
 - **Build System**: Gradle (Version Catalog & KSP)
 
 ## 📋 Roadmap
-- [ ] **Notification Mirroring**: Push SMS, calls, and app alerts directly to the watch screen.
-- [ ] **Data Export**: Export collected health history to CSV/JSON files.
 - [ ] **Workout Sync**: Track specific exercise sessions with GPS data.
+- [ ] **Customizable Watch Faces**: Explore support for pushing custom dial files to the watch.
+- [ ] **Sleep Tracking Refinement**: Re-verify and improve the accuracy of deep/light sleep data decoding.
 
 ---
 *Developed with ❤️ for the Kospet TANK M1 community.*

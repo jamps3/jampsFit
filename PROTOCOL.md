@@ -171,16 +171,16 @@ Step priority probes:
 | 33 00 | `FE EA 20 06 33 00` | No visible reply in repeated tests, including the latest round. |
 | 33 01 | `FE EA 20 06 33 01` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
 | 33 02 | `FE EA 20 06 33 02` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
-| 59 00 | `FE EA 20 06 59 00` | Latest live value: `6939`, while watch face showed `11379`. Do not treat as complete current steps until the missing component/source is found. |
-| 59 01 | `FE EA 20 06 59 01` | Latest live value: `6939`, while watch face showed `11379`. |
-| 59 02 | `FE EA 20 06 59 02` | Latest live value: `6939`, while watch face showed `11379`. |
-| 59 03 | `FE EA 20 06 59 03` | Latest live value: `6939`, while watch face showed `11379`. |
+| 59 00 | `FE EA 20 06 59 00` | Current-step bucket 0. In the 2026-05-22 15:51 Da Fit sync, summed three 16-bit fields to `6492`. |
+| 59 01 | `FE EA 20 06 59 01` | Current-step bucket 1. In the 2026-05-22 15:51 Da Fit sync, summed three 16-bit fields to `837`; `59 00 + 59 01 = 7329`, matching the watch face and Da Fit weekly total. |
+| 59 02 | `FE EA 20 06 59 02` | History/forensic bucket. Same capture summed to `6939`, close to but not exactly the Da Fit daily-screen value `6970`; do not use as current watch-face steps. |
+| 59 03 | `FE EA 20 06 59 03` | History/forensic bucket. Same capture summed to `4648`; do not use as current watch-face steps. |
 | 10/59 00 | `FE EA 10 05 59 00` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
 | 10/59 01 | `FE EA 10 05 59 01` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
 | 10/59 02 | `FE EA 10 05 59 02` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
 | 10/59 03 | `FE EA 10 05 59 03` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
 
-The app decodes known `0x33` daily-total-shaped replies and logs `0x59` bucket replies as forensic candidate values. `59 00` was previously promoted as `totalSteps = stepsUp + stepsDown + stepsOther`, but the latest 6939 vs watch-face 11379 result proves this is incomplete on the current watch state. Keep searching for the missing current-step source before treating any probe as authoritative.
+The app decodes known `0x33` daily-total-shaped replies and `0x59` bucket replies. Each `0x59` record contains three little-endian 16-bit step categories, currently labelled `stepsDown`, `stepsUp`, and `stepsOther`; bucket total is their sum across the eight records. The 2026-05-22 15:51 capture established the current-step formula for this watch state: `currentSteps = total(59 00) + total(59 01)`. `59 02` and `59 03` are retained as history/forensic logs until their day/page meaning is pinned down.
 
 Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
 
@@ -233,6 +233,11 @@ The capture also shows Da Fit querying history during reconnect/session sync: `3
 - Real steps are still not decoded from the live `FEE1` packet. Candidate sources remain snapshot packets such as `33`/`59` from captures.
 - Handshake, weather writes, step-goal writes, standard notification send, long notification diagnostic send, and any `6387` query bursts are still experimental or unsafe until tested carefully on the correct characteristic.
 - Keep packets exact length. Do not pad variable commands to 20 bytes.
+
+## Remote Event Notes
+
+- The event formerly labelled `Wrist Shake / Shutter` is a Shutter-screen event, not a global wrist-raise event.
+- Normal wrist raise only wakes the watch display/backlight. If the watch is left on its Shutter screen, a wrist shake can wake the display and send the Shutter event to the phone, triggering the configured Shutter Action such as Find My Phone.
 
 ## Da Fit Native Session State
 
@@ -418,4 +423,5 @@ The final byte in the captured sample (`29`) is the ASCII/UTF-8 `)` from the not
 - **Timezone**: The watch expects **Local Time** (UTC + Offset) in Big Endian for the timestamp.
 - **Stability**: Sending 20-byte padded frames to variable-length endpoints (like 6387) causes immediate firmware reboots. Commands must be sent with their exact length.
 - **Debug logging**: App debug log entries are also emitted to Android Logcat under tag `WatchManager`, so `adb logcat -s WatchManager NotificationReceiver` can collect packet logs without manual copy/paste.
+- **Persistence**: Local data is stored in a Room database (`jampsfit_database`) with versioned migrations and exported schemas. Non-destructive migrations (e.g., `MIGRATION_5_6`) are used to preserve historical data when adding new tables like `unknown_packets` or `seen_notifications`.
 - **Threading**: `updateDebugLog()` must synchronize access to its in-memory buffer. BLE callbacks can arrive concurrently and previously caused `ConcurrentModificationException`.

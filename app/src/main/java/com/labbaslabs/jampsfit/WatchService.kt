@@ -218,7 +218,7 @@ class WatchService : Service() {
                     "Custom" -> executeAction(state.nextAction)
                 }
             }
-            "Wrist Shake / Shutter" -> {
+            "Shutter" -> {
                 when (shutterAction) {
                     "FindMyPhone" -> findMyPhone()
                     "Camera" -> sendMediaKey(KeyEvent.KEYCODE_VOLUME_UP)

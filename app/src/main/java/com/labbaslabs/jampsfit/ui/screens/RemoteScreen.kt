@@ -25,7 +25,7 @@ fun RemoteScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
         Text(text = "Remote Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         
         SleekCard {
-            Text(text = "Wrist Shake / Shutter Action", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = "Shutter Action", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             RemoteActionOption(label = "Camera Shutter", selected = state.shutterAction == "Camera") { (context as? MainActivity)?.updateShutterAction("Camera") }
             RemoteActionOption(label = "Find My Phone", selected = state.shutterAction == "FindMyPhone") { (context as? MainActivity)?.updateShutterAction("FindMyPhone") }
@@ -96,7 +96,7 @@ fun RemoteScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
 
         Text(text = "Active Listeners", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         RemoteInfoItem(icon = Icons.Default.MusicNote, title = "Music Player", desc = "Buttons: Play, Pause, Skip")
-        RemoteInfoItem(icon = Icons.Default.CameraAlt, title = "Wrist / Shutter", desc = "Trigger: Shake or Shutter menu")
+        RemoteInfoItem(icon = Icons.Default.CameraAlt, title = "Shutter", desc = "Watch Shutter screen")
     }
 }
 

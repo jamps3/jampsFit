@@ -30,6 +30,7 @@
 - [x] **Persistent Background Service**: Toggle for a reliable, always-on connection.
 - [x] **Last 24h View**: Hourly granularity health stats for the previous 24 hours including Battery, Distance, Sleep, Blood Pressure, and Activity Count.
 - [x] **Hourly Calories Graph**: Calculates active burn in 1-hour slices.
+- [x] **Non-destructive Database Migrations**: Switched from destructive updates to explicit Room migrations (5 -> 6) and enabled schema exporting for better reliability.
 - [x] **Custom Branding**: Integrated jampsFit logo and adaptive launcher icon with OLED optimization.
 - [x] **Watch-tab Connection Controls**: Scan/connect, clock sync, battery refresh, and queue clearing live with watch controls instead of App settings.
 - [x] **Retire Notification Probes**: Removed dead notification probe controls after they produced no useful watch behavior.
@@ -56,11 +57,11 @@
 - [x] Confirm direct `0x41` notification payloads through 80 text bytes.
 
 ## Planned Features
-- [ ] **Decode Real Steps**: Latest live probes show `59 xx` and legacy `10/59 xx` all returning `6939` while the watch shows `11379`; `33 01`/`33 02` return `13259`, and `33 00` has no visible effect. Find the missing current-step source before promoting probe values as authoritative. `FEE1` remains `activityCount`, not true steps.
+- [x] **Decode Real Steps**: The 2026-05-22 15:51 Da Fit sync showed current watch-face steps are `total(59 00) + total(59 01)`. In that capture, `6492 + 837 = 7329`, matching the watch face and Da Fit weekly total. `FEE1` remains `activityCount`, not true steps.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
-- [ ] **Step Query Probes**: Continue validating step history and offsets. Current known results: `59 00`/`59 01`/`59 02`/`59 03` plus `10/59 00`/`01`/`02`/`03` all produce `6939`; `33 01` and `33 02` produce `13259`; `33 00` does nothing.
+- [ ] **Step Query Probes**: Continue validating step history and offsets. Current known results: `59 00 + 59 01` matches current steps; `59 02` is close to the Da Fit daily-screen value but not exact in the 15:51 capture; `59 03`, `33 01`, and `33 02` remain history/page candidates; `33 00` does nothing.
 - [ ] **Gadgetbridge-Derived Queries**: Keep `0xB9` advanced-command probes available; `0x21` get alarms, `0x26` get step goal, and `0x8D` get auto-lock are confirmed and now auto-query the controls. `0x64` heartbeat is retired from UI after no visible effect.
 - [x] **Unified Controls/Logs UI**: Controls owns watch/app/manual settings; Logs owns Unknown and System Log.
 - [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
