@@ -111,7 +111,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | :--- | :--- | :--- | :--- | :--- |
 | `10` | `09` | `31` | **Clock Sync** | `[4-byte Big-Endian Local Timestamp] 08` |
 | `10` | `04` | `2F` | Query Sensors | Uwatch2 reference lists `2F` as timing HR query; local code uses it as a general data/health query, but this is not yet verified for TANK M1 main-screen data. |
-| `10` | `05` | `32` | Sync Sleep | From Uwatch2 outgoing logs. Needs local verification. |
+| `10` | `05` | `32` | Sync Sleep | Legacy reference command. Current TANK M1 sleep boundaries are confirmed on native `20/32`. |
 | `10` | `05` | `34` | Query Dynamic HR | From Uwatch2 outgoing logs. Needs local verification. |
 | `10` | `06` | `35` | Query HR | Payload examples: `04`, `05`, `06`, `07` in Uwatch2 logs. Needs local verification. |
 | `10` | `06` | `59` | Query Steps | Payload examples: `00`, `02` in Uwatch2 logs. This may be a better candidate for restoring main-screen step data than `20 33 01`. |
@@ -120,6 +120,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `06` | `5A 00` | Handshake | Device Info Request ("MOYOUNG-V2") |
 | `20` | `06` | `5A 01` | Firmware Info | Firmware Version ("MOY-QGF3-2.0.3") |
 | `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
+| `20` | `VAR` | `32` | **Sleep boundaries** | Confirmed from Da Fit sync. Payload is 3-byte markers `[state] [hour] [minute]`. Current state labels: `02=Syva`, `01=Kevyt/REM provisional`, `00=Hereilla/end`. |
 | `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
 | `20` | `VAR` | `08` | **Notification Push** | Confirmed working without checksum for Legacy Short (`type=0x01`) and Legacy Call (`type=0x02`). Format: `[Type] [TitleLen] [Title] [TextLen] [Text]`; checksum variants remain probes. |
 | `20` | `VAR` | `41` | **Notification Push** | Confirmed working on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Display testing is complete through the current UI set; mirroring is capped at 238 text bytes. |
@@ -182,6 +183,8 @@ Step priority probes:
 
 The app decodes known `0x33` daily-total-shaped replies and `0x59` bucket replies. Each `0x59` record contains three little-endian 16-bit step categories, currently labelled `stepsDown`, `stepsUp`, and `stepsOther`; bucket total is their sum across the eight records. The 2026-05-22 15:51 capture established the current-step formula for this watch state: `currentSteps = total(59 00) + total(59 01)`. `59 02` and `59 03` are retained as history/forensic logs until their day/page meaning is pinned down.
 
+jampsFit fetches current steps by requesting `FE EA 20 06 59 00`, waiting briefly, then requesting `FE EA 20 06 59 01`. The Home tab Steps play button runs that fetch manually. Controls > App exposes `Fetch Steps Automatically`, with intervals such as 15m, 30m, 1h, 2h, and 4h; the scheduler only runs while the watch is connected.
+
 Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
 
 App behavior: when the Controls tab becomes visible while connected, jampsFit queries `0x21`, `0x26`, and `0x8D` once for that connection/session and hydrates the alarm controls, Step goal slider, and Auto-lock slider from the watch response.
@@ -238,6 +241,41 @@ The capture also shows Da Fit querying history during reconnect/session sync: `3
 
 - The event formerly labelled `Wrist Shake / Shutter` is a Shutter-screen event, not a global wrist-raise event.
 - Normal wrist raise only wakes the watch display/backlight. If the watch is left on its Shutter screen, a wrist shake can wake the display and send the Shutter event to the phone, triggering the configured Shutter Action such as Find My Phone.
+
+## Sleep Boundary Capture 2026-05-22
+
+Capture file: ignored local archive `dafit_sleep_sync_20260522_1643.zip`. Da Fit showed sleep slices for 2026-05-22: `03:42-05:11 Kevyt`, `05:11-05:32 Syva`, `05:32-05:48 REM`, `05:48-06:40 Kevyt`, `06:40-07:04 Syva`; sleep score was `40`.
+
+The matching watch packet was:
+
+```text
+FE EA 20 20 32
+01 03 2A
+01 04 1D
+01 04 29
+01 05 00
+02 05 0B
+01 05 20
+01 05 30
+02 06 28
+00 07 04
+```
+
+Decoded markers:
+
+| Time | State byte | Current label |
+| :--- | :--- | :--- |
+| 03:42 | `01` | Kevyt/REM provisional |
+| 04:29 | `01` | Internal marker |
+| 04:41 | `01` | Internal marker |
+| 05:00 | `01` | Internal marker |
+| 05:11 | `02` | Syva |
+| 05:32 | `01` | Kevyt/REM provisional |
+| 05:48 | `01` | Internal marker |
+| 06:40 | `02` | Syva |
+| 07:04 | `00` | Hereilla/end |
+
+jampsFit currently merges adjacent same-state markers for display but marks the range with `*` when internal watch markers were present. The packet does not yet distinguish Da Fit's displayed REM slice because both 05:32 and 05:48 use state `01`; keep REM mapping provisional until a second sleep capture isolates the missing flag or packet.
 
 ## Da Fit Native Session State
 

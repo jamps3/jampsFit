@@ -226,6 +226,14 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleAutoConnect(enabled)
     }
 
+    fun toggleAutoFetchSteps(enabled: Boolean) {
+        watchService?.watchManager?.toggleAutoFetchSteps(enabled)
+    }
+
+    fun updateStepFetchInterval(minutes: Int) {
+        watchService?.watchManager?.updateStepFetchInterval(minutes)
+    }
+
     fun toggleNotifications(enabled: Boolean) {
         watchService?.watchManager?.toggleNotifications(enabled)
     }
@@ -384,6 +392,14 @@ class MainActivity : ComponentActivity() {
 
     fun queryHealth() {
         watchService?.watchManager?.queryHealth()
+    }
+
+    fun queryCurrentSteps() {
+        watchService?.watchManager?.queryCurrentSteps()
+    }
+
+    fun querySleepBoundaries() {
+        watchService?.watchManager?.querySleepBoundaries()
     }
 
     fun exportData() {

@@ -429,10 +429,24 @@ private fun AppSettingsControls(
         Text(text = "App Behavior", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { activity?.toggleAutoStart(it) }
-        SettingSwitch(label = "Persistent Background Service", checked = state.isServiceRunning) {
+        SettingSwitch(label = "Persistent Background Service", checked = state.isServiceRunning) { 
             if (it) activity?.checkPermissionsAndStart() else activity?.stopWatchService()
         }
         SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
+        SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { activity?.toggleAutoFetchSteps(it) }
+        if (state.autoFetchSteps) {
+            val intervalOptions = listOf(15, 30, 60, 120, 240)
+            Text("Step fetch interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                intervalOptions.forEach { minutes ->
+                    FilterChip(
+                        selected = state.stepFetchIntervalMinutes == minutes,
+                        onClick = { activity?.updateStepFetchInterval(minutes) },
+                        label = { Text(if (minutes < 60) "${minutes}m" else "${minutes / 60}h", fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
         SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
 
         if (state.notificationsEnabled) {

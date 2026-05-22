@@ -58,13 +58,15 @@
 
 ## Planned Features
 - [x] **Decode Real Steps**: The 2026-05-22 15:51 Da Fit sync showed current watch-face steps are `total(59 00) + total(59 01)`. In that capture, `6492 + 837 = 7329`, matching the watch face and Da Fit weekly total. `FEE1` remains `activityCount`, not true steps.
+- [x] **Manual/Automatic Step Fetch**: Home exposes a Steps play button for the `59 00 + 59 01` fetch, and Controls > App can poll steps automatically at a selected interval.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
 - [ ] **Step Query Probes**: Continue validating step history and offsets. Current known results: `59 00 + 59 01` matches current steps; `59 02` is close to the Da Fit daily-screen value but not exact in the 15:51 capture; `59 03`, `33 01`, and `33 02` remain history/page candidates; `33 00` does nothing.
 - [ ] **Gadgetbridge-Derived Queries**: Keep `0xB9` advanced-command probes available; `0x21` get alarms, `0x26` get step goal, and `0x8D` get auto-lock are confirmed and now auto-query the controls. `0x64` heartbeat is retired from UI after no visible effect.
 - [x] **Unified Controls/Logs UI**: Controls owns watch/app/manual settings; Logs owns Unknown and System Log.
-- [ ] **Sleep Tracking**: Re-verify sync and display of total, deep, and light sleep after send path is fixed.
+- [ ] **Sleep Tracking**: `20/32` sleep boundaries are now decoded and displayed with internal markers. Continue mapping `01` into Da Fit's Kevyt vs REM distinction and validate `02=Syva`, `00=Hereilla/end` across another sleep capture.
+- [ ] **Sleep Score**: Da Fit showed score `40` for the 2026-05-22 sleep. Treat as a future app-calculated feature unless a raw score packet is found.
 - [ ] **Heart Rate Retrieval**: Avoid app-origin `0x6D 01` start writes because they reboot this watch. `0x6D` no-payload and `0x6D 00` both trigger visible HR measurement with vibration/display wake, so they are retired from UI. Capture a silent Da Fit HR query/start sequence before re-enabling active app HR commands.
 - [ ] **Settings Tests**: Live-test Weather city/current conditions and Step goal from the corrected `FEE2` route.
 - [ ] **Weather Current Conditions**: Weather On sends a partly working Joensuu sample sequence. Isolated `0x43`/`0xB5` probes did not move current temp; capture or test complete weather transaction variants.

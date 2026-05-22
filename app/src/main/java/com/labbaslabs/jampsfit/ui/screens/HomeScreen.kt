@@ -76,7 +76,19 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             color = Color(0xFF4CAF50)
         )
         DataCard(label = "Activity Count", value = state.activityCount?.toString() ?: "--", icon = Icons.Default.DirectionsWalk, color = Color(0xFFFFC107))
-        DataCard(label = "Steps", value = state.steps?.toString() ?: "--", icon = Icons.Default.Timeline, color = Color(0xFF8BC34A))
+        DataCard(
+            label = "Steps",
+            value = state.steps?.toString() ?: "--",
+            icon = Icons.Default.Timeline,
+            color = Color(0xFF8BC34A),
+            action = {
+                MeasurementButton(
+                    isActive = false,
+                    enabled = state.isConnected,
+                    onClick = { activity?.queryCurrentSteps() }
+                )
+            }
+        )
         
         val total = state.sleepMinutes ?: 0
         DataCard(
@@ -84,24 +96,50 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             value = if (total > 0) "${total / 60}h ${total % 60}m" else "--", 
             icon = Icons.Default.NightsStay, 
             color = Color(0xFF9C27B0),
-            supportingText = "Deep: ${state.deepSleepMinutes ?: 0}m, Light: ${state.lightSleepMinutes ?: 0}m",
+            supportingText = buildSleepSummary(state),
             action = {
                 val deep = (state.deepSleepMinutes ?: 0).toFloat()
                 val light = (state.lightSleepMinutes ?: 0).toFloat()
                 val totalF = total.toFloat().coerceAtLeast(1f)
                 
-                Row(modifier = Modifier.width(60.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(Color.Gray.copy(alpha = 0.2f))) {
-                    if (totalF > 0) {
-                        if (deep > 0) Box(modifier = Modifier.fillMaxHeight().weight(deep / totalF).background(Color(0xFF311B92)))
-                        if (light > 0) Box(modifier = Modifier.fillMaxHeight().weight(light / totalF).background(Color(0xFF7E57C2)))
-                        val awake = (totalF - deep - light).coerceAtLeast(0f)
-                        if (awake > 0) {
-                            Box(modifier = Modifier.fillMaxHeight().weight(awake / totalF).background(Color(0xFFFFEB3B)))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.width(60.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(Color.Gray.copy(alpha = 0.2f))) {
+                        if (totalF > 0) {
+                            if (deep > 0) Box(modifier = Modifier.fillMaxHeight().weight(deep / totalF).background(Color(0xFF311B92)))
+                            if (light > 0) Box(modifier = Modifier.fillMaxHeight().weight(light / totalF).background(Color(0xFF7E57C2)))
+                            val awake = (totalF - deep - light).coerceAtLeast(0f)
+                            if (awake > 0) {
+                                Box(modifier = Modifier.fillMaxHeight().weight(awake / totalF).background(Color(0xFFFFEB3B)))
+                            }
                         }
                     }
+                    MeasurementButton(
+                        isActive = false,
+                        enabled = state.isConnected,
+                        onClick = { activity?.querySleepBoundaries() }
+                    )
                 }
             }
         )
+        if (state.sleepSegments.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                state.sleepSegments.forEach { segment ->
+                    Text(
+                        text = "${formatSleepTime(segment.startMinutes)} - ${formatSleepTime(segment.endMinutes)} ${segment.label}${if (segment.hasInternalMarkers) " *" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.LightGray
+                    )
+                }
+                Text(
+                    text = "* contains internal watch boundary markers",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+        }
 
         DataCard(
             label = "Heart Rate",
@@ -157,6 +195,16 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         DataCard(label = "Distance", value = state.distance?.let { "$it m" } ?: "--", icon = Icons.Default.Straighten, color = Color(0xFF2196F3))
         DataCard(label = "Calories", value = state.calories?.let { "$it kcal" } ?: "--", icon = Icons.Default.LocalFireDepartment, color = Color(0xFFFF9800))
     }
+}
+
+private fun buildSleepSummary(state: WatchState): String {
+    val deep = state.deepSleepMinutes ?: 0
+    val light = state.lightSleepMinutes ?: 0
+    return "Syva: ${deep}m, Kevyt/REM: ${light}m"
+}
+
+private fun formatSleepTime(minutes: Int): String {
+    return "%02d:%02d".format((minutes / 60) % 24, minutes % 60)
 }
 
 @Composable

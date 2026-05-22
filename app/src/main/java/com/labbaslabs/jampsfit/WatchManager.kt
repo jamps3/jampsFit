@@ -40,6 +40,8 @@ data class WatchState(
     val prevAction: String = "Previous Track",
     val autoStart: Boolean = false,
     val autoConnect: Boolean = false,
+    val autoFetchSteps: Boolean = false,
+    val stepFetchIntervalMinutes: Int = 60,
     val batteryThreshold: Int = 15,
     val batteryEstimation: String? = null,
     val notificationsEnabled: Boolean = false,
@@ -51,6 +53,7 @@ data class WatchState(
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
+    val sleepSegments: List<SleepSegment> = emptyList(),
     val isFindingPhone: Boolean = false,
     val volumeSteps: Int = 1,
     val batteryHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
@@ -80,6 +83,14 @@ data class WatchState(
     val payloadLengthOnly: Boolean = false,
 )
 
+data class SleepSegment(
+    val startMinutes: Int,
+    val endMinutes: Int,
+    val stateId: Int,
+    val label: String,
+    val hasInternalMarkers: Boolean = false
+)
+
 data class WatchAlarm(
     val slot: Int,
     val enabled: Boolean,
@@ -102,6 +113,8 @@ class WatchManager(private val context: Context) {
     private val _state = MutableStateFlow(WatchState(
         autoStart = prefs.getBoolean("autoStart", false),
         autoConnect = prefs.getBoolean("autoConnect", true),
+        autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
+        stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
         musicAction = prefs.getString("musicAction", "Media") ?: "Media",
@@ -133,6 +146,7 @@ class WatchManager(private val context: Context) {
     private var userRequestedDisconnect = false
     private var reconnectJob: Job? = null
     private var scanWatchdogJob: Job? = null
+    private var autoStepFetchJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private var lastActivitySeq: Int? = null
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -281,6 +295,7 @@ class WatchManager(private val context: Context) {
     fun queryHealth() {
         updateDebugLog("Querying current steps and listening for watch activity packets.")
         queryCurrentSteps()
+        querySleepBoundaries()
         readBattery()
     }
 
@@ -529,6 +544,31 @@ class WatchManager(private val context: Context) {
             delay(180)
             sendFee2NativeRaw(nativePacket(0x59, 0x01))
             updateDebugLog("Current steps query via FEE2: requested 59 00 + 59 01")
+        }
+    }
+
+    fun querySleepBoundaries() {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Sleep boundary query skipped: watch is not connected.")
+            return
+        }
+        val packet = nativePacket(0x32)
+        sendFee2NativeRaw(packet)
+        updateDebugLog("Sleep boundary query via FEE2 -> ${packet.toHexString()}")
+    }
+
+    private fun restartAutoStepFetch() {
+        autoStepFetchJob?.cancel()
+        autoStepFetchJob = null
+        val state = _state.value
+        if (!state.autoFetchSteps || !state.isConnected) return
+        val intervalMs = state.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
+        autoStepFetchJob = managerScope.launch {
+            updateDebugLog("Auto step fetch enabled: every ${state.stepFetchIntervalMinutes}m")
+            while (isActive) {
+                queryCurrentSteps()
+                delay(intervalMs)
+            }
         }
     }
 
@@ -807,6 +847,17 @@ class WatchManager(private val context: Context) {
 
     fun toggleAutoStart(e: Boolean) { prefs.edit { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
     fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
+    fun toggleAutoFetchSteps(e: Boolean) {
+        prefs.edit { putBoolean("autoFetchSteps", e) }
+        _state.update { it.copy(autoFetchSteps = e) }
+        restartAutoStepFetch()
+    }
+    fun updateStepFetchInterval(minutes: Int) {
+        val safeMinutes = minutes.coerceIn(5, 1440)
+        prefs.edit { putInt("stepFetchIntervalMinutes", safeMinutes) }
+        _state.update { it.copy(stepFetchIntervalMinutes = safeMinutes) }
+        restartAutoStepFetch()
+    }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
@@ -956,6 +1007,8 @@ class WatchManager(private val context: Context) {
         bluetoothGatt?.close()
         bluetoothGatt = null
         stopScan()
+        autoStepFetchJob?.cancel()
+        autoStepFetchJob = null
         _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
     }
     private fun connectToDevice(device: BluetoothDevice) {
@@ -972,6 +1025,8 @@ class WatchManager(private val context: Context) {
             else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 bluetoothGatt = null
                 isConfigured = false
+                autoStepFetchJob?.cancel()
+                autoStepFetchJob = null
                 _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
                 synchronized(operationQueue) { operationQueue.clear(); isOperating = false }
                 gatt.close()
@@ -1022,6 +1077,7 @@ class WatchManager(private val context: Context) {
                 }
             }
             updateDebugLog("Channels ready; listening for watch data.")
+            restartAutoStepFetch()
         }
         override fun onDescriptorWrite(gatt: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {
             updateDebugLog("Listen ${d.characteristic.uuid.toString().substring(4, 8).uppercase()} status=$s")
@@ -1423,6 +1479,9 @@ class WatchManager(private val context: Context) {
         if (b.size >= 30 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x1E.toByte(), 0x33.toByte(), 0x04.toByte()))) {
             parseSleepPacket(b)
         }
+        if (b.size >= 8 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && b[4] == 0x32.toByte()) {
+            parseSleepBoundaryPacket(b)
+        }
         if (b.size >= 54 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x36.toByte(), 0x59.toByte()))) {
             parseHourlyActivityPacket(b)
         }
@@ -1513,6 +1572,85 @@ class WatchManager(private val context: Context) {
         _state.update { it.copy(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light) }
         saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
         updateDebugLog("Sleep summary: total=${total}m deep=${deep}m light=${light}m")
+    }
+
+    private fun parseSleepBoundaryPacket(b: ByteArray) {
+        val markers = mutableListOf<Pair<Int, Int>>()
+        var offset = 5
+        while (offset + 2 < b.size) {
+            val stateId = b[offset].toInt() and 0xFF
+            val hour = b[offset + 1].toInt() and 0xFF
+            val minute = b[offset + 2].toInt() and 0xFF
+            if (hour in 0..23 && minute in 0..59) {
+                markers.add(stateId to (hour * 60 + minute))
+            }
+            offset += 3
+        }
+        if (markers.size < 2) {
+            updateDebugLog("Sleep boundaries too short: ${b.toHexString()}")
+            return
+        }
+
+        val rawSegments = markers.zipWithNext { start, end ->
+            SleepSegment(
+                startMinutes = start.second,
+                endMinutes = end.second,
+                stateId = start.first,
+                label = sleepStateLabel(start.first)
+            )
+        }.filter { it.endMinutes > it.startMinutes }
+
+        val mergedSegments = rawSegments.fold(mutableListOf<SleepSegment>()) { merged, segment ->
+            val previous = merged.lastOrNull()
+            if (previous != null && previous.stateId == segment.stateId) {
+                merged[merged.lastIndex] = previous.copy(
+                    endMinutes = segment.endMinutes,
+                    hasInternalMarkers = true
+                )
+            } else {
+                merged.add(segment)
+            }
+            merged
+        }
+
+        val total = rawSegments
+            .filter { it.stateId != 0x00 }
+            .sumOf { it.endMinutes - it.startMinutes }
+        val deep = rawSegments
+            .filter { it.stateId == 0x02 }
+            .sumOf { it.endMinutes - it.startMinutes }
+        val light = rawSegments
+            .filter { it.stateId == 0x01 }
+            .sumOf { it.endMinutes - it.startMinutes }
+
+        _state.update {
+            it.copy(
+                sleepMinutes = total,
+                deepSleepMinutes = deep,
+                lightSleepMinutes = light,
+                sleepSegments = mergedSegments
+            )
+        }
+        saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
+        updateDebugLog(
+            "Sleep boundaries: total=${total}m deep=${deep}m lightOrRem=${light}m " +
+                mergedSegments.joinToString(" | ") {
+                    "${formatMinutesOfDay(it.startMinutes)}-${formatMinutesOfDay(it.endMinutes)} ${it.label}${if (it.hasInternalMarkers) "*" else ""}"
+                }
+        )
+    }
+
+    private fun sleepStateLabel(stateId: Int): String {
+        return when (stateId) {
+            0x00 -> "Hereilla"
+            0x01 -> "Kevyt/REM"
+            0x02 -> "Syva"
+            else -> "State $stateId"
+        }
+    }
+
+    private fun formatMinutesOfDay(minutes: Int): String {
+        return "%02d:%02d".format((minutes / 60) % 24, minutes % 60)
     }
 
     private fun readUInt16LE(b: ByteArray, offset: Int): Int {
