@@ -16,11 +16,19 @@ class NotificationReceiverService : NotificationListenerService() {
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
         val category = sbn.notification.category ?: ""
 
-        Log.d("NotificationReceiver", "Notification from $packageName: $title - $text")
+        val pm = applicationContext.packageManager
+        val appName = try {
+            pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+        } catch (e: Exception) {
+            packageName
+        }
+
+        Log.d("NotificationReceiver", "Notification from $packageName ($appName): $title - $text")
 
         // Broadcast the notification to the WatchService
         val intent = Intent("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED").setPackage(applicationContext.packageName)
         intent.putExtra("package", packageName)
+        intent.putExtra("appName", appName)
         intent.putExtra("title", title)
         intent.putExtra("text", text)
         intent.putExtra("category", category)

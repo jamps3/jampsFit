@@ -25,10 +25,13 @@ class WatchService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED") {
                 val pkg = intent.getStringExtra("package") ?: ""
+                val appName = intent.getStringExtra("appName") ?: pkg
                 val title = intent.getStringExtra("title") ?: ""
                 val text = intent.getStringExtra("text") ?: ""
                 val category = intent.getStringExtra("category") ?: ""
                 val state = watchManager.state.value
+
+                watchManager.registerDiscoveredApp(pkg, appName)
                 
                 if (state.isConnected && state.notificationsEnabled) {
                     if (state.notificationFilters.contains(pkg)) {

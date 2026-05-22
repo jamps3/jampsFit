@@ -69,6 +69,7 @@ data class WatchState(
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
     val notificationFilters: Set<String> = emptySet(),
+    val discoveredApps: Map<String, String> = emptyMap(),
     val ignoreDuplicateNotifications: Boolean = true,
     val useLegacyCallNotifications: Boolean = false,
     val borderColor: Int = 0xFFFFFFFF.toInt(),
@@ -111,6 +112,10 @@ class WatchManager(private val context: Context) {
         firmwareVersion = prefs.getString("firmwareVersion", null),
         notificationsEnabled = prefs.getBoolean("notificationsEnabled", false),
         notificationFilters = prefs.getStringSet("notificationFilters", setOf("com.digibites.accubattery")) ?: emptySet(),
+        discoveredApps = prefs.getStringSet("discoveredApps", emptySet())?.associate {
+            val parts = it.split("|")
+            (parts.getOrNull(0) ?: "") to (parts.getOrNull(1) ?: "")
+        }?.filter { it.key.isNotBlank() } ?: emptyMap(),
         ignoreDuplicateNotifications = prefs.getBoolean("ignoreDuplicateNotifications", true),
         useLegacyCallNotifications = prefs.getBoolean("useLegacyCallNotifications", false),
         borderColor = prefs.getInt("borderColor", 0xFFFFFFFF.toInt()),
@@ -794,6 +799,15 @@ class WatchManager(private val context: Context) {
         _state.update { it.copy(notificationFilters = newFilters) }
     }
 
+    fun registerDiscoveredApp(pkg: String, name: String) {
+        if (_state.value.discoveredApps[pkg] == name) return
+        val newApps = _state.value.discoveredApps + (pkg to name)
+        prefs.edit {
+            putStringSet("discoveredApps", newApps.map { "${it.key}|${it.value}" }.toSet())
+        }
+        _state.update { it.copy(discoveredApps = newApps) }
+    }
+
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
     
     fun updateBorderColor(color: Int) {
@@ -1128,8 +1142,38 @@ class WatchManager(private val context: Context) {
         }
     }
 
-    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null) {
-        managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories)) }
+    private fun saveToDb(
+        battery: Int? = null,
+        heartRate: Int? = null,
+        spo2: Int? = null,
+        systolic: Int? = null,
+        diastolic: Int? = null,
+        steps: Int? = null,
+        activityCount: Int? = null,
+        distance: Int? = null,
+        calories: Int? = null,
+        sleepMinutes: Int? = null,
+        deepSleepMinutes: Int? = null,
+        lightSleepMinutes: Int? = null
+    ) {
+        managerScope.launch {
+            healthDao.insert(
+                HealthEntry(
+                    battery = battery,
+                    heartRate = heartRate,
+                    spo2 = spo2,
+                    systolic = systolic,
+                    diastolic = diastolic,
+                    steps = steps,
+                    activityCount = activityCount,
+                    distance = distance,
+                    calories = calories,
+                    sleepMinutes = sleepMinutes,
+                    deepSleepMinutes = deepSleepMinutes,
+                    lightSleepMinutes = lightSleepMinutes
+                )
+            )
+        }
     }
 
     private fun parseStandardHeartRate(data: ByteArray): Int? {
@@ -1433,6 +1477,7 @@ class WatchManager(private val context: Context) {
             offset += 3
         }
         _state.update { it.copy(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light) }
+        saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
         updateDebugLog("Sleep summary: total=${total}m deep=${deep}m light=${light}m")
     }
 

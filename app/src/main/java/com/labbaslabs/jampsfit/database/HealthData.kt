@@ -15,7 +15,10 @@ data class HealthEntry(
     val steps: Int? = null,
     val activityCount: Int? = null,
     val distance: Int? = null,
-    val calories: Int? = null
+    val calories: Int? = null,
+    val sleepMinutes: Int? = null,
+    val deepSleepMinutes: Int? = null,
+    val lightSleepMinutes: Int? = null
 )
 
 data class HistoryPoint(
@@ -70,10 +73,13 @@ interface HealthDao {
             MAX(calories) as calories,
             AVG(NULLIF(heartRate, 0)) as heartRate,
             AVG(NULLIF(spo2, 0)) as spo2,
-            NULL as battery,
-            NULL as systolic,
-            NULL as diastolic,
-            NULL as activityCount
+            MAX(battery) as battery,
+            AVG(NULLIF(systolic, 0)) as systolic,
+            AVG(NULLIF(diastolic, 0)) as diastolic,
+            MAX(activityCount) as activityCount,
+            MAX(sleepMinutes) as sleepMinutes,
+            MAX(deepSleepMinutes) as deepSleepMinutes,
+            MAX(lightSleepMinutes) as lightSleepMinutes
         FROM health_data 
         WHERE timestamp > (strftime('%s', 'now') - 86400) * 1000
         GROUP BY strftime('%Y-%m-%d %H', timestamp / 1000, 'unixepoch', 'localtime') 
@@ -90,10 +96,13 @@ interface HealthDao {
             MAX(calories) as calories,
             AVG(NULLIF(heartRate, 0)) as heartRate,
             AVG(NULLIF(spo2, 0)) as spo2,
-            NULL as battery,
-            NULL as systolic,
-            NULL as diastolic,
-            NULL as activityCount
+            MAX(battery) as battery,
+            AVG(NULLIF(systolic, 0)) as systolic,
+            AVG(NULLIF(diastolic, 0)) as diastolic,
+            MAX(activityCount) as activityCount,
+            MAX(sleepMinutes) as sleepMinutes,
+            MAX(deepSleepMinutes) as deepSleepMinutes,
+            MAX(lightSleepMinutes) as lightSleepMinutes
         FROM health_data 
         GROUP BY date(timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC 
@@ -110,10 +119,13 @@ interface HealthDao {
             MAX(calories) as calories,
             AVG(NULLIF(heartRate, 0)) as heartRate,
             AVG(NULLIF(spo2, 0)) as spo2,
-            NULL as battery,
-            NULL as systolic,
-            NULL as diastolic,
-            NULL as activityCount
+            MAX(battery) as battery,
+            AVG(NULLIF(systolic, 0)) as systolic,
+            AVG(NULLIF(diastolic, 0)) as diastolic,
+            MAX(activityCount) as activityCount,
+            MAX(sleepMinutes) as sleepMinutes,
+            MAX(deepSleepMinutes) as deepSleepMinutes,
+            MAX(lightSleepMinutes) as lightSleepMinutes
         FROM health_data 
         GROUP BY strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC 
@@ -130,10 +142,13 @@ interface HealthDao {
             MAX(calories) as calories,
             AVG(NULLIF(heartRate, 0)) as heartRate,
             AVG(NULLIF(spo2, 0)) as spo2,
-            NULL as battery,
-            NULL as systolic,
-            NULL as diastolic,
-            NULL as activityCount
+            MAX(battery) as battery,
+            AVG(NULLIF(systolic, 0)) as systolic,
+            AVG(NULLIF(diastolic, 0)) as diastolic,
+            MAX(activityCount) as activityCount,
+            MAX(sleepMinutes) as sleepMinutes,
+            MAX(deepSleepMinutes) as deepSleepMinutes,
+            MAX(lightSleepMinutes) as lightSleepMinutes
         FROM health_data
         GROUP BY strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC

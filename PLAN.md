@@ -28,14 +28,14 @@
 - [x] **Customizable Borders**: Adjustable thickness, brightness, and color for all UI borders.
 - [x] **Start on Boot**: Option to automatically start the service when the phone restarts.
 - [x] **Persistent Background Service**: Toggle for a reliable, always-on connection.
-- [x] **Last 24h View**: Hourly granularity health stats for the previous 24 hours.
+- [x] **Last 24h View**: Hourly granularity health stats for the previous 24 hours including Battery, Distance, Sleep, Blood Pressure, and Activity Count.
 - [x] **Hourly Calories Graph**: Calculates active burn in 1-hour slices.
 - [x] **Custom Branding**: Integrated jampsFit logo and adaptive launcher icon with OLED optimization.
 - [x] **Watch-tab Connection Controls**: Scan/connect, clock sync, battery refresh, and queue clearing live with watch controls instead of App settings.
 - [x] **Retire Notification Probes**: Removed dead notification probe controls after they produced no useful watch behavior.
 - [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
 - [x] Data Export: Save session data to CSV files.
-- [ ] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path.
+- [x] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path with automatic app discovery and friendly name filtering.
 - [x] Extended Notifications: Direct `0x41` display is confirmed through 238 bytes; 240 bytes truncates on-watch.
 - [x] Precise Time Sync: Big-endian local time synchronization.
 - [x] Restore passive Main screen data via no-MTU broad notification listening.
@@ -70,7 +70,6 @@
 - [ ] **Da Fit Settings Probes**: Time format (`0x17`) and Quick View (`0x18`) are confirmed; Quick View now uses dedicated Watch > Display commands instead of generic probe buttons. Live-test auto-HR interval (`0x1F`) and move reminder (`0x1D`) controls from the 2026-05-18 Da Fit settings capture.
 - [ ] **Da Fit Session Prep**: Test the minimal `84/B4/12/F1` ready cluster before any native Find/Alarm/Weather command is re-enabled.
 - [ ] **Replace Da Fit Completely**: Use Da Fit captures only as protocol reference. jampsFit must own the BLE connection and implement notification/control sends itself.
-- [ ] **Data Export**: Save session data to CSV files.
 - [ ] **Sending Weather to the Watch**: Push current weather and forecast to the watch.
 - [ ] **Extended Reverse Engineering**: Decode more proprietary Kospet packets.
 - [ ] **Code Refactoring**: Split large files into modular components.

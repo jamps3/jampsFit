@@ -365,6 +365,8 @@ Implementation update: jampsFit notification mirroring now formats normal incomi
 FE EA 20 [len] 41 80 [UTF-8 title/text]
 ```
 
+The app also implements **Dynamic App Discovery** by extracting friendly app labels from the Android Package Manager during notification arrival, allowing users to filter notifications by app name rather than raw package IDs.
+
 The Controls tab includes direct `0x41` length probes at 20, 40, 60, 80, 120, 160, 180, 220, 232, 236, 238, 239, 240, and 249 text bytes. Live result: fixed marker probes through 238 bytes displayed with the `END` suffix. The 240-byte marker was accepted but displayed only through `...7890 E`, truncating before the final `ND`. Current mirroring cap is therefore 238 text bytes. The one-byte packet-length format can carry up to 249 text bytes (`255 total - 5 header/cmd bytes - 1 subtype byte`), but the watch UI display limit appears lower.
 
 Legacy short/call notification update: `FE EA 20 ... 08` type `0x01` and type `0x02` now work from jampsFit on `FEE2`. Controls > App exposes custom title/message fields for the short format and a call-format test button. Android notification mirroring also carries package names into the service so the app can filter noisy packages before sending to the watch; call-category Android notifications can be sent using the confirmed call packet when the option is enabled.

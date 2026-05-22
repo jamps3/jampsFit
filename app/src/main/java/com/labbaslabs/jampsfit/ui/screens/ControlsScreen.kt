@@ -447,36 +447,63 @@ private fun AppSettingsControls(
                 modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
             )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.2f))
-            Text(text = "Notification Filters", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text(text = "Exclude apps by package name (e.g. com.digibites.accubattery)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(text = "App Notifications", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(text = "Toggle which apps can send notifications to your watch.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             
+            if (state.discoveredApps.isEmpty()) {
+                Text(
+                    text = "No apps discovered yet. Notifications will appear here as they arrive on your phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.DarkGray,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    state.discoveredApps.toList().sortedBy { it.second.lowercase() }.forEach { (pkg, name) ->
+                        val isBlocked = state.notificationFilters.contains(pkg)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { 
+                                    if (isBlocked) activity?.removeNotificationFilter(pkg) 
+                                    else activity?.addNotificationFilter(pkg) 
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = name, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                Text(text = pkg, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                            Switch(
+                                checked = !isBlocked,
+                                onCheckedChange = { 
+                                    if (it) activity?.removeNotificationFilter(pkg) 
+                                    else activity?.addNotificationFilter(pkg) 
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
             var newPkg by remember { mutableStateOf("") }
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = newPkg,
                     onValueChange = { newPkg = it.trim().lowercase() },
-                    label = { Text("Package Name", fontSize = 12.sp) },
+                    label = { Text("Manual Package Filter", fontSize = 12.sp) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
                 IconButton(onClick = { if (newPkg.isNotBlank()) { activity?.addNotificationFilter(newPkg); newPkg = "" } }) {
                     Icon(Icons.Default.Add, contentDescription = "Add Filter", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-
-            Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                state.notificationFilters.sorted().forEach { pkg ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = pkg, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
-                        IconButton(onClick = { activity?.removeNotificationFilter(pkg) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
                 }
             }
         }
