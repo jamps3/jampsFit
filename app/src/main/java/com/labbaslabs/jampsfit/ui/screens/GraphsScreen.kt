@@ -75,21 +75,40 @@ fun TodayGraphs(state: WatchState) {
         dataPoints = state.batteryHistory, 
         currentValue = state.battery?.let { "$it%" }, 
         color = Color(0xFF4CAF50),
-        timeFormat = timeFormat
+        timeFormat = timeFormat,
+        forceZeroMin = true
+    )
+    SleekGraphCard(
+        title = "Steps", 
+        dataPoints = state.stepsHistory, 
+        currentValue = state.steps?.toString(), 
+        color = Color(0xFF03A9F4),
+        timeFormat = timeFormat,
+        forceZeroMin = true
     )
     SleekGraphCard(
         title = "Activity Count", 
         dataPoints = state.activityHistory, 
         currentValue = state.activityCount?.toString(), 
         color = Color(0xFF8BC34A),
-        timeFormat = timeFormat
+        timeFormat = timeFormat,
+        forceZeroMin = true
     )
     SleekGraphCard(
         title = "Distance (m)", 
         dataPoints = state.distanceHistory, 
         currentValue = state.distance?.let { "${it}m" }, 
         color = Color(0xFF2196F3),
-        timeFormat = timeFormat
+        timeFormat = timeFormat,
+        forceZeroMin = true
+    )
+    SleekGraphCard(
+        title = "Calories", 
+        dataPoints = state.caloriesHistory, 
+        currentValue = state.calories?.let { "${it} kcal" }, 
+        color = Color(0xFFFF9800),
+        timeFormat = timeFormat,
+        forceZeroMin = true
     )
     SleekGraphCard(
         title = "Heart Rate (BPM)", 
@@ -266,7 +285,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
                 dataPoints = hourlyCalories,
                 currentValue = hourlyCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
                 color = Color(0xFFFF5722),
-                timeFormat = timeFormat
+                timeFormat = timeFormat,
+                forceZeroMin = true
             )
         }
 
@@ -275,7 +295,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.battery ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.battery ?: 0) > 0 }?.battery?.toString()?.plus("%"),
             color = Color(0xFF4CAF50),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            forceZeroMin = true
         )
 
         SleekGraphCard(
@@ -283,7 +304,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.steps ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull()?.steps?.toString(),
             color = Color(0xFF03A9F4),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            forceZeroMin = true
         )
 
         SleekGraphCard(
@@ -291,7 +313,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
             color = Color(0xFF8BC34A),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            forceZeroMin = true
         )
 
         SleekGraphCard(
@@ -299,7 +322,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
             color = Color(0xFF2196F3),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            forceZeroMin = true
         )
 
         SleekGraphCard(
@@ -307,7 +331,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull()?.calories?.toString(),
             color = Color(0xFFFF9800),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            forceZeroMin = true
         )
 
         SleekGraphCard(
@@ -491,7 +516,8 @@ fun SleekGraphCard(
     dataPoints: List<com.labbaslabs.jampsfit.database.HistoryPoint>, 
     currentValue: String?, 
     color: Color,
-    timeFormat: String = "HH:mm"
+    timeFormat: String = "HH:mm",
+    forceZeroMin: Boolean = false
 ) {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
@@ -518,7 +544,7 @@ fun SleekGraphCard(
                 
                 val validPoints = dataPoints.filter { it.value > 0 }
                 val currentMax = (validPoints.maxOfOrNull { it.value }?.toFloat() ?: 100f).coerceAtLeast(1f)
-                val currentMin = (validPoints.minOfOrNull { it.value }?.toFloat() ?: 0f)
+                val currentMin = if (forceZeroMin) 0f else (validPoints.minOfOrNull { it.value }?.toFloat() ?: 0f)
                 val range = (currentMax - currentMin).coerceAtLeast(1f)
                 
                 // Draw Y axis labels and grid
