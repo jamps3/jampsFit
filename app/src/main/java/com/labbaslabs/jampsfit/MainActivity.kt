@@ -334,6 +334,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.setQuickViewEnabled(enabled)
     }
 
+    fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
+        watchService?.watchManager?.setQuickViewWindow(startHour, startMinute, endHour, endMinute)
+    }
+
     fun setStepGoal(goal: Int) {
         watchService?.watchManager?.setStepGoal(goal)
     }

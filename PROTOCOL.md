@@ -127,6 +127,7 @@ Known `FEE1` walking frames are kept out of the Unknown tab and logged as decode
 | `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
 | `20` | `05` | `61` | **Find My Watch** | Confirmed working from jampsFit on `FEE2` / handle `0x0047`. Previous reboot was from wrong characteristic. |
 | `20` | `0D` | `11` | **Alarm Record** | Confirmed working for alarm slots 1 and 3 from jampsFit on `FEE2`. Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. |
+| `20` | `09` | `72` | **Quick View active window** | Captured from Da Fit and added to Watch > Display for testing. Payload: `[start hour] [start minute] [end hour] [end minute]`; example `FE EA 20 09 72 0A 00 15 3B` = `10:00-21:59`. |
 | `20` | `06` | `7D` | **Auto-lock seconds** | Confirmed working from jampsFit on `FEE2`. Example: `FE EA 20 06 7D 14` for 20 seconds. |
 | `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Da Fit UI allows 2000-35000 in 1000-step increments. Added as a connected-only experimental control; still needs live confirmation. |
 | `20` | `1A` | `42` | **Forecast data** | Confirmed working from jampsFit on `FEE2`. Seven triples: `[icon/weatherCode] [high C] [low C]`. First triple updates today's range; next six appear as future forecast days. |
@@ -146,8 +147,9 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | HR Stop | `FE EA 20 06 6D 00` | Retired from UI: also starts visible HR measurement, with watch vibration and display wake. `FE EA 20 06 6D 01` remains blocked because it rebooted this watch. |
 | Time 12h | `FE EA 20 06 17 00` | Confirmed working; moved to Watch > Display. |
 | Time 24h | `FE EA 20 06 17 01` | Confirmed working; moved to Watch > Display. |
-| Quick Off | `FE EA 20 06 18 00` | Confirmed working; exposed as a dedicated Watch > Display control instead of a generic probe button. |
-| Quick On | `FE EA 20 06 18 01` | Confirmed working; exposed as a dedicated Watch > Display control instead of a generic probe button. The time range may be stored separately; no obvious range packet was isolated. |
+| Quick Off | `FE EA 20 06 18 00` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. |
+| Quick On | `FE EA 20 06 18 01` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. If it appears not to work, verify the active window below includes the current time. |
+| Quick View Window | `FE EA 20 09 72 [SH] [SM] [EH] [EM]` | Captured from Da Fit at 2026-05-22 14:23 after setting `10:00-21:59`: `FE EA 20 09 72 0A 00 15 3B`. Added under Watch > Display for live testing. |
 | Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. |
 | Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. |
 | Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |

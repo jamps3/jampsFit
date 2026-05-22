@@ -166,20 +166,61 @@ fun ControlsScreen(
                 GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
             }
             Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            var quickStartHour by remember { mutableFloatStateOf(10f) }
+            var quickStartMinute by remember { mutableFloatStateOf(0f) }
+            var quickEndHour by remember { mutableFloatStateOf(21f) }
+            var quickEndMinute by remember { mutableFloatStateOf(59f) }
+            fun formatQuickTime(hour: Float, minute: Float): String {
+                return "${hour.toInt().toString().padStart(2, '0')}:${minute.toInt().toString().padStart(2, '0')}"
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    onClick = { activity?.setQuickViewEnabled(false) },
+                    onClick = { activity?.sendGadgetbridgeProbe("quick-view-off") },
                     enabled = state.isConnected,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("Quick Off", fontSize = 12.sp) }
                 OutlinedButton(
-                    onClick = { activity?.setQuickViewEnabled(true) },
+                    onClick = { activity?.sendGadgetbridgeProbe("quick-view-on") },
                     enabled = state.isConnected,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("Quick On", fontSize = 12.sp) }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Active window: ${formatQuickTime(quickStartHour, quickStartMinute)} - ${formatQuickTime(quickEndHour, quickEndMinute)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Start h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+                Slider(value = quickStartHour, onValueChange = { quickStartHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Start m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+                Slider(value = quickStartMinute, onValueChange = { quickStartMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("End h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+                Slider(value = quickEndHour, onValueChange = { quickEndHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("End m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+                Slider(value = quickEndMinute, onValueChange = { quickEndMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
+            }
+            Button(
+                onClick = {
+                    activity?.setQuickViewWindow(
+                        quickStartHour.toInt(),
+                        quickStartMinute.toInt(),
+                        quickEndHour.toInt(),
+                        quickEndMinute.toInt()
+                    )
+                },
+                enabled = state.isConnected,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) { Text("Send Active Window") }
         }
 
         SleekCard {

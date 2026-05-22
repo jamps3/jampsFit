@@ -468,6 +468,29 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Quick View via FEE2: ${if (enabled) "on" else "off"} -> ${packet.toHexString()}")
     }
 
+    fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Quick View window skipped: watch is not connected.")
+            return
+        }
+        val safeStartHour = startHour.coerceIn(0, 23)
+        val safeStartMinute = startMinute.coerceIn(0, 59)
+        val safeEndHour = endHour.coerceIn(0, 23)
+        val safeEndMinute = endMinute.coerceIn(0, 59)
+        val packet = nativePacket(0x72, safeStartHour, safeStartMinute, safeEndHour, safeEndMinute)
+        sendFee2NativeRaw(packet)
+        updateDebugLog(
+            "Quick View window via FEE2: " +
+                "%02d:%02d-%02d:%02d -> %s".format(
+                    safeStartHour,
+                    safeStartMinute,
+                    safeEndHour,
+                    safeEndMinute,
+                    packet.toHexString()
+                )
+        )
+    }
+
     fun setStepGoal(goal: Int) {
         if (!_state.value.isConnected) {
             updateDebugLog("Step-goal test skipped: watch is not connected.")
