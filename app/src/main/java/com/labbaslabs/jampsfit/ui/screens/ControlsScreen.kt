@@ -267,51 +267,9 @@ fun ControlsScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Send Forecast Sample")
             }
-            Text("Current weather probes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                WeatherProbeButton("43 Cold", "43-cold", state.isConnected, activity, Modifier.weight(1f))
-                WeatherProbeButton("43 Warm", "43-warm", state.isConnected, activity, Modifier.weight(1f))
-                WeatherProbeButton("B5 Warm", "b5-warm", state.isConnected, activity, Modifier.weight(1f))
-            }
 
             Text(
-                text = "These use the corrected FEE2 route but still need live confirmation.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-        }
-
-        SleekCard {
-            Text(text = "Step Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text("Real-step candidates", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("33 00", "steps-33-00", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("33 01", "steps-33-01", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("33 02", "steps-33-02", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("59 00", "steps-59-00", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("59 01", "steps-59-01", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("59 02", "steps-59-02", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("59 03", "steps-59-03", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("10/59 00", "steps-10-59-00", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("10/59 01", "steps-10-59-01", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("10/59 02", "steps-10-59-02", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("10/59 03", "steps-10-59-03", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Text("Advanced/unknown probes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("B9 Weather", "b9-weather-19", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("B9 Card Cfg", "b9-ecard-config", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("B9 Card Data", "b9-ecard-content", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Text(
-                text = "HR 6D/HR Stop trigger visible watch HR measurement, and Heartbeat 64 had no visible effect; all three are retired from the UI.",
+                text = "Weather forecast uses the corrected FEE2 route; current conditions still need a better packet capture.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
@@ -681,24 +639,6 @@ private fun NotificationProbeButton(
 ) {
     OutlinedButton(
         onClick = { activity?.sendNotificationProbe(kind) },
-        enabled = enabled,
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Text(label, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun WeatherProbeButton(
-    label: String,
-    kind: String,
-    enabled: Boolean,
-    activity: MainActivity?,
-    modifier: Modifier = Modifier.fillMaxWidth()
-) {
-    OutlinedButton(
-        onClick = { activity?.sendWeatherCurrentProbe(kind) },
         enabled = enabled,
         modifier = modifier,
         shape = RoundedCornerShape(8.dp)
