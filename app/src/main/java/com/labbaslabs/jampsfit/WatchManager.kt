@@ -41,6 +41,7 @@ data class WatchState(
     val autoStart: Boolean = false,
     val autoConnect: Boolean = false,
     val autoFetchSteps: Boolean = false,
+    val autoFetchBattery: Boolean = false,
     val stepFetchIntervalMinutes: Int = 60,
     val batteryThreshold: Int = 15,
     val batteryEstimation: String? = null,
@@ -114,6 +115,7 @@ class WatchManager(private val context: Context) {
         autoStart = prefs.getBoolean("autoStart", false),
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
+        autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
@@ -147,6 +149,7 @@ class WatchManager(private val context: Context) {
     private var reconnectJob: Job? = null
     private var scanWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
+    private var autoBatteryFetchJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private var lastActivitySeq: Int? = null
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -572,6 +575,21 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun restartAutoBatteryFetch() {
+        autoBatteryFetchJob?.cancel()
+        autoBatteryFetchJob = null
+        val state = _state.value
+        if (!state.autoFetchBattery || !state.isConnected) return
+        val intervalMs = state.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
+        autoBatteryFetchJob = managerScope.launch {
+            updateDebugLog("Auto battery fetch enabled: every ${state.stepFetchIntervalMinutes}m")
+            while (isActive) {
+                readBattery()
+                delay(intervalMs)
+            }
+        }
+    }
+
     fun setWeatherCity(city: String) {
         if (!_state.value.isConnected) {
             updateDebugLog("Weather test skipped: watch is not connected.")
@@ -852,11 +870,17 @@ class WatchManager(private val context: Context) {
         _state.update { it.copy(autoFetchSteps = e) }
         restartAutoStepFetch()
     }
+    fun toggleAutoFetchBattery(e: Boolean) {
+        prefs.edit { putBoolean("autoFetchBattery", e) }
+        _state.update { it.copy(autoFetchBattery = e) }
+        restartAutoBatteryFetch()
+    }
     fun updateStepFetchInterval(minutes: Int) {
         val safeMinutes = minutes.coerceIn(5, 1440)
         prefs.edit { putInt("stepFetchIntervalMinutes", safeMinutes) }
         _state.update { it.copy(stepFetchIntervalMinutes = safeMinutes) }
         restartAutoStepFetch()
+        restartAutoBatteryFetch()
     }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
@@ -1009,6 +1033,8 @@ class WatchManager(private val context: Context) {
         stopScan()
         autoStepFetchJob?.cancel()
         autoStepFetchJob = null
+        autoBatteryFetchJob?.cancel()
+        autoBatteryFetchJob = null
         _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
     }
     private fun connectToDevice(device: BluetoothDevice) {
@@ -1078,6 +1104,7 @@ class WatchManager(private val context: Context) {
             }
             updateDebugLog("Channels ready; listening for watch data.")
             restartAutoStepFetch()
+            restartAutoBatteryFetch()
         }
         override fun onDescriptorWrite(gatt: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {
             updateDebugLog("Listen ${d.characteristic.uuid.toString().substring(4, 8).uppercase()} status=$s")
