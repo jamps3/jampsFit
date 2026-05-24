@@ -23,6 +23,7 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 @Composable
 fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
@@ -51,11 +52,11 @@ fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             when (selectedSubTab) {
-                0 -> HistoryGraphs(title = "Last 24 Hours", stats = state.last24hStats, timeFormat = "HH:00")
+                0 -> HistoryGraphs(title = "Last 24 Hours", stats = state.last24hStats, timeFormat = "HH:00", state = state)
                 1 -> TodayGraphs(state)
-                2 -> HistoryBarGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM")
-                3 -> HistoryBarGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w")
-                4 -> HistoryBarGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM")
+                2 -> HistoryBarGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM", state = state)
+                3 -> HistoryBarGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w", state = state)
+                4 -> HistoryBarGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM", state = state)
             }
         }
     }
@@ -128,11 +129,26 @@ fun TodayGraphs(state: WatchState) {
         startTime = todayStart,
         endTime = todayEnd
     )
+    val totalCalories = state.caloriesHistory.toTotalCalories(
+        dailyBasalCalories = calculateBasalCalories(state),
+        periodMode = CaloriePeriodMode.DayProgress
+    )
+
     SleekGraphCard(
-        title = "Calories", 
+        title = "Calories (Moving)", 
         dataPoints = state.caloriesHistory, 
         currentValue = state.calories?.let { "${it} kcal" }, 
         color = Color(0xFFFF9800),
+        timeFormat = timeFormat,
+        forceZeroMin = true,
+        startTime = todayStart,
+        endTime = todayEnd
+    )
+    SleekGraphCard(
+        title = "Calories (Total)",
+        dataPoints = totalCalories,
+        currentValue = totalCalories.lastOrNull()?.value?.let { "$it kcal" },
+        color = Color(0xFFFF5722),
         timeFormat = timeFormat,
         forceZeroMin = true,
         startTime = todayStart,
@@ -237,13 +253,19 @@ fun TodayGraphs(state: WatchState) {
                     )
                 }
 
-                // Draw X axis labels (Today view: Start, Middle, End)
-                val times = listOf(todayStart, (todayStart + todayEnd) / 2, todayEnd)
+                // Draw X axis labels (Today view: 5 labels)
+                val times = listOf(
+                    todayStart,
+                    todayStart + (todayEnd - todayStart) / 4,
+                    todayStart + (todayEnd - todayStart) / 2,
+                    todayStart + 3 * (todayEnd - todayStart) / 4,
+                    todayEnd
+                )
                 times.forEachIndexed { index, time ->
-                    val xPos = leftPadding + (index.toFloat() / 2f) * graphWidth
+                    val xPos = leftPadding + (index.toFloat() / 4f) * graphWidth
                     val timeStr = sdf.format(Date(time))
                     val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
-                    val xOffset = if (index == 2) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
+                    val xOffset = if (index == 4) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
                     drawText(
                         textMeasurer = textMeasurer,
                         text = timeStr,
@@ -290,7 +312,7 @@ fun TodayGraphs(state: WatchState) {
 }
 
 @Composable
-fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
+fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String, state: WatchState) {
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     if (stats.isEmpty()) {
@@ -317,10 +339,27 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
         )
 
         SleekBarChartCard(
-            title = "Calories (Total)",
+            title = "Calories (Moving)",
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull()?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        val periodMode = when {
+            title.contains("Weekly", ignoreCase = true) -> CaloriePeriodMode.Week
+            title.contains("Monthly", ignoreCase = true) -> CaloriePeriodMode.Month
+            else -> CaloriePeriodMode.FullDay
+        }
+        val totalCalories = stats
+            .map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) }
+            .toTotalCalories(calculateBasalCalories(state), periodMode)
+        SleekBarChartCard(
+            title = "Calories (Total)",
+            dataPoints = totalCalories,
+            currentValue = totalCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
+            color = Color(0xFFFF5722),
             timeFormat = timeFormat,
             forceZeroMin = true
         )
@@ -387,7 +426,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 }
 
 @Composable
-fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
+fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String, state: WatchState) {
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     if (stats.isEmpty()) {
@@ -455,10 +494,22 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
 
         SleekGraphCard(
-            title = "Calories (Max)",
+            title = "Calories (Moving)",
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
-            currentValue = stats.lastOrNull()?.calories?.toString(),
+            currentValue = stats.lastOrNull()?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
+            timeFormat = timeFormat,
+            forceZeroMin = true
+        )
+
+        val totalCalories = stats
+            .map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) }
+            .toTotalCalories(calculateBasalCalories(state), CaloriePeriodMode.DayProgress)
+        SleekGraphCard(
+            title = "Calories (Total)",
+            dataPoints = totalCalories,
+            currentValue = totalCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
+            color = Color(0xFFFF5722),
             timeFormat = timeFormat,
             forceZeroMin = true
         )
@@ -620,6 +671,56 @@ fun HistorySleepCard(stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, 
     }
 }
 
+enum class CaloriePeriodMode {
+    DayProgress,
+    FullDay,
+    Week,
+    Month
+}
+
+fun calculateBasalCalories(state: WatchState): Int {
+    return calculateBasalCalories(
+        gender = state.profileGender,
+        heightCm = state.profileHeightCm,
+        weightKg = state.profileWeightKg,
+        ageYears = state.profileAgeYears
+    )
+}
+
+fun calculateBasalCalories(gender: String, heightCm: Int, weightKg: Float, ageYears: Int): Int {
+    val genderOffset = if (gender.equals("Female", ignoreCase = true)) -161.0 else 5.0
+    return (10.0 * weightKg + 6.25 * heightCm - 5.0 * ageYears + genderOffset).roundToInt()
+}
+
+private fun List<com.labbaslabs.jampsfit.database.HistoryPoint>.toTotalCalories(
+    dailyBasalCalories: Int,
+    periodMode: CaloriePeriodMode
+): List<com.labbaslabs.jampsfit.database.HistoryPoint> {
+    return map { point ->
+        val basal = when (periodMode) {
+            CaloriePeriodMode.DayProgress -> (dailyBasalCalories * dayProgress(point.timestamp)).roundToInt()
+            CaloriePeriodMode.FullDay -> dailyBasalCalories
+            CaloriePeriodMode.Week -> dailyBasalCalories * 7
+            CaloriePeriodMode.Month -> dailyBasalCalories * daysInMonth(point.timestamp)
+        }
+        com.labbaslabs.jampsfit.database.HistoryPoint(point.value + basal, point.timestamp)
+    }
+}
+
+private fun dayProgress(timestamp: Long): Float {
+    val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val hour = calendar.get(Calendar.HOUR_OF_DAY)
+    val minute = calendar.get(Calendar.MINUTE)
+    val second = calendar.get(Calendar.SECOND)
+    val millisecond = calendar.get(Calendar.MILLISECOND)
+    val elapsed = (((hour * 60L + minute) * 60L + second) * 1000L + millisecond).toFloat()
+    return (elapsed / (24f * 60f * 60f * 1000f)).coerceIn(0f, 1f)
+}
+
+private fun daysInMonth(timestamp: Long): Int {
+    return Calendar.getInstance().apply { timeInMillis = timestamp }.getActualMaximum(Calendar.DAY_OF_MONTH)
+}
+
 @Composable
 fun LegendItem(label: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -695,9 +796,11 @@ fun SleekBarChartCard(
                     )
                 }
 
-                // Draw X axis labels (start, middle, end)
+                // Draw X axis labels (5 labels)
                 if (dataPoints.isNotEmpty()) {
-                    val indices = if (dataPoints.size >= 3) {
+                    val indices = if (dataPoints.size >= 5) {
+                        listOf(0, dataPoints.size / 4, dataPoints.size / 2, 3 * dataPoints.size / 4, dataPoints.size - 1)
+                    } else if (dataPoints.size >= 3) {
                         listOf(0, dataPoints.size / 2, dataPoints.size - 1)
                     } else if (dataPoints.size == 2) {
                         listOf(0, 1)
@@ -705,7 +808,7 @@ fun SleekBarChartCard(
                         listOf(0)
                     }
                     
-                    indices.forEach { index ->
+                    indices.forEachIndexed { i, index ->
                         val point = dataPoints[index]
                         val xPos = if (dataPoints.size == 1) leftPadding + graphWidth / 2f
                                    else leftPadding + (index.toFloat() / (dataPoints.size.coerceAtLeast(2) - 1)) * graphWidth
@@ -815,14 +918,20 @@ fun SleekGraphCard(
                     )
                 }
 
-                // Draw X axis labels (start, middle, end)
+                // Draw X axis labels (5 labels)
                 if (startTime != null && endTime != null) {
-                    val times = listOf(startTime, (startTime + endTime) / 2, endTime)
+                    val times = listOf(
+                        startTime,
+                        startTime + (endTime - startTime) / 4,
+                        startTime + (endTime - startTime) / 2,
+                        startTime + 3 * (endTime - startTime) / 4,
+                        endTime
+                    )
                     times.forEachIndexed { index, time ->
-                        val xPos = leftPadding + (index.toFloat() / 2f) * graphWidth
+                        val xPos = leftPadding + (index.toFloat() / 4f) * graphWidth
                         val timeStr = sdf.format(Date(time))
                         val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
-                        val xOffset = if (index == 2) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
+                        val xOffset = if (index == 4) -labelWidth else if (index == 0) 0f else -labelWidth / 2f
                         drawText(
                             textMeasurer = textMeasurer,
                             text = timeStr,
@@ -831,7 +940,9 @@ fun SleekGraphCard(
                         )
                     }
                 } else if (dataPoints.isNotEmpty()) {
-                    val indices = if (dataPoints.size >= 3) {
+                    val indices = if (dataPoints.size >= 5) {
+                        listOf(0, dataPoints.size / 4, dataPoints.size / 2, 3 * dataPoints.size / 4, dataPoints.size - 1)
+                    } else if (dataPoints.size >= 3) {
                         listOf(0, dataPoints.size / 2, dataPoints.size - 1)
                     } else if (dataPoints.size == 2) {
                         listOf(0, 1)
@@ -839,7 +950,7 @@ fun SleekGraphCard(
                         listOf(0)
                     }
                     
-                    indices.forEach { index ->
+                    indices.forEachIndexed { i, index ->
                         val point = dataPoints[index]
                         val xPos = if (dataPoints.size == 1) leftPadding + graphWidth / 2f
                                    else leftPadding + (index.toFloat() / (dataPoints.size - 1)) * graphWidth

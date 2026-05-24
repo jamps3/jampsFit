@@ -79,6 +79,10 @@ data class WatchState(
     val borderColor: Int = 0xFFFFFFFF.toInt(),
     val borderThickness: Float = 1.0f,
     val borderAlpha: Float = 0.4f,
+    val profileGender: String = "Male",
+    val profileHeightCm: Int = 168,
+    val profileWeightKg: Float = 83f,
+    val profileAgeYears: Int = 41,
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false,
@@ -135,7 +139,11 @@ class WatchManager(private val context: Context) {
         useLegacyCallNotifications = prefs.getBoolean("useLegacyCallNotifications", false),
         borderColor = prefs.getInt("borderColor", 0xFFFFFFFF.toInt()),
         borderThickness = prefs.getFloat("borderThickness", 1.0f),
-        borderAlpha = prefs.getFloat("borderAlpha", 0.4f)
+        borderAlpha = prefs.getFloat("borderAlpha", 0.4f),
+        profileGender = prefs.getString("profileGender", "Male") ?: "Male",
+        profileHeightCm = prefs.getInt("profileHeightCm", 168),
+        profileWeightKg = prefs.getFloat("profileWeightKg", 83f),
+        profileAgeYears = prefs.getInt("profileAgeYears", 41)
     ))
     val state = _state.asStateFlow()
 
@@ -922,6 +930,27 @@ class WatchManager(private val context: Context) {
     fun updateBorderAlpha(alpha: Float) {
         prefs.edit { putFloat("borderAlpha", alpha) }
         _state.update { it.copy(borderAlpha = alpha) }
+    }
+
+    fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) {
+        val normalizedGender = if (gender.equals("Female", ignoreCase = true)) "Female" else "Male"
+        val normalizedHeight = heightCm.coerceIn(100, 230)
+        val normalizedWeight = weightKg.coerceIn(30f, 250f)
+        val normalizedAge = ageYears.coerceIn(10, 120)
+        prefs.edit {
+            putString("profileGender", normalizedGender)
+            putInt("profileHeightCm", normalizedHeight)
+            putFloat("profileWeightKg", normalizedWeight)
+            putInt("profileAgeYears", normalizedAge)
+        }
+        _state.update {
+            it.copy(
+                profileGender = normalizedGender,
+                profileHeightCm = normalizedHeight,
+                profileWeightKg = normalizedWeight,
+                profileAgeYears = normalizedAge
+            )
+        }
     }
 
     fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }

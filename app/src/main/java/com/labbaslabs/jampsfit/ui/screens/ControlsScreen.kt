@@ -329,6 +329,90 @@ private fun AppSettingsControls(
     onDisconnectClick: () -> Unit
 ) {
     SleekCard {
+        Text(text = "Body Profile", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text("Gender", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf("Male", "Female").forEach { gender ->
+                FilterChip(
+                    selected = state.profileGender == gender,
+                    onClick = {
+                        activity?.updateProfile(
+                            gender,
+                            state.profileHeightCm,
+                            state.profileWeightKg,
+                            state.profileAgeYears
+                        )
+                    },
+                    label = { Text(gender) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Height: ${state.profileHeightCm} cm", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.profileHeightCm.toFloat(),
+            onValueChange = {
+                activity?.updateProfile(
+                    state.profileGender,
+                    it.toInt(),
+                    state.profileWeightKg,
+                    state.profileAgeYears
+                )
+            },
+            valueRange = 100f..230f,
+            steps = 129,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Text("Weight: ${"%.1f".format(state.profileWeightKg)} kg", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.profileWeightKg,
+            onValueChange = {
+                val roundedWeight = kotlin.math.round(it * 10f) / 10f
+                activity?.updateProfile(
+                    state.profileGender,
+                    state.profileHeightCm,
+                    roundedWeight,
+                    state.profileAgeYears
+                )
+            },
+            valueRange = 30f..250f,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Text("Age: ${state.profileAgeYears}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.profileAgeYears.toFloat(),
+            onValueChange = {
+                activity?.updateProfile(
+                    state.profileGender,
+                    state.profileHeightCm,
+                    state.profileWeightKg,
+                    it.toInt()
+                )
+            },
+            valueRange = 10f..120f,
+            steps = 109,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        val dailyBurn = calculateBasalCalories(
+            state.profileGender,
+            state.profileHeightCm,
+            state.profileWeightKg,
+            state.profileAgeYears
+        )
+        Text(
+            text = "Base burn: $dailyBurn kcal / 24h",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+
+    SleekCard {
         Text(text = "App Theme", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Text("Border Color", style = MaterialTheme.typography.bodySmall, color = Color.Gray)

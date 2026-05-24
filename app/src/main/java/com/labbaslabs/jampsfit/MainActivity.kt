@@ -270,6 +270,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.updateBorderAlpha(alpha)
     }
 
+    fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) {
+        watchService?.watchManager?.updateProfile(gender, heightCm, weightKg, ageYears)
+    }
+
     fun updateVolumeSteps(steps: Int) {
         watchService?.watchManager?.updateVolumeSteps(steps)
     }
