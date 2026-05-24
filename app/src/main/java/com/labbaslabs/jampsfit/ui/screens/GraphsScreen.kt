@@ -173,28 +173,7 @@ fun TodayGraphs(state: WatchState) {
         endTime = todayEnd
     )
     
-    SleekCard {
-        Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-        if (state.sleepMinutes == null) {
-            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
-                Text(text = "Waiting for data...", color = Color.Gray)
-            }
-        } else {
-            Row(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
-                val total = state.sleepMinutes.toFloat()
-                val deep = (state.deepSleepMinutes ?: 0).toFloat()
-                val light = (state.lightSleepMinutes ?: 0).toFloat()
-                val awake = (total - deep - light).coerceAtLeast(0f)
-
-                SleepBar(weight = deep / total, color = Color(0xFF311B92), label = "Deep")
-                SleepBar(weight = light / total, color = Color(0xFF7E57C2), label = "Light")
-                if (awake > 0) {
-                    SleepBar(weight = awake / total, color = Color(0xFFFFEB3B), label = "Awake")
-                }
-            }
-        }
-    }
+    SleepDistributionCard(state)
     
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -534,6 +513,9 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
 
         HistoryBloodPressureCard(stats, timeFormat)
+        if (title.contains("24 Hours", ignoreCase = true)) {
+            SleepDistributionCard(state)
+        }
         HistorySleepCard(stats, timeFormat)
     }
 }
@@ -643,6 +625,32 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
 
             drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
             drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
+        }
+    }
+}
+
+@Composable
+fun SleepDistributionCard(state: WatchState) {
+    SleekCard {
+        Text(text = "Sleep Distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (state.sleepMinutes == null || state.sleepMinutes == 0) {
+            Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Text(text = "Waiting for data...", color = Color.Gray)
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
+                val total = state.sleepMinutes.toFloat()
+                val deep = (state.deepSleepMinutes ?: 0).toFloat()
+                val light = (state.lightSleepMinutes ?: 0).toFloat()
+                val awake = (total - deep - light).coerceAtLeast(0f)
+
+                SleepBar(weight = deep / total, color = Color(0xFF311B92), label = "Deep")
+                SleepBar(weight = light / total, color = Color(0xFF7E57C2), label = "Light")
+                if (awake > 0) {
+                    SleepBar(weight = awake / total, color = Color(0xFFFFEB3B), label = "Awake")
+                }
+            }
         }
     }
 }

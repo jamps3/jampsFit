@@ -151,8 +151,10 @@ These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested 
 | Quick Off | `FE EA 20 06 18 00` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. |
 | Quick On | `FE EA 20 06 18 01` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. If it appears not to work, verify the active window below includes the current time. |
 | Quick View Window | `FE EA 20 09 72 [SH] [SM] [EH] [EM]` | Captured from Da Fit at 2026-05-22 14:23 after setting `10:00-21:59`: `FE EA 20 09 72 0A 00 15 3B`. Added under Watch > Display for live testing. |
-| Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. |
-| Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. |
+| Auto HR Off | `FE EA 20 06 1F 00` | Candidate derived from the captured interval enum. Added as a cautious App-tab setting; still needs live confirmation. |
+| Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. Added to App tab as the preferred silent-HR experiment. |
+| Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. Added to App tab as a captured silent-HR experiment. |
+| Auto HR 15m / 30m / 60m | `FE EA 20 06 1F 03/04/05` | Candidate continuation of the captured `0x1F` interval enum. UI marks these with `?` until captured or live-confirmed. |
 | Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |
 | Move Reminder Off | `FE EA 20 06 1D 00` | Captured from Da Fit at 2026-05-18 03:43 when disabling sedentary / move reminder. |
 | B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |

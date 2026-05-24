@@ -43,6 +43,7 @@ data class WatchState(
     val autoFetchSteps: Boolean = false,
     val autoFetchBattery: Boolean = false,
     val stepFetchIntervalMinutes: Int = 60,
+    val autoHeartRateIntervalMinutes: Int = 0,
     val batteryThreshold: Int = 15,
     val batteryEstimation: String? = null,
     val notificationsEnabled: Boolean = false,
@@ -121,6 +122,7 @@ class WatchManager(private val context: Context) {
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
         autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
+        autoHeartRateIntervalMinutes = prefs.getInt("autoHeartRateIntervalMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
         musicAction = prefs.getString("musicAction", "Media") ?: "Media",
@@ -709,6 +711,32 @@ class WatchManager(private val context: Context) {
         }
         sendFee2NativeRaw(packet)
         updateDebugLog("Gadgetbridge probe $kind via FEE2 -> ${packet.toHexString()}")
+    }
+
+    fun setAutoHeartRateInterval(minutes: Int) {
+        if (!_state.value.isConnected) {
+            updateDebugLog("Auto HR setting skipped: watch is not connected.")
+            return
+        }
+        val code = when (minutes) {
+            0 -> 0x00
+            5 -> 0x01
+            10 -> 0x02
+            15 -> 0x03
+            30 -> 0x04
+            60 -> 0x05
+            else -> {
+                updateDebugLog("Auto HR interval ${minutes}m is not mapped.")
+                return
+            }
+        }
+        val packet = nativePacket(0x1F, code)
+        sendFee2NativeRaw(packet)
+        prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }
+        _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
+        val confidence = if (minutes == 5 || minutes == 10) "captured Da Fit" else "candidate"
+        val label = if (minutes == 0) "off" else "${minutes}m"
+        updateDebugLog("Auto HR $label via FEE2 ($confidence): ${packet.toHexString()}")
     }
 
     fun sendWeightCandidate(weightTenthsKg: Int) {
@@ -1342,7 +1370,7 @@ class WatchManager(private val context: Context) {
     private fun isKnownFee3Packet(data: ByteArray): Boolean {
         if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
         return when (data[4].toInt() and 0xFF) {
-            0x21, 0x26, 0x32, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
+            0x1F, 0x21, 0x26, 0x32, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
             else -> false
         }
     }
@@ -1350,6 +1378,24 @@ class WatchManager(private val context: Context) {
     private fun parseFee3Packet(uuid: UUID, data: ByteArray): Boolean {
         if (uuid != FEE3_NOTIFY || !isKnownFee3Packet(data)) return false
         when (data[4].toInt() and 0xFF) {
+            0x1F -> {
+                val value = data.getOrNull(5)?.toInt()?.and(0xFF)
+                val interval = when (value) {
+                    0x00 -> 0
+                    0x01 -> 5
+                    0x02 -> 10
+                    0x03 -> 15
+                    0x04 -> 30
+                    0x05 -> 60
+                    else -> null
+                }
+                if (interval != null) {
+                    _state.update { it.copy(autoHeartRateIntervalMinutes = interval) }
+                    updateDebugLog("Auto HR response: ${if (interval == 0) "off" else "${interval}m"}")
+                } else {
+                    updateDebugLog("Auto HR response payload=${data.copyOfRange(5, data.size).toHexString()}")
+                }
+            }
             0x21 -> {
                 parseAlarmQueryResponse(data)
             }

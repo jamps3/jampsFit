@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         
         setShowWhenLocked(true)
@@ -236,6 +238,10 @@ class MainActivity : ComponentActivity() {
 
     fun updateStepFetchInterval(minutes: Int) {
         watchService?.watchManager?.updateStepFetchInterval(minutes)
+    }
+
+    fun setAutoHeartRateInterval(minutes: Int) {
+        watchService?.watchManager?.setAutoHeartRateInterval(minutes)
     }
 
     fun toggleNotifications(enabled: Boolean) {

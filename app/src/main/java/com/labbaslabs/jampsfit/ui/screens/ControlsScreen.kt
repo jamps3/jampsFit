@@ -629,27 +629,36 @@ private fun AppSettingsControls(
         Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("HR 10m", "auto-hr-10m", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("HR 5m", "auto-hr-5m", state.isConnected, activity, Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(0, 5, 10).forEach { minutes ->
+                FilterChip(
+                    selected = state.autoHeartRateIntervalMinutes == minutes,
+                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    enabled = state.isConnected,
+                    label = { Text(if (minutes == 0) "Off" else "${minutes}m", fontSize = 11.sp) }
+                )
+            }
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(15, 30, 60).forEach { minutes ->
+                FilterChip(
+                    selected = state.autoHeartRateIntervalMinutes == minutes,
+                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    enabled = state.isConnected,
+                    label = { Text("${minutes}m?", fontSize = 11.sp) }
+                )
+            }
+        }
+        Text(
+            text = "5m and 10m are captured Da Fit writes. Other intervals are mapped as cautious candidates; this does not send the vibrating manual HR command.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
         Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
             GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
         }
-        Text("Weather", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        OutlinedButton(
-            onClick = { activity?.sendGadgetbridgeProbe("b9-weather-19") },
-            enabled = state.isConnected,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp)
-        ) { Text("Weather Probe", fontSize = 12.sp) }
-        Text(
-            text = "Weather On moved to Watch > Weather because it partly works; these remain exploratory settings probes.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
     }
 }
 
