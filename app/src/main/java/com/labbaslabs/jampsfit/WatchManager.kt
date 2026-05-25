@@ -1094,12 +1094,19 @@ class WatchManager(private val context: Context) {
         autoBatteryFetchJob = null
         _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
     }
+    @Suppress("DEPRECATION")
     private fun connectToDevice(device: BluetoothDevice) {
         userRequestedDisconnect = false
         stopScan()
         lastConnectedDevice = device
         _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }
-        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        bluetoothGatt = device.connectGatt(
+            context,
+            false,
+            gattCallback,
+            BluetoothDevice.TRANSPORT_LE,
+            BluetoothDevice.PHY_LE_1M_MASK
+        )
     }
 
     private val gattCallback = object : BluetoothGattCallback() {

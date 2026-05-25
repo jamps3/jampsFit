@@ -49,7 +49,7 @@ interface HealthDao {
     @Query("SELECT spo2 as value, timestamp FROM health_data WHERE spo2 IS NOT NULL AND spo2 > 0 ORDER BY timestamp DESC LIMIT 50")
     fun getSpO2History(): Flow<List<HistoryPoint>>
 
-    @Query("SELECT id, timestamp, systolic, diastolic FROM health_data WHERE systolic IS NOT NULL AND diastolic IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
+    @Query("SELECT * FROM health_data WHERE systolic IS NOT NULL AND diastolic IS NOT NULL ORDER BY timestamp DESC LIMIT 50")
     fun getBloodPressureHistory(): Flow<List<HealthEntry>>
 
     @Query("SELECT steps as value, timestamp FROM health_data WHERE steps IS NOT NULL ORDER BY timestamp DESC LIMIT 50")

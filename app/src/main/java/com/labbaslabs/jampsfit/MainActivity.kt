@@ -14,6 +14,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
         Intent(this, WatchService::class.java).also { intent ->
             bindService(intent, connection, BIND_AUTO_CREATE)
         }
+        startWatchServiceIfAutoConnectEnabled()
 
         setContent {
             JampsFitTheme {
@@ -97,7 +99,7 @@ class MainActivity : ComponentActivity() {
                                     TabSpec("Graphs", Icons.Default.Timeline),
                                     TabSpec("Controls", Icons.Default.Tune),
                                     TabSpec("Remote", Icons.Default.SettingsRemote),
-                                    TabSpec("Logs", Icons.Default.Article)
+                                    TabSpec("Logs", Icons.AutoMirrored.Filled.Article)
                                 )
                                 SleekNavigationBar(
                                     selectedTab = selectedTab,
@@ -182,6 +184,14 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.startScan()
     }
 
+    private fun startWatchServiceIfAutoConnectEnabled() {
+        val prefs = getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
+        val autoConnect = prefs.getBoolean("autoConnect", true)
+        if (autoConnect && hasWatchServicePermissions()) {
+            startWatchService()
+        }
+    }
+
     fun stopWatchService() {
         val intent = Intent(this, WatchService::class.java)
         stopService(intent)
@@ -196,12 +206,23 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.BLUETOOTH_CONNECT
         )
 
-        if (permissions.all {
-                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-            }) {
+        if (hasWatchServicePermissions()) {
             startWatchService()
         } else {
             requestPermissionLauncher.launch(permissions.toTypedArray())
+        }
+    }
+
+    private fun hasWatchServicePermissions(): Boolean {
+        val permissions = listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT
+        )
+        return permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 

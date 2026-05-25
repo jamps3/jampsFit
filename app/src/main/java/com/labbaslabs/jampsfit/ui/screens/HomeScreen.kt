@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -75,7 +76,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             icon = Icons.Default.BatteryChargingFull,
             color = Color(0xFF4CAF50)
         )
-        DataCard(label = "Activity Count", value = state.activityCount?.toString() ?: "--", icon = Icons.Default.DirectionsWalk, color = Color(0xFFFFC107))
+        DataCard(label = "Activity Count", value = state.activityCount?.toString() ?: "--", icon = Icons.AutoMirrored.Filled.DirectionsWalk, color = Color(0xFFFFC107))
         DataCard(
             label = "Steps",
             value = state.steps?.toString() ?: "--",
