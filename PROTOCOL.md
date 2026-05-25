@@ -1,7 +1,7 @@
 # Kospet TANK M1 Protocol (MoYoung/DaFit)
 
 ## Overview
-The watch communicates using a proprietary BLE protocol (MoYoung/DaFit). It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
+The watch communicates using a proprietary BLE protocol com. It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
 
 Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. The watch identifies as `MOYOUNG-V2`, so it is using the Gadgetbridge-documented Moyoung V2 protocol or a very close variant. Treat the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
 

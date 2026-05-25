@@ -38,10 +38,34 @@ class WatchService : Service() {
                         Log.d("WatchService", "Filtered notification from $pkg")
                         return
                     }
+
+                    if (pkg == "com.google.android.deskclock" && state.autoSyncAlarm) {
+                        try {
+                            val timeRegex = Regex("([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])")
+                            val match = timeRegex.find(text) ?: timeRegex.find(title)
+                            if (match != null) {
+                                var hour = match.groupValues[1].toInt()
+                                val minute = match.groupValues[2].toInt()
+                                val lowerText = text.lowercase() + " " + title.lowercase()
+                                if (lowerText.contains("pm") && hour < 12) hour += 12
+                                if (lowerText.contains("am") && hour == 12) hour = 0
+
+                                Log.d("WatchService", "Auto-syncing Alarm 1 to $hour:$minute from $pkg")
+                                watchManager.setAlarm(0, true, hour, minute, 0)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("WatchService", "Error parsing alarm time: ${e.message}")
+                        }
+                    }
+
                     if (state.useLegacyCallNotifications && category == Notification.CATEGORY_CALL) {
                         watchManager.sendLegacyCallNotification(title, text)
                     } else {
-                        watchManager.sendNotification(title, text)
+                        if (pkg == "com.google.android.deskclock" && state.muteAlarmSyncNotification) {
+                            Log.d("WatchService", "Muting watch message for $pkg")
+                        } else {
+                            watchManager.sendNotification(title, text)
+                        }
                     }
                 }
             }

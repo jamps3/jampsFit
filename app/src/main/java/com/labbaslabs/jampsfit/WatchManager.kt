@@ -87,6 +87,8 @@ data class WatchState(
     val writeUuidShort: String = "6387",
     val protocolHeader: String = "FE EA 20",
     val payloadLengthOnly: Boolean = false,
+    val autoSyncAlarm: Boolean = false,
+    val muteAlarmSyncNotification: Boolean = false,
 )
 
 data class SleepSegment(
@@ -145,7 +147,9 @@ class WatchManager(private val context: Context) {
         profileGender = prefs.getString("profileGender", "Male") ?: "Male",
         profileHeightCm = prefs.getInt("profileHeightCm", 168),
         profileWeightKg = prefs.getFloat("profileWeightKg", 83f),
-        profileAgeYears = prefs.getInt("profileAgeYears", 41)
+        profileAgeYears = prefs.getInt("profileAgeYears", 41),
+        autoSyncAlarm = prefs.getBoolean("autoSyncAlarm", false),
+        muteAlarmSyncNotification = prefs.getBoolean("muteAlarmSyncNotification", false)
     ))
     val state = _state.asStateFlow()
 
@@ -987,6 +991,18 @@ class WatchManager(private val context: Context) {
         val s = steps.coerceIn(1, 5)
         prefs.edit { putInt("volumeSteps", s) }
         _state.update { it.copy(volumeSteps = s) }
+    }
+
+    fun toggleAutoSyncAlarm(enabled: Boolean) {
+        prefs.edit { putBoolean("autoSyncAlarm", enabled) }
+        _state.update { it.copy(autoSyncAlarm = enabled) }
+        updateDebugLog("Auto-sync alarm: ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
+        prefs.edit { putBoolean("muteAlarmSyncNotification", enabled) }
+        _state.update { it.copy(muteAlarmSyncNotification = enabled) }
+        updateDebugLog("Mute alarm sync notification: ${if (enabled) "enabled" else "disabled"}")
     }
 
     fun setFindingPhone(active: Boolean) {

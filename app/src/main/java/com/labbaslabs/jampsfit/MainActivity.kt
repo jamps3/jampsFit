@@ -249,6 +249,14 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleAutoConnect(enabled)
     }
 
+    fun toggleAutoSyncAlarm(enabled: Boolean) {
+        watchService?.watchManager?.toggleAutoSyncAlarm(enabled)
+    }
+
+    fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
+        watchService?.watchManager?.toggleMuteAlarmSyncNotification(enabled)
+    }
+
     fun toggleAutoFetchSteps(enabled: Boolean) {
         watchService?.watchManager?.toggleAutoFetchSteps(enabled)
     }

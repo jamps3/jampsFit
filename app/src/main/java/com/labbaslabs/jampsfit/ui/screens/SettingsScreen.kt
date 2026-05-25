@@ -803,6 +803,12 @@ fun SettingsScreen(state: WatchState, onScanClick: () -> Unit, onDisconnectClick
                     }
                     SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
                     SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
+                    SettingSwitch(label = "Auto-sync Alarm 1 to Phone", checked = state.autoSyncAlarm) { activity?.toggleAutoSyncAlarm(it) }
+                    if (state.autoSyncAlarm) {
+                        SettingSwitch(label = "  Mute Alarm Sync Notification", checked = state.muteAlarmSyncNotification) { 
+                            activity?.toggleMuteAlarmSyncNotification(it) 
+                        }
+                    }
 
                     if (state.notificationsEnabled) {
                         Spacer(modifier = Modifier.height(8.dp))
