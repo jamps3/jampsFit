@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit
 
+import android.annotation.SuppressLint
 import android.app.*
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -23,8 +24,8 @@ class WatchService : Service() {
     
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            val pkg = intent.getStringExtra("package") ?: ""
             if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED") {
-                val pkg = intent.getStringExtra("package") ?: ""
                 val appName = intent.getStringExtra("appName") ?: pkg
                 val title = intent.getStringExtra("title") ?: ""
                 val text = intent.getStringExtra("text") ?: ""
@@ -39,19 +40,47 @@ class WatchService : Service() {
                         return
                     }
 
-                    if (pkg == "com.google.android.deskclock" && state.autoSyncAlarm) {
+                    if ((pkg == "com.google.android.deskclock") && state.autoSyncAlarm) {
                         try {
+                            val lowerTitle = title.lowercase()
+                            val lowerText = text.lowercase()
+                            val isUpcoming = lowerText.contains("tuleva") || lowerText.contains("upcoming") || lowerTitle.contains("tuleva") || lowerTitle.contains("upcoming")
+                            val isFiring = lowerText.contains("lopeta") || lowerText.contains("stop") || lowerText.contains("dismiss") || lowerText.contains("snooze") || lowerText.contains("torkku")
+
                             val timeRegex = Regex("([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])")
                             val match = timeRegex.find(text) ?: timeRegex.find(title)
+                            
                             if (match != null) {
                                 var hour = match.groupValues[1].toInt()
                                 val minute = match.groupValues[2].toInt()
-                                val lowerText = text.lowercase() + " " + title.lowercase()
-                                if (lowerText.contains("pm") && hour < 12) hour += 12
-                                if (lowerText.contains("am") && hour == 12) hour = 0
+                                val combined = "$lowerTitle $lowerText"
+                                if (combined.contains("pm") && (hour < 12)) hour += 12
+                                if (combined.contains("am") && (hour == 12)) hour = 0
+                                
+                                // Try to extract date if it looks like a date (ma 15.07)
+                                var month = 0
+                                var day = 0
+                                val dateRegex = Regex("(?:ma|ti|ke|to|pe|la|su)\\s+([0-3]?[0-9])[.]([0-1]?[0-9])")
+                                val dateMatch = dateRegex.find(text) ?: dateRegex.find(title)
+                                if (dateMatch != null) {
+                                    day = dateMatch.groupValues[1].toInt()
+                                    month = dateMatch.groupValues[2].toInt()
+                                }
 
-                                Log.d("WatchService", "Auto-syncing Alarm 1 to $hour:$minute from $pkg")
-                                watchManager.setAlarm(0, true, hour, minute, 0)
+                                if (isFiring) {
+                                    startAlarmVibration()
+                                }
+                                
+                                val typeLabel = when {
+                                    isFiring -> "Active"
+                                    isUpcoming -> "Upcoming"
+                                    else -> "Unknown"
+                                }
+                                Log.d("WatchService", "$typeLabel alarm sync to $hour:$minute (date=$day.$month) from $pkg")
+                                watchManager.setAlarm(slot = 0, enabled = true, hour = hour, minute = minute, repeatMask = 0, month = month, day = day)
+                            } else if (isFiring) {
+                                // If firing but no time found (maybe user has custom notification format), just vibrate
+                                startAlarmVibration()
                             }
                         } catch (e: Exception) {
                             Log.e("WatchService", "Error parsing alarm time: ${e.message}")
@@ -68,6 +97,10 @@ class WatchService : Service() {
                         }
                     }
                 }
+            } else if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_REMOVED") {
+                if (pkg == "com.google.android.deskclock") {
+                    stopAlarmVibration()
+                }
             }
         }
     }
@@ -83,6 +116,7 @@ class WatchService : Service() {
     private var isFlashlightOn = false
     private var activeRingtone: Ringtone? = null
     private var findPhoneJob: Job? = null
+    private var alarmVibrationJob: Job? = null
 
     companion object {
         private const val CHANNEL_ID = "WatchServiceChannel"
@@ -107,17 +141,20 @@ class WatchService : Service() {
             watchManager.startScan()
         }
 
-        val filter = IntentFilter("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
-        registerReceiver(notificationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        val filter = IntentFilter().apply {
+            addAction("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
+            addAction("com.labbaslabs.jampsfit.NOTIFICATION_REMOVED")
+        }
+        registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
 
         watchManager.state.onEach { state ->
             updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
             
             // Connection alert logic
             if (state.isConnected != lastConnectionState) {
-                if (!state.isConnected && lastConnectionState) {
+                if (!state.isConnected) {
                     sendDisconnectNotification()
-                } else if (state.isConnected) {
+                } else {
                     cancelDisconnectNotification()
                     sendConnectedNotification()
                 }
@@ -158,10 +195,11 @@ class WatchService : Service() {
                 }
                 val pendingIntent = PendingIntent.getActivity(
                     this, 0, launchIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
                 val notificationManager = getSystemService(NotificationManager::class.java)
+                @SuppressLint("LaunchFullIntent")
                 val notification = NotificationCompat.Builder(this, FIND_PHONE_CHANNEL_ID)
                     .setContentTitle("Find My Phone")
                     .setContentText("Your watch is looking for this phone!")
@@ -188,7 +226,7 @@ class WatchService : Service() {
                         play()
                     }
                     
-                    val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                    val vibratorManager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
                     val vibrator = vibratorManager.defaultVibrator
 
                     while (isActive) {
@@ -223,7 +261,11 @@ class WatchService : Service() {
                     "Media" -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
                     "Volume" -> {
                         repeat(state.volumeSteps) {
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                            audioManager.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_LOWER,
+                                AudioManager.FLAG_SHOW_UI,
+                            )
                         }
                     }
                     "Utility" -> takeScreenshot()
@@ -310,7 +352,28 @@ class WatchService : Service() {
     }
 
     private fun findMyPhone() {
-        watchManager.setFindingPhone(true)
+        watchManager.setFindingPhone(active = true)
+    }
+
+    private fun startAlarmVibration() {
+        if (alarmVibrationJob != null) return
+        Log.d("WatchService", "Starting repeating alarm vibration on watch")
+        alarmVibrationJob = serviceScope.launch {
+            while (isActive) {
+                if (watchManager.state.value.isConnected) {
+                    watchManager.findWatch()
+                }
+                delay(3000)
+            }
+        }
+    }
+
+    private fun stopAlarmVibration() {
+        if (alarmVibrationJob != null) {
+            Log.d("WatchService", "Stopping repeating alarm vibration on watch")
+            alarmVibrationJob?.cancel()
+            alarmVibrationJob = null
+        }
     }
 
     private fun sendLowBatteryNotification(battery: Int) {

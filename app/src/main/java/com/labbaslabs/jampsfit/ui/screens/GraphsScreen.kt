@@ -111,7 +111,7 @@ fun TodayGraphs(state: WatchState) {
     )
     SleekGraphCard(
         title = "Activity Count", 
-        dataPoints = state.activityHistory, 
+        dataPoints = state.activityHistory.filter { it.value > 0 }, 
         currentValue = state.activityCount?.toString(), 
         color = Color(0xFF8BC34A),
         timeFormat = timeFormat,
@@ -121,7 +121,7 @@ fun TodayGraphs(state: WatchState) {
     )
     SleekGraphCard(
         title = "Distance (m)", 
-        dataPoints = state.distanceHistory, 
+        dataPoints = state.distanceHistory.filter { it.value > 0 }, 
         currentValue = state.distance?.let { "${it}m" }, 
         color = Color(0xFF2196F3),
         timeFormat = timeFormat,
@@ -136,7 +136,7 @@ fun TodayGraphs(state: WatchState) {
 
     SleekGraphCard(
         title = "Calories (Moving)", 
-        dataPoints = state.caloriesHistory, 
+        dataPoints = state.caloriesHistory.filter { it.value > 0 }, 
         currentValue = state.calories?.let { "${it} kcal" }, 
         color = Color(0xFFFF9800),
         timeFormat = timeFormat,
@@ -310,7 +310,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Distance (Total)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) }.filter { it.value > 0 },
             currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
             color = Color(0xFF2196F3),
             timeFormat = timeFormat,
@@ -319,8 +319,8 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Calories (Moving)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
-            currentValue = stats.lastOrNull()?.calories?.toString()?.plus(" kcal"),
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) }.filter { it.value > 0 },
+            currentValue = stats.lastOrNull { (it.calories ?: 0) > 0 }?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
             timeFormat = timeFormat,
             forceZeroMin = true
@@ -361,7 +361,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Activity Count",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) }.filter { it.value > 0 },
             currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
             color = Color(0xFF8BC34A),
             timeFormat = timeFormat,
@@ -456,7 +456,7 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
 
         SleekGraphCard(
             title = "Activity Count",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) }.filter { it.value > 0 },
             currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
             color = Color(0xFF8BC34A),
             timeFormat = timeFormat,
@@ -465,7 +465,7 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
 
         SleekGraphCard(
             title = "Distance (m)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) }.filter { it.value > 0 },
             currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
             color = Color(0xFF2196F3),
             timeFormat = timeFormat,
@@ -474,8 +474,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
 
         SleekGraphCard(
             title = "Calories (Moving)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
-            currentValue = stats.lastOrNull()?.calories?.toString()?.plus(" kcal"),
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) }.filter { it.value > 0 },
+            currentValue = stats.lastOrNull { (it.calories ?: 0) > 0 }?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
             timeFormat = timeFormat,
             forceZeroMin = true

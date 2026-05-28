@@ -61,7 +61,7 @@ data class WatchState(
     val batteryHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
     val heartRateHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
     val spo2History: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val bpHistory: List<com.labbaslabs.jampsfit.database.HealthEntry> = emptyList(),
+    val bpHistory: List<HealthEntry> = emptyList(),
     val stepsHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
     val distanceHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
     val caloriesHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
@@ -96,7 +96,7 @@ data class SleepSegment(
     val endMinutes: Int,
     val stateId: Int,
     val label: String,
-    val hasInternalMarkers: Boolean = false
+    val hasInternalMarkers: Boolean = false,
 )
 
 data class WatchAlarm(
@@ -118,7 +118,8 @@ class WatchManager(private val context: Context) {
     private val adapter: BluetoothAdapter? = bluetoothManager.adapter
     private val scanner get() = adapter?.bluetoothLeScanner
 
-    private val _state = MutableStateFlow(WatchState(
+    private val _state = MutableStateFlow(
+        WatchState(
         autoStart = prefs.getBoolean("autoStart", false),
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
@@ -309,17 +310,6 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Syncing clock (Big Endian FEE2)...")
     }
 
-    fun queryHealth() {
-        updateDebugLog("Querying current steps and listening for watch activity packets.")
-        queryCurrentSteps()
-        querySleepBoundaries()
-        readBattery()
-    }
-
-    fun syncHealth() {
-        queryHealth()
-    }
-
     fun clearQueue() {
         synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") }
     }
@@ -345,14 +335,16 @@ class WatchManager(private val context: Context) {
         return csv.toString()
     }
 
-    fun sendNotification(title: String, text: String, cmd: Int = 0x08, type: Int = 0x01) {
+    fun sendNotification(title: String, text: String, forceLegacy: Boolean = false) {
         val message = listOf(title.trim(), text.trim())
+            .asSequence()
             .filter { it.isNotBlank() }
             .joinToString(": ")
-            .ifBlank { "jampsFit" }
+        
+        if (message.isBlank()) return
         
         managerScope.launch {
-            if (_state.value.ignoreDuplicateNotifications) {
+            if (_state.value.ignoreDuplicateNotifications && !forceLegacy) {
                 val hash = message.hashCode()
                 val since = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
                 if (healthDao.countSeenNotification(hash, since) > 0) {
@@ -361,55 +353,21 @@ class WatchManager(private val context: Context) {
                 }
                 healthDao.insertSeenNotification(com.labbaslabs.jampsfit.database.SeenNotification(content_hash = hash))
             }
-            sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
+            
+            if (forceLegacy || _state.value.useLegacyCallNotifications) {
+                sendNativeNotification08(title, text, type = 0x01, checksum = false, logLabel = "legacy")
+            } else {
+                sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
+            }
         }
     }
 
     fun sendLegacyShortNotification(title: String, text: String) {
-        sendNotification(title.ifBlank { "jampsFit" }, text.ifBlank { "Hello from jampsFit" })
+        sendNotification(title, text, forceLegacy = true)
     }
 
     fun sendLegacyCallNotification(title: String, text: String) {
-        sendNotification(title.ifBlank { "Call" }, text.ifBlank { "Incoming call" })
-    }
-
-    fun sendNotificationProbe(kind: String) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Notification probe skipped: watch is not connected.")
-            return
-        }
-        when (kind) {
-            "legacy-short" -> sendLegacyShortNotification("jampsFit", "Legacy short")
-            "legacy-call" -> sendLegacyCallNotification("Call", "Ada Lovelace")
-            "20-08-type1" -> sendNativeNotification08("jampsFit", "Type 1 short", 0x01, checksum = false, logLabel = "type1")
-            "20-08-type2" -> sendNativeNotification08("Phone", "Type 2 message", 0x02, checksum = false, logLabel = "type2")
-            "20-08-type3" -> sendNativeNotification08("SMS", "Type 3 message", 0x03, checksum = false, logLabel = "type3")
-            "20-08-type5" -> sendNativeNotification08("App", "Type 5 message", 0x05, checksum = false, logLabel = "type5")
-            "20-08-csum1" -> sendNativeNotification08("jampsFit", "Checksum type 1", 0x01, checksum = true, logLabel = "csum1")
-            "20-08-csum3" -> sendNativeNotification08("SMS", "Checksum type 3", 0x03, checksum = true, logLabel = "csum3")
-            "20-41-tiny" -> sendNativeNotification41("jampsFit tiny 41")
-            "20-41-len20" -> sendNativeNotification41("Len20 abcdefghijklmn", maxBytes = 20, logLabel = "len20")
-            "20-41-len40" -> sendNativeNotification41("Len40 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJ", maxBytes = 40, logLabel = "len40")
-            "20-41-len60" -> sendNativeNotification41("Len60 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890", maxBytes = 60, logLabel = "len60")
-            "20-41-len80" -> sendNativeNotification41("Len80 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail", maxBytes = 80, logLabel = "len80")
-            "20-41-len120" -> sendNativeNotification41("Len120 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing", maxBytes = 120, logLabel = "len120")
-            "20-41-len160" -> sendNativeNotification41("Len160 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing and still more plain ascii content", maxBytes = 160, logLabel = "len160")
-            "20-41-len200" -> sendNativeNotification41("Len200 abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890 notification test tail with extra words for watch limit probing and still more plain ascii content for a larger direct packet boundary test", maxBytes = 200, logLabel = "len200")
-            "20-41-marker40" -> sendNativeNotification41(buildMarkerMessage(40), maxBytes = 40, logLabel = "marker40")
-            "20-41-marker60" -> sendNativeNotification41(buildMarkerMessage(60), maxBytes = 60, logLabel = "marker60")
-            "20-41-marker80" -> sendNativeNotification41(buildMarkerMessage(80), maxBytes = 80, logLabel = "marker80")
-            "20-41-marker100" -> sendNativeNotification41(buildMarkerMessage(100), maxBytes = 100, logLabel = "marker100")
-            "20-41-marker140" -> sendNativeNotification41(buildMarkerMessage(140), maxBytes = 140, logLabel = "marker140")
-            "20-41-marker180" -> sendNativeNotification41(buildMarkerMessage(180), maxBytes = 180, logLabel = "marker180")
-            "20-41-marker220" -> sendNativeNotification41(buildMarkerMessage(220), maxBytes = 220, logLabel = "marker220")
-            "20-41-marker232" -> sendNativeNotification41(buildMarkerMessage(232), maxBytes = 232, logLabel = "marker232")
-            "20-41-marker236" -> sendNativeNotification41(buildMarkerMessage(236), maxBytes = 236, logLabel = "marker236")
-            "20-41-marker238" -> sendNativeNotification41(buildMarkerMessage(238), maxBytes = 238, logLabel = "marker238")
-            "20-41-marker239" -> sendNativeNotification41(buildMarkerMessage(239), maxBytes = 239, logLabel = "marker239")
-            "20-41-marker240" -> sendNativeNotification41(buildMarkerMessage(240), maxBytes = 240, logLabel = "marker240")
-            "20-41-marker249" -> sendNativeNotification41(buildMarkerMessage(249), maxBytes = 249, logLabel = "marker249")
-            else -> updateDebugLog("Unknown notification probe: $kind")
-        }
+        sendNotification(title, text, forceLegacy = true)
     }
 
     private fun sendNativeNotification08(title: String, text: String, type: Int, checksum: Boolean, logLabel: String) {
@@ -437,17 +395,6 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Notification 20/41 $logLabel bytes=${textBytes.size} -> ${packet.toHexString()}")
     }
 
-    private fun buildMarkerMessage(length: Int): String {
-        val safeLength = length.coerceAtLeast(8)
-        val prefix = "M$safeLength "
-        val suffix = " END"
-        val bodyLength = (safeLength - prefix.length - suffix.length).coerceAtLeast(0)
-        val digits = buildString {
-            while (this.length < bodyLength) append("0123456789")
-        }.take(bodyLength)
-        return prefix + digits + suffix
-    }
-
     fun sendExperimentalNotification() {
         updateDebugLog("Experimental notification disabled: use Android notification mirroring path; this button rebooted the watch.")
     }
@@ -468,32 +415,6 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Startup phase 2 disabled: old test wrote Da Fit FEE2 traffic to the wrong characteristic.")
     }
 
-    private suspend fun sendFindPrepCluster() {
-        sendNativeRaw(nativePacket(0x84))
-        delay(180)
-        sendNativeRaw(nativePacket(0xB4, 0x00))
-        delay(180)
-        sendNativeRaw(nativePacket(0xB4, 0x12))
-        delay(180)
-        sendNativeRaw(nativePacket(0xB4, 0x10))
-        delay(180)
-        sendNativeRaw(nativePacket(0xB4, 0x20))
-    }
-
-    private fun buildExperimentalNotificationPacket(message: String): ByteArray {
-        val maxTextBytes = 62
-        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxTextBytes)
-        val packet = ByteArray(6 + textBytes.size)
-        packet[0] = 0xFE.toByte()
-        packet[1] = 0xEA.toByte()
-        packet[2] = 0x20.toByte()
-        packet[3] = packet.size.toByte()
-        packet[4] = 0x41.toByte()
-        packet[5] = 0x80.toByte()
-        System.arraycopy(textBytes, 0, packet, 6, textBytes.size)
-        return packet
-    }
-
     fun setAutoLockSeconds(seconds: Int) {
         if (!_state.value.isConnected) {
             updateDebugLog("Auto-lock test skipped: watch is not connected.")
@@ -504,16 +425,6 @@ class WatchManager(private val context: Context) {
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         _state.update { it.copy(autoLockSecondsSetting = safeSeconds) }
         updateDebugLog("Auto-lock via FEE2: ${safeSeconds}s -> ${packet.toHexString()}")
-    }
-
-    fun setQuickViewEnabled(enabled: Boolean) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Quick View skipped: watch is not connected.")
-            return
-        }
-        val packet = nativePacket(0x18, if (enabled) 0x01 else 0x00)
-        sendFee2NativeRaw(packet)
-        updateDebugLog("Quick View via FEE2: ${if (enabled) "on" else "off"} -> ${packet.toHexString()}")
     }
 
     fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
@@ -656,24 +567,6 @@ class WatchManager(private val context: Context) {
         }
     }
 
-    fun sendWeatherCurrentProbe(kind: String) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Weather current probe skipped: watch is not connected.")
-            return
-        }
-        val packet = when (kind) {
-            "43-cold" -> nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x05, 0x00, 0x03, 0x00, 0xFF, 0xFF)
-            "43-warm" -> nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x17, 0x00, 0x15, 0x00, 0x0F, 0x00)
-            "b5-warm" -> nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x17, 0x15, 0x0F, 0x6A, 0x6F, 0x65, 0x6E, 0x73, 0x75, 0x75)
-            else -> {
-                updateDebugLog("Unknown weather current probe: $kind")
-                return
-            }
-        }
-        sendFee2NativeRaw(packet)
-        updateDebugLog("Weather current probe $kind via FEE2 -> ${packet.toHexString()}")
-    }
-
     fun sendGadgetbridgeProbe(kind: String) {
         if (!_state.value.isConnected) {
             updateDebugLog("Gadgetbridge probe skipped: watch is not connected.")
@@ -704,10 +597,10 @@ class WatchManager(private val context: Context) {
             "steps-59-01" -> nativePacket(0x59, 0x01)
             "steps-59-02" -> nativePacket(0x59, 0x02)
             "steps-59-03" -> nativePacket(0x59, 0x03)
-            "steps-10-59-00" -> legacyPacket(0x59, 0x00)
-            "steps-10-59-01" -> legacyPacket(0x59, 0x01)
-            "steps-10-59-02" -> legacyPacket(0x59, 0x02)
-            "steps-10-59-03" -> legacyPacket(0x59, 0x03)
+            "steps-10-59-00" -> legacyPacket(0x00)
+            "steps-10-59-01" -> legacyPacket(0x01)
+            "steps-10-59-02" -> legacyPacket(0x02)
+            "steps-10-59-03" -> legacyPacket(0x03)
             else -> {
                 updateDebugLog("Unknown Gadgetbridge probe: $kind")
                 return
@@ -738,24 +631,16 @@ class WatchManager(private val context: Context) {
         sendFee2NativeRaw(packet)
         prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }
         _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
-        val confidence = if (minutes == 5 || minutes == 10) "captured Da Fit" else "candidate"
+        val confidence = if ((minutes == 5 || minutes == 10)) "captured Da Fit" else "candidate"
         val label = if (minutes == 0) "off" else "${minutes}m"
         updateDebugLog("Auto HR $label via FEE2 ($confidence): ${packet.toHexString()}")
     }
 
-    fun sendWeightCandidate(weightTenthsKg: Int) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Weight test skipped: watch is not connected.")
-            return
-        }
+    fun sendWeightCandidate() {
         updateDebugLog("Weight write disabled until we capture a second known value.")
     }
 
-    fun setAlarm1Enabled(enabled: Boolean) {
-        setAlarm(0, enabled, 7, 15, 0)
-    }
-
-    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
+    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int, month: Int = 0, day: Int = 0) {
         if (!_state.value.isConnected) {
             updateDebugLog("Alarm write skipped: watch is not connected.")
             return
@@ -765,10 +650,9 @@ class WatchManager(private val context: Context) {
         val safeMinute = minute.coerceIn(0, 59)
         val safeRepeatMask = repeatMask and 0x7F
         val enabledByte = if (enabled) 0x01 else 0x00
-        val mode = when (safeRepeatMask) {
-            0x00 -> 0x00
-            0x7F -> 0x01
-            else -> 0x02
+        val mode = when {
+            safeRepeatMask != 0 -> 0x02
+            else -> 0x00
         }
         val packet = nativePacket(
             0x11,
@@ -777,8 +661,8 @@ class WatchManager(private val context: Context) {
             mode,
             safeHour,
             safeMinute,
-            if (safeRepeatMask == 0x00) 0xB5 else 0x00,
-            if (safeRepeatMask == 0x00) 0x11 else 0x00,
+            month,
+            day,
             safeRepeatMask
         )
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
@@ -787,34 +671,17 @@ class WatchManager(private val context: Context) {
                 WatchAlarm(safeSlot, enabled, mode, safeHour, safeMinute, safeRepeatMask)
             it.copy(alarmSettings = alarms.sortedBy { alarm -> alarm.slot })
         }
-        updateDebugLog("Alarm ${safeSlot + 1} via FEE2: ${if (enabled) "on" else "off"} ${"%02d:%02d".format(safeHour, safeMinute)} repeat=0x${"%02X".format(safeRepeatMask)} -> ${packet.toHexString()}")
+        val dateInfo = if (month > 0) " date=%02d.%02d".format(day, month) else ""
+        updateDebugLog("Alarm ${safeSlot + 1} via FEE2: ${if (enabled) "on" else "off"} ${"%02d:%02d".format(safeHour, safeMinute)} repeat=0x${"%02X".format(safeRepeatMask)}$dateInfo -> ${packet.toHexString()}")
     }
 
     private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
         return copyOfRange(fromIndex, size.coerceAtMost(fromIndex + maxLength))
     }
 
-    private fun formatPacket(cmd: Byte, payload: ByteArray, forceLen: Int? = null): ByteArray {
-        val headerParts = _state.value.protocolHeader.split(" ")
-        val is10Series = headerParts.getOrNull(2) == "10"
-        val totalLen = forceLen ?: (5 + payload.size)
-        val packet = ByteArray(totalLen) { 0 }
-        packet[0] = headerParts[0].toInt(16).toByte()
-        packet[1] = headerParts[1].toInt(16).toByte()
-        packet[2] = headerParts[2].toInt(16).toByte()
-        packet[3] = (if (is10Series) totalLen - 1 else totalLen).toByte()
-        packet[4] = cmd
-        System.arraycopy(payload, 0, packet, 5, payload.size.coerceAtMost(totalLen - 5))
-        return packet
-    }
-
     fun sendRawTest(hex: String, useAltChar: Boolean = false) {
         val bytes = hex.split(" ").filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
         enqueueOperation(GattOperation.WriteCharacteristic(if (useAltChar) DATA_CHAR_UUID else null, bytes))
-    }
-
-    private fun sendNativeRaw(bytes: ByteArray) {
-        enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, bytes))
     }
 
     private fun sendFee2NativeRaw(bytes: ByteArray) {
@@ -832,27 +699,15 @@ class WatchManager(private val context: Context) {
         return packet
     }
 
-    private fun legacyPacket(cmd: Int, vararg payload: Int): ByteArray {
+    private fun legacyPacket(vararg payload: Int): ByteArray {
         val packet = ByteArray(5 + payload.size)
         packet[0] = 0xFE.toByte()
         packet[1] = 0xEA.toByte()
         packet[2] = 0x10.toByte()
         packet[3] = (packet.size - 1).toByte()
-        packet[4] = cmd.toByte()
+        packet[4] = 0x59.toByte()
         payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
         return packet
-    }
-
-    private fun buildDaFitTimestampPacket(): ByteArray {
-        val now = ((System.currentTimeMillis() + TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000).toInt()
-        return nativePacket(
-            0x31,
-            now and 0xFF,
-            (now shr 8) and 0xFF,
-            (now shr 16) and 0xFF,
-            (now shr 24) and 0xFF,
-            0x08
-        )
     }
 
     private fun ByteArray.toHexString(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
@@ -862,18 +717,6 @@ class WatchManager(private val context: Context) {
         packet[3] = packet.size.toByte()
         packet[packet.lastIndex] = (packet.dropLast(1).sumOf { it.toInt() and 0xFF } and 0xFF).toByte()
         return packet
-    }
-
-    private fun sendNativeQuery(cmd: Int, arg: Int? = null) {
-        val payloadSize = if (arg == null) 0 else 1
-        val packet = ByteArray(5 + payloadSize)
-        packet[0] = 0xFE.toByte()
-        packet[1] = 0xEA.toByte()
-        packet[2] = 0x20.toByte()
-        packet[3] = packet.size.toByte()
-        packet[4] = cmd.toByte()
-        if (arg != null) packet[5] = arg.toByte()
-        enqueueOperation(GattOperation.WriteCharacteristic(DATA_CHAR_UUID, packet))
     }
 
     fun readBattery() {
@@ -985,7 +828,7 @@ class WatchManager(private val context: Context) {
         }
     }
 
-    fun updateProtocol(h: String, u: String, m: Boolean, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
+    fun updateProtocol(h: String, u: String, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
 
     fun updateVolumeSteps(steps: Int) {
         val s = steps.coerceIn(1, 5)
@@ -1369,8 +1212,8 @@ class WatchManager(private val context: Context) {
         else (if (data.size < 2) null else data[1].toInt() and 0xFF)
     }
 
-    private fun extractHeartRateCandidate(data: ByteArray, start: Int): Int? {
-        for (index in start until data.size) {
+    private fun extractHeartRateCandidate(data: ByteArray): Int? {
+        for (index in 5 until data.size) {
             val candidate = data[index].toInt() and 0xFF
             if (candidate in 30..220) return candidate
         }
@@ -1442,16 +1285,13 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("Remote event: Watch Command 0x64 (unmapped)")
             }
             0x8D -> {
-                val seconds = data.getOrNull(5)?.toInt()?.and(0xFF)
-                if (seconds != null) {
+                data.getOrNull(5)?.toInt()?.and(0xFF)?.let { seconds ->
                     _state.update { it.copy(autoLockSecondsSetting = seconds) }
                     updateDebugLog("Auto-lock response: ${seconds}s")
-                } else {
-                    updateDebugLog("Auto-lock response: empty")
-                }
+                } ?: updateDebugLog("Auto-lock response: empty")
             }
             0x6D -> {
-                val hr = extractHeartRateCandidate(data, start = 5)
+                val hr = extractHeartRateCandidate(data)
                 if (hr != null) {
                     _state.update { it.copy(heartRate = hr) }
                     saveToDb(heartRate = hr)
@@ -1597,21 +1437,20 @@ class WatchManager(private val context: Context) {
     }
 
     private fun parseKospetPacket(data: ByteArray) {
-        val b = data
-        if (startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && b.size > 5 && b[4] == 0x5A.toByte()) {
-            parseDeviceInfoPacket(b)
+        if (startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && data.size > 5 && data[4] == 0x5A.toByte()) {
+            parseDeviceInfoPacket(data)
         }
-        if (b.size >= 15 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x0F.toByte(), 0x33.toByte()))) {
-            parseDailyTotalsPacket(b)
+        if (data.size >= 15 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x0F.toByte(), 0x33.toByte()))) {
+            parseDailyTotalsPacket(data)
         }
-        if (b.size >= 30 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x1E.toByte(), 0x33.toByte(), 0x04.toByte()))) {
-            parseSleepPacket(b)
+        if (data.size >= 30 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x1E.toByte(), 0x33.toByte(), 0x04.toByte()))) {
+            parseSleepPacket(data)
         }
-        if (b.size >= 8 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && b[4] == 0x32.toByte()) {
-            parseSleepBoundaryPacket(b)
+        if (data.size >= 8 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && data[4] == 0x32.toByte()) {
+            parseSleepBoundaryPacket(data)
         }
-        if (b.size >= 54 && startsWith(b, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x36.toByte(), 0x59.toByte()))) {
-            parseHourlyActivityPacket(b)
+        if (data.size >= 54 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x36.toByte(), 0x59.toByte()))) {
+            parseHourlyActivityPacket(data)
         }
     }
 

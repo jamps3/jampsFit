@@ -19,9 +19,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -35,7 +37,7 @@ val LocalWatchState = compositionLocalOf { WatchState() }
 
 class MainActivity : ComponentActivity() {
     private var watchService: WatchService? by mutableStateOf(null)
-    private var isBound by mutableStateOf(false)
+    private var isBound by mutableStateOf(value = false)
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -51,7 +53,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
         if (permissions.all { it.value }) {
             startWatchService()
@@ -116,14 +118,15 @@ class MainActivity : ComponentActivity() {
                                         state = state,
                                         scrollState = controlsScrollState,
                                         onScanClick = { checkPermissionsAndStart() },
-                                        onDisconnectClick = { disconnect() }
-                                    )
+                                    ) { disconnect() }
                                     3 -> RemoteScreen(state = state, scrollState = remoteScrollState)
                                     4 -> LogsScreen(
                                         state = state,
                                         unknownScrollState = logsUnknownScrollState,
                                         systemScrollState = logsSystemScrollState,
-                                        onResetClick = { watchService?.watchManager?.clearUnknownPackets() }
+                                        onResetClick = {
+                                            watchService?.watchManager?.clearUnknownPackets()
+                                        }
                                     )
                                 }
                             }
@@ -135,11 +138,11 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .background(Color.Black.copy(alpha = 0.8f))
                                     .clickable(enabled = false) {},
-                                contentAlignment = androidx.compose.ui.Alignment.Center
+                                contentAlignment = Alignment.Center
                             ) {
                                 SleekCard(modifier = Modifier.padding(32.dp)) {
                                     Column(
-                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
                                         Icon(
@@ -156,10 +159,10 @@ class MainActivity : ComponentActivity() {
                                         Text(
                                             "Your watch is looking for this phone.",
                                             style = MaterialTheme.typography.bodyLarge,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            textAlign = TextAlign.Center
                                         )
                                         Button(
-                                            onClick = { watchService?.watchManager?.setFindingPhone(false) },
+                                            onClick = { watchService?.watchManager?.setFindingPhone(active = false) },
                                             modifier = Modifier.fillMaxWidth(),
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = MaterialTheme.colorScheme.error
@@ -185,7 +188,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startWatchServiceIfAutoConnectEnabled() {
-        val prefs = getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("jampsFitPrefs", MODE_PRIVATE)
         val autoConnect = prefs.getBoolean("autoConnect", true)
         if (autoConnect && hasWatchServicePermissions()) {
             startWatchService()
@@ -203,7 +206,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS,
             Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT
+            Manifest.permission.BLUETOOTH_CONNECT,
         )
 
         if (hasWatchServicePermissions()) {
@@ -219,7 +222,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS,
             Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT
+            Manifest.permission.BLUETOOTH_CONNECT,
         )
         return permissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
@@ -321,16 +324,8 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.updateBatteryThreshold(threshold)
     }
 
-    fun updateProtocol(header: String, uuid: String, mtu: Boolean, payloadOnly: Boolean) {
-        watchService?.watchManager?.updateProtocol(header, uuid, mtu, payloadOnly)
-    }
-
-    fun sendTestNotification(cmd: Int = 0x08, type: Int = 0x01) {
-        watchService?.watchManager?.sendNotification("jampsFit", "Hello from your phone!", cmd, type)
-    }
-
-    fun sendNotificationProbe(kind: String) {
-        watchService?.watchManager?.sendNotificationProbe(kind)
+    fun updateProtocol(header: String, uuid: String, payloadOnly: Boolean) {
+        watchService?.watchManager?.updateProtocol(header, uuid, payloadOnly)
     }
 
     fun sendLegacyShortNotification(title: String, text: String) {
@@ -381,10 +376,6 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.setAutoLockSeconds(seconds)
     }
 
-    fun setQuickViewEnabled(enabled: Boolean) {
-        watchService?.watchManager?.setQuickViewEnabled(enabled)
-    }
-
     fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
         watchService?.watchManager?.setQuickViewWindow(startHour, startMinute, endHour, endMinute)
     }
@@ -401,28 +392,16 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendWeatherForecastSample()
     }
 
-    fun sendWeatherCurrentProbe(kind: String) {
-        watchService?.watchManager?.sendWeatherCurrentProbe(kind)
-    }
-
     fun sendGadgetbridgeProbe(kind: String) {
         watchService?.watchManager?.sendGadgetbridgeProbe(kind)
     }
 
-    fun sendWeightCandidate(weightTenthsKg: Int) {
-        watchService?.watchManager?.sendWeightCandidate(weightTenthsKg)
-    }
-
-    fun setAlarm1Enabled(enabled: Boolean) {
-        watchService?.watchManager?.setAlarm1Enabled(enabled)
+    fun sendWeightCandidate() {
+        watchService?.watchManager?.sendWeightCandidate()
     }
 
     fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
         watchService?.watchManager?.setAlarm(slot, enabled, hour, minute, repeatMask)
-    }
-
-    fun syncHealth() {
-        watchService?.watchManager?.syncHealth()
     }
 
     fun findWatch() {
@@ -431,10 +410,6 @@ class MainActivity : ComponentActivity() {
 
     fun syncTime() {
         watchService?.watchManager?.syncTime()
-    }
-
-    fun queryHealth() {
-        watchService?.watchManager?.queryHealth()
     }
 
     fun queryCurrentSteps() {

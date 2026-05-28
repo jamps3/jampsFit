@@ -12,9 +12,10 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ClearAll
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,10 +35,10 @@ fun ControlsScreen(
     state: WatchState,
     scrollState: ScrollState = rememberScrollState(),
     onScanClick: () -> Unit,
-    onDisconnectClick: () -> Unit
+    onDisconnectClick: () -> Unit,
 ) {
     val activity = LocalActivity.current as? MainActivity
-    var queriedSettings by rememberSaveable { mutableStateOf(false) }
+    var queriedSettings by rememberSaveable { mutableStateOf(value = false) }
     var controlsTab by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(state.isConnected) {
@@ -58,227 +59,237 @@ fun ControlsScreen(
         SecondaryTabRow(selectedTabIndex = controlsTab, containerColor = Color.Transparent, divider = {}) {
             Tab(selected = controlsTab == 0, onClick = { controlsTab = 0 }, text = { Text("Watch") })
             Tab(selected = controlsTab == 1, onClick = { controlsTab = 1 }, text = { Text("App") })
-            Tab(selected = controlsTab == 2, onClick = { controlsTab = 2 }, text = { Text("Manual") })
+            Tab(selected = controlsTab == 2, onClick = { controlsTab = 2 }, text = { Text("Notifications") })
+            Tab(selected = controlsTab == 3, onClick = { controlsTab = 3 }, text = { Text("Manual") })
         }
 
-        if (controlsTab == 0) {
-        WatchConnectionCard(state, activity, onScanClick, onDisconnectClick)
+        when (controlsTab) {
+            0 -> WatchSettingsControls(state, activity, onScanClick, onDisconnectClick)
+            1 -> AppSettingsControls(state, activity)
+            2 -> NotificationSettingsControls(state, activity)
+            else -> ManualCommandControls(state, activity)
+        }
+    }
+}
 
-        SleekCard {
-            Text(text = "Watch Actions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = { activity?.findWatch() },
-                enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Watch, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Find My Watch")
+@Composable
+private fun WatchSettingsControls(
+    state: WatchState,
+    activity: MainActivity?,
+    onScanClick: () -> Unit,
+    onDisconnectClick: () -> Unit,
+) {
+    WatchConnectionCard(state, activity, onScanClick, onDisconnectClick)
+
+    SleekCard {
+        Text(text = "Watch Actions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = { activity?.findWatch() },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.Watch, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Find My Watch")
+        }
+    }
+
+    SleekCard {
+        Text(text = "Alarms", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        var alarmSlot by remember { mutableIntStateOf(0) }
+        var alarmEnabled by remember { mutableStateOf(true) }
+        var alarmHour by remember { mutableFloatStateOf(7f) }
+        var alarmMinute by remember { mutableFloatStateOf(16f) }
+        var alarmRepeat by remember { mutableIntStateOf(0x3E) }
+        val selectedAlarm = state.alarmSettings.firstOrNull { it.slot == alarmSlot }
+
+        LaunchedEffect(alarmSlot, selectedAlarm) {
+            selectedAlarm?.let {
+                alarmEnabled = it.enabled
+                alarmHour = it.hour.toFloat()
+                alarmMinute = it.minute.toFloat()
+                alarmRepeat = it.repeatMask
             }
         }
 
-        SleekCard {
-            Text(text = "Alarms", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            var alarmSlot by remember { mutableIntStateOf(0) }
-            var alarmEnabled by remember { mutableStateOf(true) }
-            var alarmHour by remember { mutableFloatStateOf(7f) }
-            var alarmMinute by remember { mutableFloatStateOf(16f) }
-            var alarmRepeat by remember { mutableIntStateOf(0x3E) }
-            val selectedAlarm = state.alarmSettings.firstOrNull { it.slot == alarmSlot }
-
-            LaunchedEffect(alarmSlot, selectedAlarm) {
-                selectedAlarm?.let {
-                    alarmEnabled = it.enabled
-                    alarmHour = it.hour.toFloat()
-                    alarmMinute = it.minute.toFloat()
-                    alarmRepeat = it.repeatMask
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("1", "2", "3").forEachIndexed { index, label ->
-                    FilterChip(
-                        selected = alarmSlot == index,
-                        onClick = { alarmSlot = index },
-                        label = { Text(label) }
-                    )
-                }
-            }
-
-            SettingSwitch(label = "Enabled", checked = alarmEnabled) { alarmEnabled = it }
-            Text("Time: ${alarmHour.toInt().toString().padStart(2, '0')}:${alarmMinute.toInt().toString().padStart(2, '0')}")
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Hour", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
-                Slider(value = alarmHour, onValueChange = { alarmHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-            }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Min", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
-                Slider(value = alarmMinute, onValueChange = { alarmMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("Once" to 0x00, "Weekdays" to 0x3E, "Every Day" to 0x7F).forEach { (label, mask) ->
-                    FilterChip(
-                        selected = alarmRepeat == mask,
-                        onClick = { alarmRepeat = mask },
-                        label = { Text(label, fontSize = 11.sp) }
-                    )
-                }
-            }
-            Button(
-                onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour.toInt(), alarmMinute.toInt(), alarmRepeat) },
-                enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Alarm, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Send Alarm ${alarmSlot + 1}")
-            }
-            if (state.alarmSettings.isNotEmpty()) {
-                Text(
-                    text = "Loaded ${state.alarmSettings.size} alarm${if (state.alarmSettings.size == 1) "" else "s"} from watch.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1", "2", "3").forEachIndexed { index, label ->
+                FilterChip(
+                    selected = alarmSlot == index,
+                    onClick = { alarmSlot = index },
+                    label = { Text(label) }
                 )
             }
         }
 
-        SleekCard {
-            Text(text = "Display", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            var autoLockSeconds by remember { mutableFloatStateOf((state.autoLockSecondsSetting ?: 20).toFloat()) }
-            LaunchedEffect(state.autoLockSecondsSetting) {
-                state.autoLockSecondsSetting?.let { autoLockSeconds = it.toFloat() }
-            }
-            Text("Auto-lock: ${autoLockSeconds.toInt()}s")
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Slider(value = autoLockSeconds, onValueChange = { autoLockSeconds = it.toInt().toFloat() }, valueRange = 5f..60f, steps = 10, modifier = Modifier.weight(1f))
-                Button(onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
-            }
-            Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
-                GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
-            }
-            Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            var quickStartHour by remember { mutableFloatStateOf(10f) }
-            var quickStartMinute by remember { mutableFloatStateOf(0f) }
-            var quickEndHour by remember { mutableFloatStateOf(21f) }
-            var quickEndMinute by remember { mutableFloatStateOf(59f) }
-            fun formatQuickTime(hour: Float, minute: Float): String {
-                return "${hour.toInt().toString().padStart(2, '0')}:${minute.toInt().toString().padStart(2, '0')}"
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { activity?.sendGadgetbridgeProbe("quick-view-off") },
-                    enabled = state.isConnected,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("Quick Off", fontSize = 12.sp) }
-                OutlinedButton(
-                    onClick = { activity?.sendGadgetbridgeProbe("quick-view-on") },
-                    enabled = state.isConnected,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("Quick On", fontSize = 12.sp) }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Active window: ${formatQuickTime(quickStartHour, quickStartMinute)} - ${formatQuickTime(quickEndHour, quickEndMinute)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Start h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-                Slider(value = quickStartHour, onValueChange = { quickStartHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-            }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Start m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-                Slider(value = quickStartMinute, onValueChange = { quickStartMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
-            }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("End h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-                Slider(value = quickEndHour, onValueChange = { quickEndHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-            }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("End m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-                Slider(value = quickEndMinute, onValueChange = { quickEndMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
-            }
-            Button(
-                onClick = {
-                    activity?.setQuickViewWindow(
-                        quickStartHour.toInt(),
-                        quickStartMinute.toInt(),
-                        quickEndHour.toInt(),
-                        quickEndMinute.toInt()
-                    )
-                },
-                enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) { Text("Send Active Window") }
+        SettingSwitch(label = "Enabled", checked = alarmEnabled) { alarmEnabled = it }
+        Text("Time: ${alarmHour.toInt().toString().padStart(2, '0')}:${alarmMinute.toInt().toString().padStart(2, '0')}")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Hour", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
+            Slider(value = alarmHour, onValueChange = { alarmHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
         }
-
-        SleekCard {
-            Text(text = "Weather", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = { activity?.setWeatherCity("Joensuu") },
-                enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Weather On")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Min", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
+            Slider(value = alarmMinute, onValueChange = { alarmMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf("Once" to 0x00, "Weekdays" to 0x3E, "Every Day" to 0x7F).forEach { (label, mask) ->
+                FilterChip(
+                    selected = alarmRepeat == mask,
+                    onClick = { alarmRepeat = mask },
+                    label = { Text(label, fontSize = 11.sp) }
+                )
             }
+        }
+        Button(
+            onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour.toInt(), alarmMinute.toInt(), alarmRepeat) },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.Alarm, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Send Alarm ${alarmSlot + 1}")
+        }
+        if (state.alarmSettings.isNotEmpty()) {
             Text(
-                text = "Sends the partly confirmed Joensuu weather sequence. Current conditions still need more verification.",
+                text = "Loaded ${state.alarmSettings.size} alarm${if (state.alarmSettings.size == 1) "" else "s"} from watch.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
         }
+    }
 
-        SleekCard {
-            Text(text = "Experimental FEE2 Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
+    SleekCard {
+        Text(text = "Display", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
 
-            var stepGoal by remember { mutableFloatStateOf((state.stepGoalSetting ?: 9000).toFloat()) }
-            LaunchedEffect(state.stepGoalSetting) {
-                state.stepGoalSetting?.let { stepGoal = it.toFloat() }
-            }
-            Text("Step goal: ${stepGoal.toInt()}")
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Slider(value = stepGoal, onValueChange = { stepGoal = (it / 1000f).toInt() * 1000f }, valueRange = 2000f..35000f, steps = 32, modifier = Modifier.weight(1f))
-                Button(onClick = { activity?.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
-            }
-
+        var autoLockSeconds by remember { mutableFloatStateOf((state.autoLockSecondsSetting ?: 20).toFloat()) }
+        LaunchedEffect(state.autoLockSecondsSetting) {
+            state.autoLockSecondsSetting?.let { autoLockSeconds = it.toFloat() }
+        }
+        Text("Auto-lock: ${autoLockSeconds.toInt()}s")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Slider(value = autoLockSeconds, onValueChange = { autoLockSeconds = it.toInt().toFloat() }, valueRange = 5f..60f, steps = 10, modifier = Modifier.weight(1f))
+            Button(onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
+        }
+        Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
+        }
+        Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        var quickStartHour by remember { mutableFloatStateOf(10f) }
+        var quickStartMinute by remember { mutableFloatStateOf(0f) }
+        var quickEndHour by remember { mutableFloatStateOf(21f) }
+        var quickEndMinute by remember { mutableFloatStateOf(59f) }
+        fun formatQuickTime(hour: Float, minute: Float): String {
+            return "${hour.toInt().toString().padStart(2, '0')}:${minute.toInt().toString().padStart(2, '0')}"
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
-                onClick = { activity?.sendWeatherForecastSample() },
+                onClick = { activity?.sendGadgetbridgeProbe("quick-view-off") },
                 enabled = state.isConnected,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.NotificationsActive, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Send Forecast Sample")
-            }
+            ) { Text("Quick Off", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = { activity?.sendGadgetbridgeProbe("quick-view-on") },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp)
+            ) { Text("Quick On", fontSize = 12.sp) }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Active window: ${formatQuickTime(quickStartHour, quickStartMinute)} - ${formatQuickTime(quickEndHour, quickEndMinute)}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Start h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+            Slider(value = quickStartHour, onValueChange = { quickStartHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Start m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+            Slider(value = quickStartMinute, onValueChange = { quickStartMinute = it.toInt().toFloat() }, valueRange = 0f..58f, modifier = Modifier.weight(1f))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("End h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+            Slider(value = quickEndHour, onValueChange = { quickEndHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("End m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+            Slider(value = quickEndMinute, onValueChange = { quickEndMinute = it.toInt().toFloat() }, valueRange = 0f..58f, modifier = Modifier.weight(1f))
+        }
+        Button(
+            onClick = {
+                activity?.setQuickViewWindow(
+                    quickStartHour.toInt(),
+                    quickStartMinute.toInt(),
+                    quickEndHour.toInt(),
+                    quickEndMinute.toInt()
+                )
+            },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) { Text("Send Active Window") }
+    }
 
-            Text(
-                text = "Weather forecast uses the corrected FEE2 route; current conditions still need a better packet capture.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
+    SleekCard {
+        Text(text = "Weather", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = { activity?.setWeatherCity("Joensuu") },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.NotificationsActive, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Weather On")
         }
-        } else if (controlsTab == 1) {
-            AppSettingsControls(state, activity, onScanClick, onDisconnectClick)
-        } else {
-            ManualCommandControls(state, activity)
+        Text(
+            text = "Sends the partly confirmed Joensuu weather sequence. Current conditions still need more verification.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+    }
+
+    SleekCard {
+        Text(text = "Experimental FEE2 Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        var stepGoal by remember { mutableFloatStateOf((state.stepGoalSetting ?: 9000).toFloat()) }
+        LaunchedEffect(state.stepGoalSetting) {
+            state.stepGoalSetting?.let { stepGoal = it.toFloat() }
         }
+        Text("Step goal: ${stepGoal.toInt()}")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Slider(value = stepGoal, onValueChange = { stepGoal = (it / 1000f).toInt() * 1000f }, valueRange = 2000f..35000f, steps = 32, modifier = Modifier.weight(1f))
+            Button(onClick = { activity?.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
+        }
+
+        OutlinedButton(
+            onClick = { activity?.sendWeatherForecastSample() },
+            enabled = state.isConnected,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.NotificationsActive, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Send Forecast Sample")
+        }
+
+        Text(
+            text = "Weather forecast uses the corrected FEE2 route; current conditions still need a better packet capture.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
     }
 }
 
@@ -287,7 +298,7 @@ private fun WatchConnectionCard(
     state: WatchState,
     activity: MainActivity?,
     onScanClick: () -> Unit,
-    onDisconnectClick: () -> Unit
+    onDisconnectClick: () -> Unit,
 ) {
     SleekCard {
         Text(text = "Watch Connection", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -325,9 +336,32 @@ private fun WatchConnectionCard(
 private fun AppSettingsControls(
     state: WatchState,
     activity: MainActivity?,
-    onScanClick: () -> Unit,
-    onDisconnectClick: () -> Unit
 ) {
+    SleekCard {
+        Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = { activity?.exportData() },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Export Health Data (CSV)")
+        }
+    }
+
+    SleekCard {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text(text = "Watch Firmware", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(text = state.firmwareVersion ?: "Not detected yet (Reconnect watch)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+
     SleekCard {
         Text(text = "Body Profile", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
@@ -403,12 +437,12 @@ private fun AppSettingsControls(
             state.profileGender,
             state.profileHeightCm,
             state.profileWeightKg,
-            state.profileAgeYears
+            state.profileAgeYears,
         )
         Text(
             text = "Base burn: $dailyBurn kcal / 24h",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 
@@ -432,7 +466,7 @@ private fun AppSettingsControls(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            colors.forEach { (name, colorVal) ->
+            colors.forEach { (_, colorVal) ->
                 val color = Color(colorVal)
                 Box(
                     modifier = Modifier
@@ -448,7 +482,7 @@ private fun AppSettingsControls(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         Slider(
             value = state.borderThickness,
@@ -490,13 +524,67 @@ private fun AppSettingsControls(
                 }
             }
         }
-        SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
         SettingSwitch(label = "Auto-sync Alarm 1 to Phone", checked = state.autoSyncAlarm) { activity?.toggleAutoSyncAlarm(it) }
         if (state.autoSyncAlarm) {
             SettingSwitch(label = "  Mute Alarm Sync Notification", checked = state.muteAlarmSyncNotification) { 
                 activity?.toggleMuteAlarmSyncNotification(it) 
             }
         }
+    }
+
+    SleekCard {
+        Text(text = "Battery Notification", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Notify at ${state.batteryThreshold}%")
+        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { activity?.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
+    }
+
+    SleekCard {
+        Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(0, 5, 10).forEach { minutes ->
+                FilterChip(
+                    selected = state.autoHeartRateIntervalMinutes == minutes,
+                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    enabled = state.isConnected,
+                    label = { Text(if (minutes == 0) "Off" else "${minutes}m", fontSize = 11.sp) }
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(15, 30, 60).forEach { minutes ->
+                FilterChip(
+                    selected = state.autoHeartRateIntervalMinutes == minutes,
+                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    enabled = state.isConnected,
+                    label = { Text("${minutes}m?", fontSize = 11.sp) }
+                )
+            }
+        }
+        Text(
+            text = "5m and 10m are captured Da Fit writes. Other intervals are mapped as cautious candidates; this does not send the vibrating manual HR command.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+        Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun NotificationSettingsControls(
+    state: WatchState,
+    activity: MainActivity?,
+) {
+    SleekCard {
+        Text(text = "Mirroring Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
 
         if (state.notificationsEnabled) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -522,7 +610,7 @@ private fun AppSettingsControls(
                 )
             } else {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    state.discoveredApps.toList().sortedBy { it.second.lowercase() }.forEach { (pkg, name) ->
+                    state.discoveredApps.asSequence().sortedBy { it.value.lowercase() }.forEach { (pkg, name) ->
                         val isBlocked = state.notificationFilters.contains(pkg)
                         Row(
                             modifier = Modifier
@@ -623,49 +711,6 @@ private fun AppSettingsControls(
             color = Color.Gray
         )
     }
-
-    SleekCard {
-        Text(text = "Battery Notification", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Notify at ${state.batteryThreshold}%")
-        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { activity?.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
-    }
-
-    SleekCard {
-        Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(0, 5, 10).forEach { minutes ->
-                FilterChip(
-                    selected = state.autoHeartRateIntervalMinutes == minutes,
-                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
-                    enabled = state.isConnected,
-                    label = { Text(if (minutes == 0) "Off" else "${minutes}m", fontSize = 11.sp) }
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(15, 30, 60).forEach { minutes ->
-                FilterChip(
-                    selected = state.autoHeartRateIntervalMinutes == minutes,
-                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
-                    enabled = state.isConnected,
-                    label = { Text("${minutes}m?", fontSize = 11.sp) }
-                )
-            }
-        }
-        Text(
-            text = "5m and 10m are captured Da Fit writes. Other intervals are mapped as cautious candidates; this does not send the vibrating manual HR command.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
-        Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
-        }
-    }
 }
 
 @Composable
@@ -677,7 +722,7 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             listOf("FE EA 20", "FE EA 10", "FE EA 21").forEach { header ->
                 FilterChip(
                     selected = state.protocolHeader == header,
-                    onClick = { activity?.updateProtocol(header, state.writeUuidShort, false, state.payloadLengthOnly) },
+                    onClick = { activity?.updateProtocol(header, state.writeUuidShort, state.payloadLengthOnly) },
                     label = { Text(header.split(" ").last(), fontSize = 11.sp) }
                 )
             }
@@ -686,13 +731,13 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             listOf("fee2", "6387", "fee5", "fee6").forEach { uuid ->
                 FilterChip(
                     selected = state.writeUuidShort == uuid,
-                    onClick = { activity?.updateProtocol(state.protocolHeader, uuid, false, state.payloadLengthOnly) },
+                    onClick = { activity?.updateProtocol(state.protocolHeader, uuid, state.payloadLengthOnly) },
                     label = { Text(uuid, fontSize = 11.sp) }
                 )
             }
         }
         SettingSwitch(label = "Length = Payload Only", checked = state.payloadLengthOnly) {
-            activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, false, it)
+            activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, it)
         }
     }
 
@@ -709,7 +754,7 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = useNativeChannel, onCheckedChange = { useNativeChannel = it })
             Text("Use native write channel 6387", style = MaterialTheme.typography.bodySmall)
         }
@@ -730,15 +775,15 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
 }
 
 @Composable
-private fun NotificationProbeButton(
+private fun GadgetProbeButton(
     label: String,
     kind: String,
     enabled: Boolean,
     activity: MainActivity?,
-    modifier: Modifier = Modifier.fillMaxWidth()
+    modifier: Modifier = Modifier
 ) {
     OutlinedButton(
-        onClick = { activity?.sendNotificationProbe(kind) },
+        onClick = { activity?.sendGadgetbridgeProbe(kind) },
         enabled = enabled,
         modifier = modifier,
         shape = RoundedCornerShape(8.dp)
@@ -748,19 +793,9 @@ private fun NotificationProbeButton(
 }
 
 @Composable
-private fun GadgetProbeButton(
-    label: String,
-    kind: String,
-    enabled: Boolean,
-    activity: MainActivity?,
-    modifier: Modifier = Modifier.fillMaxWidth()
-) {
-    OutlinedButton(
-        onClick = { activity?.sendGadgetbridgeProbe(kind) },
-        enabled = enabled,
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Text(label, fontSize = 12.sp)
+fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

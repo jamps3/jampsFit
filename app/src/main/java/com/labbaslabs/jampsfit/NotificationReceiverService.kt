@@ -16,10 +16,13 @@ class NotificationReceiverService : NotificationListenerService() {
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
         val category = sbn.notification.category ?: ""
 
+        if (title.isBlank() && text.isBlank()) return
+        if (sbn.isOngoing && (category != "alarm") && (category != "call")) return
+
         val pm = applicationContext.packageManager
         val appName = try {
             pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             packageName
         }
 
@@ -36,6 +39,11 @@ class NotificationReceiverService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // Optional: clear notification from watch if supported
+        val packageName = sbn.packageName
+        if (packageName == "com.labbaslabs.jampsfit") return
+
+        val intent = Intent("com.labbaslabs.jampsfit.NOTIFICATION_REMOVED").setPackage(applicationContext.packageName)
+        intent.putExtra("package", packageName)
+        sendBroadcast(intent)
     }
 }
