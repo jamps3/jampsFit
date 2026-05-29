@@ -100,6 +100,20 @@ private fun WatchSettingsControls(
     }
 
     SleekCard {
+        Text(text = "History Sync", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            Button(onClick = { activity?.sendGadgetbridgeProbe("sync-history-3d") }, shape = RoundedCornerShape(8.dp)) {
+                Text("Sync All (3 days)")
+            }
+            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("sleep-32-01") }, label = { Text("Sleep Yest") })
+            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("totals-33-01") }, label = { Text("Totals Yest") })
+            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("sleep-32-02") }, label = { Text("Sleep DBY") })
+            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("totals-33-02") }, label = { Text("Totals DBY") })
+        }
+    }
+
+    SleekCard {
         Text(text = "Alarms", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
 

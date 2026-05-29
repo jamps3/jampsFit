@@ -174,6 +174,7 @@ fun TodayGraphs(state: WatchState) {
     )
     
     SleepDistributionCard(state)
+    SleepTimelineCard(state)
     
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -515,6 +516,7 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         HistoryBloodPressureCard(stats, timeFormat)
         if (title.contains("24 Hours", ignoreCase = true)) {
             SleepDistributionCard(state)
+            SleepTimelineCard(state)
         }
         HistorySleepCard(stats, timeFormat)
     }
@@ -625,6 +627,128 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
 
             drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
             drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width - rightPadding, graphHeight), 2.dp.toPx())
+        }
+    }
+}
+
+@Composable
+fun SleepTimelineCard(state: WatchState) {
+    if (state.sleepSegments.isEmpty()) return
+
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 9.sp)
+
+    SleekCard {
+        Text(text = "Sleep Stages (Timeline)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            LegendItem(label = "Awake", color = Color(0xFFFFEB3B))
+            LegendItem(label = "REM", color = Color(0xFFB39DDB))
+            LegendItem(label = "Light", color = Color(0xFF7E57C2))
+            LegendItem(label = "Deep", color = Color(0xFF311B92))
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Canvas(modifier = Modifier.fillMaxWidth().height(160.dp)) {
+            val leftPadding = 40.dp.toPx()
+            val bottomPadding = 25.dp.toPx()
+            val graphHeight = size.height - bottomPadding
+            val graphWidth = size.width - leftPadding
+
+            val start = state.sleepSegments.first().startMinutes.toFloat()
+            val end = state.sleepSegments.last().endMinutes.toFloat()
+            val totalRange = (end - start).coerceAtLeast(1f)
+
+            // Draw Y-axis labels
+            val yLabels = listOf("Awake", "REM", "Light", "Deep")
+            yLabels.forEachIndexed { index, label ->
+                val yPos = (index.toFloat() / (yLabels.size - 1)) * (graphHeight * 0.7f) + (graphHeight * 0.15f)
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = label,
+                    style = labelStyle,
+                    topLeft = Offset(0f, yPos - 6.dp.toPx())
+                )
+                drawLine(
+                    color = Color.Gray.copy(alpha = 0.1f),
+                    start = Offset(leftPadding, yPos),
+                    end = Offset(size.width, yPos),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            if (totalRange > 0) {
+                val path = Path()
+                var first = true
+
+                state.sleepSegments.forEach { segment ->
+                    val xStart = leftPadding + ((segment.startMinutes - start) / totalRange) * graphWidth
+                    val xEnd = leftPadding + ((segment.endMinutes - start) / totalRange) * graphWidth
+                    val width = xEnd - xStart
+
+                    val yIndex = when (segment.stateId) {
+                        0x00 -> 0 // Awake
+                        0x03 -> 1 // REM
+                        0x01 -> 2 // Light
+                        0x02 -> 3 // Deep
+                        else -> 2
+                    }
+                    val yPos = (yIndex.toFloat() / (yLabels.size - 1)) * (graphHeight * 0.7f) + (graphHeight * 0.15f)
+
+                    val color = when (segment.stateId) {
+                        0x00 -> Color(0xFFFFEB3B)
+                        0x03 -> Color(0xFFB39DDB)
+                        0x01 -> Color(0xFF7E57C2)
+                        0x02 -> Color(0xFF311B92)
+                        else -> Color.Gray
+                    }
+
+                    // Draw the block
+                    drawRect(
+                        color = color.copy(alpha = 0.8f),
+                        topLeft = Offset(xStart, yPos - 10.dp.toPx()),
+                        size = androidx.compose.ui.geometry.Size(width.coerceAtLeast(1f), 20.dp.toPx())
+                    )
+
+                    // Draw connecting lines for hypnogram feel
+                    if (first) {
+                        path.moveTo(xStart, yPos)
+                        first = false
+                    } else {
+                        path.lineTo(xStart, yPos)
+                    }
+                    path.lineTo(xEnd, yPos)
+                }
+                
+                drawPath(
+                    path = path,
+                    color = Color.White.copy(alpha = 0.3f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+
+                // Draw X-axis labels (Time)
+                val labelCount = 4
+                for (i in 0..labelCount) {
+                    val minutes = start + (totalRange * i / labelCount)
+                    val xPos = leftPadding + (i.toFloat() / labelCount) * graphWidth
+                    val timeStr = "%02d:%02d".format((minutes.toInt() / 60) % 24, minutes.toInt() % 60)
+                    val layoutResult = textMeasurer.measure(timeStr, labelStyle)
+                    val labelWidth = layoutResult.size.width.toFloat()
+                    
+                    val xOffset = if (i == labelCount) -labelWidth else if (i == 0) 0f else -labelWidth / 2f
+                    
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = timeStr,
+                        style = labelStyle,
+                        topLeft = Offset((xPos + xOffset).coerceIn(leftPadding, size.width - labelWidth), graphHeight + 6.dp.toPx())
+                    )
+                }
+            }
+            
+            // Axis lines
+            drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, 0f), Offset(leftPadding, graphHeight), 2.dp.toPx())
+            drawLine(Color.Gray.copy(alpha = 0.3f), Offset(leftPadding, graphHeight), Offset(size.width, graphHeight), 2.dp.toPx())
         }
     }
 }

@@ -665,6 +665,28 @@ class WatchManager(private val context: Context) {
             "steps-10-59-01" -> legacyPacket(0x01)
             "steps-10-59-02" -> legacyPacket(0x02)
             "steps-10-59-03" -> legacyPacket(0x03)
+            "sleep-32-00" -> nativePacket(0x32, 0x00)
+            "sleep-32-01" -> nativePacket(0x32, 0x01)
+            "sleep-32-02" -> nativePacket(0x32, 0x02)
+            "sleep-32-03" -> nativePacket(0x32, 0x03)
+            "totals-33-00" -> nativePacket(0x33, 0x00)
+            "totals-33-01" -> nativePacket(0x33, 0x01)
+            "totals-33-02" -> nativePacket(0x33, 0x02)
+            "totals-33-03" -> nativePacket(0x33, 0x03)
+            "moyoung-51-01" -> nativePacket(0x51, 0x01)
+            "moyoung-52-01" -> nativePacket(0x52, 0x01)
+            "moyoung-53-01" -> nativePacket(0x53, 0x01)
+            "sync-history-3d" -> {
+                managerScope.launch {
+                    listOf(0x32, 0x33, 0x51, 0x52, 0x53).forEach { cmd ->
+                        (0..3).forEach { offset ->
+                            sendFee2NativeRaw(nativePacket(cmd, offset))
+                            delay(200)
+                        }
+                    }
+                }
+                nativePacket(0x64) // dummy
+            }
             else -> {
                 updateDebugLog("Unknown Gadgetbridge probe: $kind")
                 return
@@ -1321,7 +1343,7 @@ class WatchManager(private val context: Context) {
     private fun isKnownFee3Packet(data: ByteArray): Boolean {
         if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
         return when (data[4].toInt() and 0xFF) {
-            0x1F, 0x21, 0x26, 0x32, 0x33, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
+            0x1F, 0x21, 0x26, 0x32, 0x33, 0x51, 0x52, 0x53, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
             else -> false
         }
     }
@@ -1643,14 +1665,27 @@ class WatchManager(private val context: Context) {
             return
         }
 
-        val rawSegments = markers.zipWithNext { start, end ->
+        // Adjust for sequential order handling midnight wrap
+        var lastTotalMinutes = -1
+        val adjustedMarkers = markers.map { (stateId, minutesOfDay) ->
+            var adjusted = minutesOfDay
+            if (lastTotalMinutes != -1) {
+                while (adjusted < lastTotalMinutes) {
+                    adjusted += 1440
+                }
+            }
+            lastTotalMinutes = adjusted
+            stateId to adjusted
+        }
+
+        val rawSegments = adjustedMarkers.zipWithNext { start, end ->
             SleepSegment(
                 startMinutes = start.second,
                 endMinutes = end.second,
                 stateId = start.first,
                 label = sleepStateLabel(start.first)
             )
-        }.filter { it.endMinutes > it.startMinutes }
+        }
 
         val mergedSegments = rawSegments.fold(mutableListOf<SleepSegment>()) { merged, segment ->
             val previous = merged.lastOrNull()
@@ -1672,7 +1707,7 @@ class WatchManager(private val context: Context) {
             .filter { it.stateId == 0x02 }
             .sumOf { it.endMinutes - it.startMinutes }
         val light = rawSegments
-            .filter { it.stateId == 0x01 }
+            .filter { it.stateId == 0x01 || it.stateId == 0x03 }
             .sumOf { it.endMinutes - it.startMinutes }
 
         _state.update {
@@ -1685,7 +1720,7 @@ class WatchManager(private val context: Context) {
         }
         saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
         updateDebugLog(
-            "Sleep boundaries: total=${total}m deep=${deep}m lightOrRem=${light}m " +
+            "Sleep boundaries: total=${total}m deep=${deep}m light/rem=${light}m " +
                 mergedSegments.joinToString(" | ") {
                     "${formatMinutesOfDay(it.startMinutes)}-${formatMinutesOfDay(it.endMinutes)} ${it.label}${if (it.hasInternalMarkers) "*" else ""}"
                 }
@@ -1695,8 +1730,9 @@ class WatchManager(private val context: Context) {
     private fun sleepStateLabel(stateId: Int): String {
         return when (stateId) {
             0x00 -> "Hereillä"
-            0x01 -> "Kevyt/REM"
+            0x01 -> "Kevyt"
             0x02 -> "Syvä"
+            0x03 -> "REM"
             else -> "State $stateId"
         }
     }
