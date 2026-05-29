@@ -545,6 +545,17 @@ private fun AppSettingsControls(
                 }
             }
         }
+        SettingSwitch(label = "Sync Time Automatically", checked = state.autoSyncTime) { activity?.toggleAutoSyncTime(it) }
+        if (state.autoSyncTime) {
+            Text("Sync interval: ${state.syncTimeIntervalHours}h", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Slider(
+                value = state.syncTimeIntervalHours.toFloat(),
+                onValueChange = { activity?.updateSyncTimeInterval(it.toInt()) },
+                valueRange = 1f..24f,
+                steps = 22,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+        }
         SettingSwitch(label = "Auto-sync Alarm 1 to Phone", checked = state.autoSyncAlarm) { activity?.toggleAutoSyncAlarm(it) }
         if (state.autoSyncAlarm) {
             SettingSwitch(label = "  Mute Alarm Sync Notification", checked = state.muteAlarmSyncNotification) { 

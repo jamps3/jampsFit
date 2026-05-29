@@ -256,6 +256,14 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleAutoSyncAlarm(enabled)
     }
 
+    fun toggleAutoSyncTime(enabled: Boolean) {
+        watchService?.watchManager?.toggleAutoSyncTime(enabled)
+    }
+
+    fun updateSyncTimeInterval(hours: Int) {
+        watchService?.watchManager?.updateSyncTimeInterval(hours)
+    }
+
     fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
         watchService?.watchManager?.toggleMuteAlarmSyncNotification(enabled)
     }

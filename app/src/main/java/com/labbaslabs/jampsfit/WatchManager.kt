@@ -89,6 +89,8 @@ data class WatchState(
     val payloadLengthOnly: Boolean = false,
     val autoSyncAlarm: Boolean = false,
     val muteAlarmSyncNotification: Boolean = false,
+    val autoSyncTime: Boolean = false,
+    val syncTimeIntervalHours: Int = 4,
     val is24HourFormat: Boolean = true,
     val quickViewEnabled: Boolean = true,
     val quickViewStartHour: Int = 10,
@@ -157,6 +159,8 @@ class WatchManager(private val context: Context) {
         profileAgeYears = prefs.getInt("profileAgeYears", 41),
         autoSyncAlarm = prefs.getBoolean("autoSyncAlarm", false),
         muteAlarmSyncNotification = prefs.getBoolean("muteAlarmSyncNotification", false),
+        autoSyncTime = prefs.getBoolean("autoSyncTime", false),
+        syncTimeIntervalHours = prefs.getInt("syncTimeIntervalHours", 4),
         is24HourFormat = prefs.getBoolean("is24HourFormat", true),
         quickViewEnabled = prefs.getBoolean("quickViewEnabled", true),
         quickViewStartHour = prefs.getInt("quickViewStartHour", 10),
@@ -177,6 +181,7 @@ class WatchManager(private val context: Context) {
     private var scanWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
     private var autoBatteryFetchJob: Job? = null
+    private var autoSyncTimeJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private var lastActivitySeq: Int? = null
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -523,6 +528,21 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Auto step fetch enabled: every ${state.stepFetchIntervalMinutes}m")
             while (isActive) {
                 queryCurrentSteps()
+                delay(intervalMs)
+            }
+        }
+    }
+
+    private fun restartAutoSyncTime() {
+        autoSyncTimeJob?.cancel()
+        autoSyncTimeJob = null
+        val state = _state.value
+        if (!state.autoSyncTime || !state.isConnected) return
+        val intervalMs = state.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L
+        autoSyncTimeJob = managerScope.launch {
+            updateDebugLog("Auto sync time enabled: every ${state.syncTimeIntervalHours}h")
+            while (isActive) {
+                syncTime()
                 delay(intervalMs)
             }
         }
@@ -886,6 +906,20 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Auto-sync alarm: ${if (enabled) "enabled" else "disabled"}")
     }
 
+    fun toggleAutoSyncTime(enabled: Boolean) {
+        prefs.edit { putBoolean("autoSyncTime", enabled) }
+        _state.update { it.copy(autoSyncTime = enabled) }
+        restartAutoSyncTime()
+        updateDebugLog("Auto-sync time: ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun updateSyncTimeInterval(hours: Int) {
+        val safeHours = hours.coerceIn(1, 24)
+        prefs.edit { putInt("syncTimeIntervalHours", safeHours) }
+        _state.update { it.copy(syncTimeIntervalHours = safeHours) }
+        restartAutoSyncTime()
+    }
+
     fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
         prefs.edit { putBoolean("muteAlarmSyncNotification", enabled) }
         _state.update { it.copy(muteAlarmSyncNotification = enabled) }
@@ -995,6 +1029,8 @@ class WatchManager(private val context: Context) {
         autoStepFetchJob = null
         autoBatteryFetchJob?.cancel()
         autoBatteryFetchJob = null
+        autoSyncTimeJob?.cancel()
+        autoSyncTimeJob = null
         _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
     }
     @Suppress("DEPRECATION")
@@ -1020,6 +1056,10 @@ class WatchManager(private val context: Context) {
                 isConfigured = false
                 autoStepFetchJob?.cancel()
                 autoStepFetchJob = null
+                autoBatteryFetchJob?.cancel()
+                autoBatteryFetchJob = null
+                autoSyncTimeJob?.cancel()
+                autoSyncTimeJob = null
                 _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
                 synchronized(operationQueue) { operationQueue.clear(); isOperating = false }
                 gatt.close()
@@ -1072,6 +1112,7 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Channels ready; listening for watch data.")
             restartAutoStepFetch()
             restartAutoBatteryFetch()
+            restartAutoSyncTime()
         }
         override fun onDescriptorWrite(gatt: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {
             updateDebugLog("Listen ${d.characteristic.uuid.toString().substring(4, 8).uppercase()} status=$s")
