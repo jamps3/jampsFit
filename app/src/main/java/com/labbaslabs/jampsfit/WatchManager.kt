@@ -89,6 +89,12 @@ data class WatchState(
     val payloadLengthOnly: Boolean = false,
     val autoSyncAlarm: Boolean = false,
     val muteAlarmSyncNotification: Boolean = false,
+    val is24HourFormat: Boolean = true,
+    val quickViewEnabled: Boolean = true,
+    val quickViewStartHour: Int = 10,
+    val quickViewStartMinute: Int = 0,
+    val quickViewEndHour: Int = 22,
+    val quickViewEndMinute: Int = 0,
 )
 
 data class SleepSegment(
@@ -150,7 +156,13 @@ class WatchManager(private val context: Context) {
         profileWeightKg = prefs.getFloat("profileWeightKg", 83f),
         profileAgeYears = prefs.getInt("profileAgeYears", 41),
         autoSyncAlarm = prefs.getBoolean("autoSyncAlarm", false),
-        muteAlarmSyncNotification = prefs.getBoolean("muteAlarmSyncNotification", false)
+        muteAlarmSyncNotification = prefs.getBoolean("muteAlarmSyncNotification", false),
+        is24HourFormat = prefs.getBoolean("is24HourFormat", true),
+        quickViewEnabled = prefs.getBoolean("quickViewEnabled", true),
+        quickViewStartHour = prefs.getInt("quickViewStartHour", 10),
+        quickViewStartMinute = prefs.getInt("quickViewStartMinute", 0),
+        quickViewEndHour = prefs.getInt("quickViewEndHour", 22),
+        quickViewEndMinute = prefs.getInt("quickViewEndMinute", 0)
     ))
     val state = _state.asStateFlow()
 
@@ -438,6 +450,22 @@ class WatchManager(private val context: Context) {
         val safeEndMinute = endMinute.coerceIn(0, 59)
         val packet = nativePacket(0x72, safeStartHour, safeStartMinute, safeEndHour, safeEndMinute)
         sendFee2NativeRaw(packet)
+        
+        prefs.edit {
+            putInt("quickViewStartHour", safeStartHour)
+            putInt("quickViewStartMinute", safeStartMinute)
+            putInt("quickViewEndHour", safeEndHour)
+            putInt("quickViewEndMinute", safeEndMinute)
+        }
+        _state.update { 
+            it.copy(
+                quickViewStartHour = safeStartHour,
+                quickViewStartMinute = safeStartMinute,
+                quickViewEndHour = safeEndHour,
+                quickViewEndMinute = safeEndMinute
+            )
+        }
+
         updateDebugLog(
             "Quick View window via FEE2: " +
                 "%02d:%02d-%02d:%02d -> %s".format(
@@ -577,10 +605,26 @@ class WatchManager(private val context: Context) {
             "get-step-goal" -> nativePacket(0x26)
             "get-auto-lock" -> nativePacket(0x8D)
             "heartbeat-64" -> nativePacket(0x64)
-            "time-12h" -> nativePacket(0x17, 0x00)
-            "time-24h" -> nativePacket(0x17, 0x01)
-            "quick-view-off" -> nativePacket(0x18, 0x00)
-            "quick-view-on" -> nativePacket(0x18, 0x01)
+            "time-12h" -> {
+                prefs.edit { putBoolean("is24HourFormat", false) }
+                _state.update { it.copy(is24HourFormat = false) }
+                nativePacket(0x17, 0x00)
+            }
+            "time-24h" -> {
+                prefs.edit { putBoolean("is24HourFormat", true) }
+                _state.update { it.copy(is24HourFormat = true) }
+                nativePacket(0x17, 0x01)
+            }
+            "quick-view-off" -> {
+                prefs.edit { putBoolean("quickViewEnabled", false) }
+                _state.update { it.copy(quickViewEnabled = false) }
+                nativePacket(0x18, 0x00)
+            }
+            "quick-view-on" -> {
+                prefs.edit { putBoolean("quickViewEnabled", true) }
+                _state.update { it.copy(quickViewEnabled = true) }
+                nativePacket(0x18, 0x01)
+            }
             "auto-hr-10m" -> nativePacket(0x1F, 0x02)
             "auto-hr-5m" -> nativePacket(0x1F, 0x01)
             "move-reminder-on" -> nativePacket(0x1D, 0x01)
@@ -1609,9 +1653,9 @@ class WatchManager(private val context: Context) {
 
     private fun sleepStateLabel(stateId: Int): String {
         return when (stateId) {
-            0x00 -> "Hereilla"
+            0x00 -> "Hereillä"
             0x01 -> "Kevyt/REM"
-            0x02 -> "Syva"
+            0x02 -> "Syvä"
             else -> "State $stateId"
         }
     }

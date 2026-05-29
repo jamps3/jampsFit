@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Call
@@ -22,8 +23,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.MainActivity
@@ -102,16 +105,16 @@ private fun WatchSettingsControls(
 
         var alarmSlot by remember { mutableIntStateOf(0) }
         var alarmEnabled by remember { mutableStateOf(true) }
-        var alarmHour by remember { mutableFloatStateOf(7f) }
-        var alarmMinute by remember { mutableFloatStateOf(16f) }
+        var alarmHour by remember { mutableIntStateOf(7) }
+        var alarmMinute by remember { mutableIntStateOf(16) }
         var alarmRepeat by remember { mutableIntStateOf(0x3E) }
         val selectedAlarm = state.alarmSettings.firstOrNull { it.slot == alarmSlot }
 
         LaunchedEffect(alarmSlot, selectedAlarm) {
             selectedAlarm?.let {
                 alarmEnabled = it.enabled
-                alarmHour = it.hour.toFloat()
-                alarmMinute = it.minute.toFloat()
+                alarmHour = it.hour
+                alarmMinute = it.minute
                 alarmRepeat = it.repeatMask
             }
         }
@@ -127,15 +130,15 @@ private fun WatchSettingsControls(
         }
 
         SettingSwitch(label = "Enabled", checked = alarmEnabled) { alarmEnabled = it }
-        Text("Time: ${alarmHour.toInt().toString().padStart(2, '0')}:${alarmMinute.toInt().toString().padStart(2, '0')}")
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Hour", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
-            Slider(value = alarmHour, onValueChange = { alarmHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Min", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(42.dp))
-            Slider(value = alarmMinute, onValueChange = { alarmMinute = it.toInt().toFloat() }, valueRange = 0f..59f, steps = 58, modifier = Modifier.weight(1f))
-        }
+        
+        ModernTimePicker(
+            hour = alarmHour,
+            minute = alarmMinute,
+            onTimeChange = { h, m -> 
+                alarmHour = h
+                alarmMinute = m
+            }
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             listOf("Once" to 0x00, "Weekdays" to 0x3E, "Every Day" to 0x7F).forEach { (label, mask) ->
                 FilterChip(
@@ -146,7 +149,7 @@ private fun WatchSettingsControls(
             }
         }
         Button(
-            onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour.toInt(), alarmMinute.toInt(), alarmRepeat) },
+            onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour, alarmMinute, alarmRepeat) },
             enabled = state.isConnected,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -179,59 +182,77 @@ private fun WatchSettingsControls(
         }
         Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("12h", "time-12h", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("24h", "time-24h", state.isConnected, activity, Modifier.weight(1f))
+            OutlinedButton(
+                onClick = { activity?.sendGadgetbridgeProbe("time-12h") },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                border = if (!state.is24HourFormat) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
+            ) { Text("12h", fontSize = 12.sp) }
+            OutlinedButton(
+                onClick = { activity?.sendGadgetbridgeProbe("time-24h") },
+                enabled = state.isConnected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                border = if (state.is24HourFormat) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
+            ) { Text("24h", fontSize = 12.sp) }
         }
         Text("Quick View / wrist raise", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        var quickStartHour by remember { mutableFloatStateOf(10f) }
-        var quickStartMinute by remember { mutableFloatStateOf(0f) }
-        var quickEndHour by remember { mutableFloatStateOf(21f) }
-        var quickEndMinute by remember { mutableFloatStateOf(59f) }
-        fun formatQuickTime(hour: Float, minute: Float): String {
-            return "${hour.toInt().toString().padStart(2, '0')}:${minute.toInt().toString().padStart(2, '0')}"
+        var quickStartHour by remember(state.quickViewStartHour) { mutableIntStateOf(state.quickViewStartHour) }
+        var quickStartMinute by remember(state.quickViewStartMinute) { mutableIntStateOf(state.quickViewStartMinute) }
+        var quickEndHour by remember(state.quickViewEndHour) { mutableIntStateOf(state.quickViewEndHour) }
+        var quickEndMinute by remember(state.quickViewEndMinute) { mutableIntStateOf(state.quickViewEndMinute) }
+        fun formatQuickTime(hour: Int, minute: Int): String {
+            return "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { activity?.sendGadgetbridgeProbe("quick-view-off") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                border = if (!state.quickViewEnabled) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
             ) { Text("Quick Off", fontSize = 12.sp) }
             OutlinedButton(
                 onClick = { activity?.sendGadgetbridgeProbe("quick-view-on") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                border = if (state.quickViewEnabled) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
             ) { Text("Quick On", fontSize = 12.sp) }
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             "Active window: ${formatQuickTime(quickStartHour, quickStartMinute)} - ${formatQuickTime(quickEndHour, quickEndMinute)}",
-            style = MaterialTheme.typography.bodySmall
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Start h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-            Slider(value = quickStartHour, onValueChange = { quickStartHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Start m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-            Slider(value = quickStartMinute, onValueChange = { quickStartMinute = it.toInt().toFloat() }, valueRange = 0f..58f, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("End h", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-            Slider(value = quickEndHour, onValueChange = { quickEndHour = it.toInt().toFloat() }, valueRange = 0f..23f, steps = 22, modifier = Modifier.weight(1f))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("End m", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
-            Slider(value = quickEndMinute, onValueChange = { quickEndMinute = it.toInt().toFloat() }, valueRange = 0f..58f, modifier = Modifier.weight(1f))
-        }
+        Text("Start Time", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        ModernTimePicker(
+            hour = quickStartHour,
+            minute = quickStartMinute,
+            onTimeChange = { h, m -> 
+                quickStartHour = h
+                quickStartMinute = m
+            }
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("End Time", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        ModernTimePicker(
+            hour = quickEndHour,
+            minute = quickEndMinute,
+            onTimeChange = { h, m -> 
+                quickEndHour = h
+                quickEndMinute = m
+            }
+        )
         Button(
             onClick = {
                 activity?.setQuickViewWindow(
-                    quickStartHour.toInt(),
-                    quickStartMinute.toInt(),
-                    quickEndHour.toInt(),
-                    quickEndMinute.toInt()
+                    quickStartHour,
+                    quickStartMinute,
+                    quickEndHour,
+                    quickEndMinute
                 )
             },
             enabled = state.isConnected,
@@ -797,5 +818,94 @@ fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) ->
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+fun ModernTimePicker(
+    hour: Int,
+    minute: Int,
+    onTimeChange: (Int, Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TimeDropdown(
+            value = hour,
+            range = 0..23,
+            label = "Hour",
+            modifier = Modifier.weight(1f),
+            onValueChange = { onTimeChange(it, minute) }
+        )
+        Text(":", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        TimeDropdown(
+            value = minute,
+            range = 0..59,
+            label = "Minute",
+            modifier = Modifier.weight(1f),
+            onValueChange = { onTimeChange(hour, it) }
+        )
+    }
+}
+
+@Composable
+fun TimeDropdown(
+    value: Int,
+    range: IntRange,
+    label: String,
+    modifier: Modifier = Modifier,
+    onValueChange: (Int) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                .clickable { expanded = true }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(text = value.toString().padStart(2, '0'), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
+        ) {
+            range.forEach { i ->
+                DropdownMenuItem(
+                    text = { 
+                        Text(
+                            text = i.toString().padStart(2, '0'),
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            color = if (i == value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (i == value) FontWeight.Bold else FontWeight.Normal
+                        ) 
+                    },
+                    onClick = {
+                        onValueChange(i)
+                        expanded = false
+                    }
+                )
+            }
+        }
     }
 }
