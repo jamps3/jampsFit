@@ -40,13 +40,29 @@ class WatchService : Service() {
                         return
                     }
 
-                    if ((pkg == "com.google.android.deskclock") && state.autoSyncAlarm) {
-                        try {
-                            val lowerTitle = title.lowercase()
-                            val lowerText = text.lowercase()
-                            val isUpcoming = lowerText.contains("tuleva") || lowerText.contains("upcoming") || lowerTitle.contains("tuleva") || lowerTitle.contains("upcoming")
-                            val isFiring = lowerText.contains("lopeta") || lowerText.contains("stop") || lowerText.contains("dismiss") || lowerText.contains("snooze") || lowerText.contains("torkku")
+                    val isAlarmPkg = pkg.contains("clock") || pkg.contains("alarm") || 
+                                    category == Notification.CATEGORY_ALARM ||
+                                    pkg == "com.sec.android.app.clockpackage" ||
+                                    pkg == "com.oneplus.deskclock" ||
+                                    pkg == "com.coloros.alarmclock" ||
+                                    pkg == "com.oppo.alarmclock"
+                    
+                    val lowerText = text.lowercase()
+                    val lowerTitle = title.lowercase()
+                    val isUpcoming = lowerText.contains("tuleva") || lowerText.contains("upcoming") || 
+                                    lowerTitle.contains("tuleva") || lowerTitle.contains("upcoming")
 
+                    var isFiringAlarm = false
+                    if (isAlarmPkg && !isUpcoming) {
+                        // These keywords are common in alarm notifications ONLY when they are firing
+                        isFiringAlarm = lowerText.contains("lopeta") || lowerText.contains("stop") || 
+                                       lowerText.contains("dismiss") || lowerText.contains("snooze") || 
+                                       lowerText.contains("torkku") || lowerTitle.contains("torkku")
+
+                    }
+
+                    if ((pkg == "com.google.android.deskclock" || pkg == "com.android.deskclock") && state.autoSyncAlarm) {
+                        try {
                             val timeRegex = Regex("([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])")
                             val match = timeRegex.find(text) ?: timeRegex.find(title)
                             
@@ -67,20 +83,13 @@ class WatchService : Service() {
                                     month = dateMatch.groupValues[2].toInt()
                                 }
 
-                                if (isFiring) {
-                                    startAlarmVibration()
-                                }
-                                
                                 val typeLabel = when {
-                                    isFiring -> "Active"
+                                    isFiringAlarm -> "Active"
                                     isUpcoming -> "Upcoming"
                                     else -> "Unknown"
                                 }
                                 Log.d("WatchService", "$typeLabel alarm sync to $hour:$minute (date=$day.$month) from $pkg")
                                 watchManager.setAlarm(slot = 0, enabled = true, hour = hour, minute = minute, repeatMask = 0, month = month, day = day)
-                            } else if (isFiring) {
-                                // If firing but no time found (maybe user has custom notification format), just vibrate
-                                startAlarmVibration()
                             }
                         } catch (e: Exception) {
                             Log.e("WatchService", "Error parsing alarm time: ${e.message}")
@@ -90,15 +99,34 @@ class WatchService : Service() {
                     if (state.useLegacyCallNotifications && category == Notification.CATEGORY_CALL) {
                         watchManager.sendLegacyCallNotification(title, text)
                     } else {
-                        if (pkg == "com.google.android.deskclock" && state.muteAlarmSyncNotification) {
+                        if (isAlarmPkg && state.muteAlarmSyncNotification && !isFiringAlarm) {
                             Log.d("WatchService", "Muting watch message for $pkg")
                         } else {
-                            watchManager.sendNotification(title, text)
+                            if (isFiringAlarm) {
+                                // For firing alarm, ensure it shows up prominently.
+                                // Use mirrored notification (0x41) which is confirmed working for display.
+                                // We ignore duplicate check to ensure it always pops up.
+                                val alarmTitle = if (!title.lowercase().contains("alarm") && !title.lowercase().contains("herätys")) "Alarm: $title" else title
+                                watchManager.sendNotification(alarmTitle, text, ignoreDuplicate = true, forceMirrored = true)
+                                
+                                // Start repeating vibration after a delay to let notification render
+                                serviceScope.launch {
+                                    delay(2000)
+                                    startAlarmVibration()
+                                }
+                            } else {
+                                watchManager.sendNotification(title, text)
+                            }
                         }
                     }
                 }
             } else if (intent.action == "com.labbaslabs.jampsfit.NOTIFICATION_REMOVED") {
-                if (pkg == "com.google.android.deskclock") {
+                val isAlarmPkg = pkg.contains("clock") || pkg.contains("alarm") || 
+                                pkg == "com.sec.android.app.clockpackage" ||
+                                pkg == "com.oneplus.deskclock" ||
+                                pkg == "com.coloros.alarmclock" ||
+                                pkg == "com.oppo.alarmclock"
+                if (isAlarmPkg) {
                     stopAlarmVibration()
                 }
             }
@@ -363,7 +391,7 @@ class WatchService : Service() {
                 if (watchManager.state.value.isConnected) {
                     watchManager.findWatch()
                 }
-                delay(3000)
+                delay(5000)
             }
         }
     }

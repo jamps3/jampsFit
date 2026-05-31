@@ -12,12 +12,16 @@ class NotificationReceiverService : NotificationListenerService() {
         if (packageName == "com.labbaslabs.jampsfit") return 
 
         val extras = sbn.notification.extras
-        val title = extras.getString("android.title") ?: ""
+        val title = extras.getCharSequence("android.title")?.toString() ?: ""
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
         val category = sbn.notification.category ?: ""
 
         if (title.isBlank() && text.isBlank()) return
-        if (sbn.isOngoing && (category != "alarm") && (category != "call")) return
+        
+        val isAlarmOrCall = category == "alarm" || category == "call" || 
+                           packageName.contains("clock") || packageName.contains("alarm")
+        
+        if (sbn.isOngoing && !isAlarmOrCall) return
 
         val pm = applicationContext.packageManager
         val appName = try {

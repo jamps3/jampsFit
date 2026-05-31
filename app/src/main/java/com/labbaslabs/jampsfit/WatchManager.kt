@@ -42,6 +42,7 @@ data class WatchState(
     val autoConnect: Boolean = false,
     val autoFetchSteps: Boolean = false,
     val autoFetchBattery: Boolean = false,
+    val autoFetchSleep: Boolean = false,
     val stepFetchIntervalMinutes: Int = 60,
     val autoHeartRateIntervalMinutes: Int = 0,
     val batteryThreshold: Int = 15,
@@ -132,6 +133,7 @@ class WatchManager(private val context: Context) {
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
         autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
+        autoFetchSleep = prefs.getBoolean("autoFetchSleep", false),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         autoHeartRateIntervalMinutes = prefs.getInt("autoHeartRateIntervalMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
@@ -181,6 +183,7 @@ class WatchManager(private val context: Context) {
     private var scanWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
     private var autoBatteryFetchJob: Job? = null
+    private var autoSleepFetchJob: Job? = null
     private var autoSyncTimeJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private var lastActivitySeq: Int? = null
@@ -313,6 +316,15 @@ class WatchManager(private val context: Context) {
         updateDebugLog("Find My Watch via FEE2: ${packet.toHexString()}")
     }
 
+    fun vibrateOnly() {
+        if (!_state.value.isConnected) return
+        // Legacy 10-series find command often vibrates without full UI on some firmwares
+        // Using length 06 (Total length - 1)
+        val packet = intArrayOf(0xFE, 0xEA, 0x10, 0x06, 0x0D, 0x01, 0x01).map { it.toByte() }.toByteArray()
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
+        updateDebugLog("Vibrate only via legacy FEE2: ${packet.toHexString()}")
+    }
+
     fun syncTime() {
         // MATCH WORKING BIG ENDIAN LOGIC on FEE2
         val tz = TimeZone.getDefault()
@@ -352,7 +364,14 @@ class WatchManager(private val context: Context) {
         return csv.toString()
     }
 
-    fun sendNotification(title: String, text: String, forceLegacy: Boolean = false) {
+    fun sendNotification(
+        title: String,
+        text: String,
+        forceLegacy: Boolean = false,
+        ignoreDuplicate: Boolean = false,
+        legacyType: Int = 0x01,
+        forceMirrored: Boolean = false
+    ) {
         val message = listOf(title.trim(), text.trim())
             .asSequence()
             .filter { it.isNotBlank() }
@@ -361,7 +380,7 @@ class WatchManager(private val context: Context) {
         if (message.isBlank()) return
         
         managerScope.launch {
-            if (_state.value.ignoreDuplicateNotifications && !forceLegacy) {
+            if (_state.value.ignoreDuplicateNotifications && !forceLegacy && !ignoreDuplicate) {
                 val hash = message.hashCode()
                 val since = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
                 if (healthDao.countSeenNotification(hash, since) > 0) {
@@ -370,9 +389,9 @@ class WatchManager(private val context: Context) {
                 }
                 healthDao.insertSeenNotification(com.labbaslabs.jampsfit.database.SeenNotification(content_hash = hash))
             }
-            
-            if (forceLegacy || _state.value.useLegacyCallNotifications) {
-                sendNativeNotification08(title, text, type = 0x01, checksum = false, logLabel = "legacy")
+
+            if (!forceMirrored && (forceLegacy || _state.value.useLegacyCallNotifications)) {
+                sendNativeNotification08(title, text, type = legacyType, checksum = false, logLabel = "legacy")
             } else {
                 sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
             }
@@ -559,6 +578,20 @@ class WatchManager(private val context: Context) {
             while (isActive) {
                 readBattery()
                 delay(intervalMs)
+            }
+        }
+    }
+
+    private fun restartAutoSleepFetch() {
+        autoSleepFetchJob?.cancel()
+        autoSleepFetchJob = null
+        val state = _state.value
+        if (!state.autoFetchSleep || !state.isConnected) return
+        autoSleepFetchJob = managerScope.launch {
+            updateDebugLog("Auto sleep fetch enabled: every 4h")
+            while (isActive) {
+                querySleepBoundaries()
+                delay(4 * 3600_000L)
             }
         }
     }
@@ -843,6 +876,11 @@ class WatchManager(private val context: Context) {
         prefs.edit { putBoolean("autoFetchBattery", e) }
         _state.update { it.copy(autoFetchBattery = e) }
         restartAutoBatteryFetch()
+    }
+    fun toggleAutoFetchSleep(e: Boolean) {
+        prefs.edit { putBoolean("autoFetchSleep", e) }
+        _state.update { it.copy(autoFetchSleep = e) }
+        restartAutoSleepFetch()
     }
     fun updateStepFetchInterval(minutes: Int) {
         val safeMinutes = minutes.coerceIn(5, 1440)
@@ -1134,6 +1172,7 @@ class WatchManager(private val context: Context) {
             updateDebugLog("Channels ready; listening for watch data.")
             restartAutoStepFetch()
             restartAutoBatteryFetch()
+            restartAutoSleepFetch()
             restartAutoSyncTime()
         }
         override fun onDescriptorWrite(gatt: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {

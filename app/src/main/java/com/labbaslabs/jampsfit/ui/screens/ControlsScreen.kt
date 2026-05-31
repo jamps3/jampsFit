@@ -546,7 +546,8 @@ private fun AppSettingsControls(
         SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
         SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { activity?.toggleAutoFetchSteps(it) }
         SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { activity?.toggleAutoFetchBattery(it) }
-        if (state.autoFetchSteps || state.autoFetchBattery) {
+        SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { activity?.toggleAutoFetchSleep(it) }
+        if (state.autoFetchSteps || state.autoFetchBattery || state.autoFetchSleep) {
             val intervalOptions = listOf(15, 30, 60, 120, 240)
             Text("Auto-fetch interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {

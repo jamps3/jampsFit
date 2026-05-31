@@ -276,6 +276,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.toggleAutoFetchBattery(enabled)
     }
 
+    fun toggleAutoFetchSleep(enabled: Boolean) {
+        watchService?.watchManager?.toggleAutoFetchSleep(enabled)
+    }
+
     fun updateStepFetchInterval(minutes: Int) {
         watchService?.watchManager?.updateStepFetchInterval(minutes)
     }
