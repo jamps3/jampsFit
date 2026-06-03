@@ -8,7 +8,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
-            val autoStart = prefs.getBoolean("autoStart", false)
+            val autoStart = prefs.getBoolean("autoStart", true)
             
             if (autoStart) {
                 val serviceIntent = Intent(context, WatchService::class.java)

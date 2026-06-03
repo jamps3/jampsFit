@@ -1,10 +1,12 @@
 package com.labbaslabs.jampsfit
 
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.os.Build
 import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
@@ -38,7 +40,7 @@ data class WatchState(
     val playPauseAction: String = "Play/Pause",
     val nextAction: String = "Next Track",
     val prevAction: String = "Previous Track",
-    val autoStart: Boolean = false,
+    val autoStart: Boolean = true,
     val autoConnect: Boolean = false,
     val autoFetchSteps: Boolean = false,
     val autoFetchBattery: Boolean = false,
@@ -98,6 +100,7 @@ data class WatchState(
     val quickViewStartMinute: Int = 0,
     val quickViewEndHour: Int = 22,
     val quickViewEndMinute: Int = 0,
+    val hasFullScreenIntentPermission: Boolean = true,
 )
 
 data class SleepSegment(
@@ -129,7 +132,7 @@ class WatchManager(private val context: Context) {
 
     private val _state = MutableStateFlow(
         WatchState(
-        autoStart = prefs.getBoolean("autoStart", false),
+        autoStart = prefs.getBoolean("autoStart", true),
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
         autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
@@ -205,6 +208,17 @@ class WatchManager(private val context: Context) {
     init {
         observeHistory()
         cleanupSeenNotifications()
+        checkFullScreenIntentPermission()
+    }
+
+    fun checkFullScreenIntentPermission() {
+        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.canUseFullScreenIntent() ?: true
+        } else {
+            true
+        }
+        _state.update { it.copy(hasFullScreenIntentPermission = hasPermission) }
     }
 
     private fun cleanupSeenNotifications() {

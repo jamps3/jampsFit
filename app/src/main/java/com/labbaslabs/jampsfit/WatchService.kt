@@ -469,6 +469,15 @@ class WatchService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val keepRunning = watchManager.state.value.autoStart || watchManager.state.value.autoConnect
+        if (keepRunning) {
+            val restartIntent = Intent(applicationContext, WatchService::class.java)
+            applicationContext.startForegroundService(restartIntent)
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onBind(intent: Intent?): IBinder {
         return binder
     }

@@ -3,6 +3,8 @@ package com.labbaslabs.jampsfit
 import android.Manifest
 import android.content.*
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.WindowManager
@@ -179,6 +181,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        watchService?.watchManager?.checkFullScreenIntentPermission()
     }
 
     private fun startWatchService() {
@@ -422,6 +429,19 @@ class MainActivity : ComponentActivity() {
 
     fun syncTime() {
         watchService?.watchManager?.syncTime()
+    }
+
+    fun requestFullScreenIntentPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val intent = Intent("android.settings.MANAGE_FULL_SCREEN_INTENT").apply {
+                data = Uri.fromParts("package", packageName, null)
+            }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                startActivity(Intent("android.settings.MANAGE_FULL_SCREEN_INTENT"))
+            }
+        }
     }
 
     fun queryCurrentSteps() {
