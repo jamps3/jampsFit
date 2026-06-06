@@ -2,13 +2,16 @@
 
 A sleek, feature-rich Android companion application for the **Kospet TANK M1** smartwatch. Built with modern Android technologies (Jetpack Compose, Room, Kotlin Coroutines), this app serves as both a health dashboard and a powerful tool for reverse-engineering proprietary smartwatch protocols.
 
+![jampsFit app screenshot](docs/images/jampsfit-screenshot-20260602.png)
+
 ## ✨ Key Features
 
 ### 📊 Real-Time Health & Activity
 - **Live Dashboard**: Monitor Battery plus live watch activity count, distance, and calories at a glance.
 - **Step Fetching**: Fetch current watch-face steps manually from the Home tab or automatically at a configurable interval.
-- **Sleep Boundaries**: Fetch and display watch sleep ranges, preserving hidden boundary markers that Da Fit may merge.
+- **Sleep Tracking**: Fetch and display accurate watch sleep ranges, preserving hidden boundary markers that Da Fit may merge.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
+- **Health Measurements**: Track regular heart-rate measurements, with blood pressure and SpO2 measurement support on the near-term protocol roadmap.
 - **Battery Intelligence**: High-resolution discharge graph and time-remaining estimation based on current usage.
 - **Health Data Export**: Export your historical health and activity data to CSV files for external analysis.
 
@@ -67,9 +70,11 @@ Important capture correction: the Da Fit writes previously labeled as `6387` wer
 - **Build System**: Gradle (Version Catalog & KSP)
 
 ## 📋 Roadmap
+- [ ] **Regular HR Measurements**: Add scheduled heart-rate measurement capture and history sync.
+- [ ] **Additional Vitals**: Investigate regular blood pressure and SpO2 measurement support once the watch protocol behavior is verified.
+- [ ] **Sleep Merge Refinement**: Keep the existing accurate sleep decoding while improving how multiple sleep ranges are merged within the same day.
 - [ ] **Workout Sync**: Track specific exercise sessions with GPS data.
 - [ ] **Customizable Watch Faces**: Explore support for pushing custom dial files to the watch.
-- [ ] **Sleep Tracking Refinement**: Re-verify and improve the accuracy of deep/light sleep data decoding.
 
 ---
 *Developed with ❤️ for the Kospet TANK M1 community.*
