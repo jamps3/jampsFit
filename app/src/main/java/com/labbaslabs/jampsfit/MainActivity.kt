@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -40,12 +42,19 @@ val LocalWatchState = compositionLocalOf { WatchState() }
 class MainActivity : ComponentActivity() {
     private var watchService: WatchService? by mutableStateOf(null)
     private var isBound by mutableStateOf(value = false)
+    private var pendingScanRequest = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
             val binder = service as WatchService.WatchBinder
-            watchService = binder.getService()
+            val s = binder.getService()
+            watchService = s
             isBound = true
+            
+            if (pendingScanRequest) {
+                s.watchManager.startScan()
+                pendingScanRequest = false
+            }
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
@@ -76,6 +85,7 @@ class MainActivity : ComponentActivity() {
             bindService(intent, connection, BIND_AUTO_CREATE)
         }
         startWatchServiceIfAutoConnectEnabled()
+        requestIgnoreBatteryOptimizations()
 
         setContent {
             JampsFitTheme {
@@ -191,7 +201,13 @@ class MainActivity : ComponentActivity() {
     private fun startWatchService() {
         val intent = Intent(this, WatchService::class.java)
         startForegroundService(intent)
-        watchService?.watchManager?.startScan()
+        
+        val service = watchService
+        if (service != null) {
+            service.watchManager.startScan()
+        } else {
+            pendingScanRequest = true
+        }
     }
 
     private fun startWatchServiceIfAutoConnectEnabled() {
@@ -337,6 +353,23 @@ class MainActivity : ComponentActivity() {
 
     fun disconnect() {
         watchService?.watchManager?.disconnect()
+    }
+
+    private fun requestIgnoreBatteryOptimizations() {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                // Fallback for some devices/OS versions
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun updateBatteryThreshold(threshold: Int) {
