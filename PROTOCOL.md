@@ -1,50 +1,71 @@
 # Kospet TANK M1 Protocol (MoYoung/DaFit)
 
 ## Overview
-The watch communicates using a proprietary BLE protocol com. It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
+The watch communicates using a proprietary BLE protocol. It supports multiple protocol variants (`10` series and `20` series) across different characteristics.
 
-Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. The watch identifies as `MOYOUNG-V2`, so it is using the Gadgetbridge-documented Moyoung V2 protocol or a very close variant. Treat the `6387` send path as session-dependent until verified against full Da Fit connect-preamble captures and live watch responses.
+Current status: **passive main-screen data is restored** when the app skips MTU negotiation and broadly subscribes to notify/indicate characteristics. Clock Sync, Find My Watch, and Alarm writes are now confirmed working through `FEE2`. The watch identifies as `MOYOUNG-V2`, so it is using the Gadgetbridge-documented Moyoung V2 protocol or a very close variant.
 
-Da Fit notification mirroring is not a product workaround. It proves the watch accepts notifications when Da Fit owns the native session, but jampsFit must replace Da Fit entirely and cannot rely on Da Fit being connected in parallel.
+## Development Gotchas
+- **MTU Negotiation**: **Do NOT call `requestMtu()`**. The watch may hang or reboot. Subscribing to characteristics should be done with the default MTU.
+- **Characteristic Routing**: Always use `FEE2` for writes. Sending Series 20 commands to `6387` often causes reboots.
+- **Packet Padding**: Do NOT pad packets to 20 bytes. Commands must be sent with their **exact length**.
+- **Timing**: When sending sequences (like weather), include a `~180ms` delay between packets to prevent buffer overflow or reboots.
 
-## External References To Cross-Check
-
-These references are useful clues, but they may describe different watches or older protocol variants:
-
-- [krzys-h/Gadgetbridge-MT863](https://github.com/krzys-h/Gadgetbridge-MT863): Gadgetbridge fork described as Da Fit / `MOYOUNG-V2` support for MT863-class watches. Use it as the closest known Android implementation reference, especially for command routing, init sequence, and characteristic selection.
-- [Gadgetbridge Moyoung Protocol](https://gadgetbridge.org/internals/specifics/moyoung-protocol/): Primary protocol notes for Moyoung / Da Fit devices. Confirms the V2 packet layout, that the size includes UUID/size/command bytes, and that a no-payload command has `size=5`.
-- [kabbi/uwatch2-protocol.md](https://gist.github.com/kabbi/854a541c1a32e15fb0dfa3338f4ee4a9): Uwatch2 reverse-engineering notes. It documents `FE EA 10 [LEN] [CMD]` packets and many command IDs. The packet format matches our working clock sync pattern closely enough to be high-value.
-- [rogerdahl/uwatch2-client `_uwatch2ble.py`](https://github.com/rogerdahl/uwatch2-client/blob/master/_uwatch2ble.py): Python BLE client reference for the same Uwatch2 family. Use this as a secondary check for command ordering and BLE write/notify setup, not as proof for Kospet TANK M1.
-
-## Protocol Variants
+## Packet Anatomy
 
 ### Series 10 (Legacy/Sync)
 - **Header**: `FE EA 10`
-- **Length Byte (Index 3)**: External Uwatch2 notes describe this as `payload length + 4`, which is equivalent to `Total Length - 1`.
+- **Structure**: `[0..2] Header | [3] Length (Total - 1) | [4] Command | [5..] Payload`
 - **Checksum**: None observed for basic commands.
 - **Main Pipe**: Write to `FEE2`, Notify on `FEE3`.
-- **Known-good local behavior**: Clock sync works on `FEE2` using exact-length packets.
-- **Live activity path**: `FEE1` notifications stream while walking after broad passive subscription.
 
 ### Series 20 (Modern/Da Fit)
 - **Header**: `FE EA 20`
-- **Length Byte (Index 3)**: Defined as `Total Length` count.
+- **Structure**: `[0..2] Header | [3] Length (Total) | [4] Command | [5..] Payload`
 - **Checksum**: Required for longer packets (e.g., Notifications), calculated as `Sum(all bytes) % 256`.
-- **Captured Da Fit Pipe**: Write to `FEE2` (ATT handle `0x0047` in current captures), Notify on `FEE3` (ATT handle `0x0049`).
-- **Important correction**: Earlier notes treated handle `0x0047` as `6387`. The captured service discovery shows handle `0x0047` is the value handle for `FEE2`; `6387` is a later handle in service `6287`. Many reboots were likely caused by sending Da Fit `FE EA 20` traffic to `6387` instead of `FEE2`.
-- **Current risk**: `6387` should not be used for Da Fit `FE EA 20` packets unless a capture proves that exact packet was written to `6387`.
+- **Main Pipe**: Write to `FEE2`, Notify on `FEE3`.
 
-Gadgetbridge V2 notes that the packet size includes the UUID/header, size bytes, command byte, and payload. This matches our observed no-payload packets such as `FE EA 20 05 64`. Gadgetbridge also notes that command IDs often come in set/get pairs where `get = set + 0x10`; this is the basis for the `0x21` alarm query and `0x26` step-goal query probes below.
+---
+
+## Master Command Registry
+
+| Series | CMD | Name | Status | Description / Payload |
+|:-------|:----|:-----|:-------|:----------------------|
+| 10 | `31` | **Clock Sync** | ✅ Verified | `[4-byte Big-Endian Local Timestamp] 08` |
+| 10 | `0D` | **Find My Watch** | ✅ Verified | `01 01` (Vibrate trigger) |
+| 20 | `08` | **Legacy Notif** | ✅ Verified | `[Type] [TitleLen] [Title] [TextLen] [Text]`. Type `01`=Short, `02`=Call. |
+| 20 | `11` | **Alarm Record** | ✅ Verified | `[slot] [enabled] [mode] [hour] [minute] [month] [day] [repeatMask]` |
+| 20 | `16` | **Step Goal** | ✅ Verified | `00 [hi] [lo]` (Big Endian) |
+| 20 | `17` | **Time Format** | ✅ Verified | `00` (12h), `01` (24h) |
+| 20 | `18` | **Quick View** | ✅ Verified | `00` (Off), `01` (On) |
+| 20 | `1F` | **Auto HR** | ✅ Verified | `00` (Off), `01` (5m), `02` (10m), `05` (60m) |
+| 20 | `21` | **Get Alarms** | ✅ Verified | Returns 8-byte records per slot. |
+| 20 | `26` | **Get Step Goal** | ✅ Verified | Returns `00 00 [hi] [lo]` or `00 [hi] [lo] 00`. |
+| 20 | `32` | **Sleep Sync** | ✅ Verified | Payload is 3-byte markers `[state] [hour] [minute]`. |
+| 20 | `41` | **Notification** | ✅ Verified | Payload: `80 [UTF-8 text]`. Max text: 238 bytes. |
+| 20 | `42` | **Forecast Data** | ✅ Verified | Seven triples: `[icon] [high C] [low C]`. |
+| 20 | `45` | **Weather City** | ✅ Verified | UTF-8 city name. |
+| 20 | `59` | **Step Buckets** | ✅ Verified | Query `00`, `01` etc. for 16-bit category sums. |
+| 20 | `5A` | **Device Info** | ✅ Verified | `00` (Name), `01` (Firmware). |
+| 20 | `61` | **Find My Watch** | ✅ Verified | Trigger watch "Finding Phone" UI. |
+| 20 | `64` | **Heartbeat** | ✅ Verified | Probable keep-alive / heartbeat (no payload). |
+| 20 | `66` | **Shutter Event** | ✅ Verified | **RX only**: Sent when watch shutter button is pressed. |
+| 20 | `67` | **Music Control** | ✅ Verified | **RX only**: `01`=Prev, `02`=Next, `06`=Play/Pause. |
+| 20 | `6D` | **Heart Rate** | ✅ Verified | RX manual measurement result. |
+| 20 | `6B` | **SpO2** | ✅ Verified | RX manual measurement result. |
+| 20 | `69` | **Blood Pressure**| ✅ Verified | RX manual measurement result. |
+| 20 | `72` | **Quick View Win**| ✅ Verified | `[start H] [start M] [end H] [end M]`. |
+| 20 | `7D` | **Auto-lock** | ✅ Verified | `[seconds]` (5-60). |
+| 20 | `8D` | **Get Auto-lock** | ✅ Verified | Query current auto-lock duration. |
+| 20 | `A4` | **DND / Pwr Save**| ✅ Verified | `00` (Off), `01` (On). |
+| 20 | `33` | Daily Totals | 🧪 Exp | Steps, Distance, Calories snapshots. |
+| 20 | `B4` | Buffer Alloc | 🧪 Exp | Part of handshake: `00, 12, 10, 20`. |
+| 20 | `F1` | Handshake Ready| 🧪 Exp | Final signal before extended data push. |
+| 20 | `B9` | Adv. Namespace | 🧪 Exp | Used for Weather/eCard (`19 00` for weather). |
+
+---
 
 ## Passive Listening Findings
-
-The current stable receive setup:
-
-1. Do **not** request MTU before subscribing.
-2. Discover services and log every service/characteristic.
-3. Subscribe to every notify/indicate characteristic except standard Service Changed `2A05`.
-4. Read standard battery `2A19`.
-5. Treat incoming packets as the source of truth and log all raw `RX` packets.
 
 Confirmed subscribed channels on Kospet TANK M1 include:
 
@@ -52,405 +73,47 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 - `2A37`: standard heart-rate notify.
 - `FEE1`: live walking/activity notify.
 - `FEE3`: legacy notify. Confirmed to carry manual measurement updates (HR, SpO2, BP) and remote events.
-- `FEA1`: mirrored activity/health notify. Walking frames observed as `07` plus the same 9-byte payload from `FEE1`.
+- `FEA1`: mirrored activity/health notify.
 - `6487`: native MoYoung notify.
 
-### `FEE3` Manual Measurement Packets
-
-Manual measurements started from the watch or app arrive as `FE EA 20` packets on `FEE3`:
-
-| CMD | Description | Format |
-| :--- | :--- | :--- |
-| `0x6D` | Heart Rate | `FE EA 20 06 6D [BPM]` |
-| `0x6B` | SpO2 | `FE EA 20 06 6B [%]` |
-| `0x69` | Blood Pressure | `FE EA 20 08 69 [unknown] [Systolic] [Diastolic]` |
-| `0x5A` | Device info | `FE EA 20 10 5A 00 4D 4F 59 4F 55 4E 47 2D 56 32` -> `MOYOUNG-V2` |
-| `0x64` | Probable keep-alive / heartbeat | `FE EA 20 05 64` |
-
-These values are now persisted to the `health_data` table in the Room database to maintain accurate history.
-
-`0x5A` is known device information and should not be stored as Unknown. Info type `0x00` is the device/protocol name (`MOYOUNG-V2` in current captures); info type `0x01` is firmware (`MOY-QGF3-2.0.3` in earlier captures).
-
-`0x64` has no payload. Per the Gadgetbridge Moyoung V2 packet layout, `FE EA 20 05 64` decodes as UUID/header `FE EA`, V2 size marker `20 05` for total size 5, and command `0x64`. It is not a battery percentage byte; standard battery still arrives on `2A19`. Because it appears without a user action, it is likely a keep-alive / heartbeat packet.
-
-### `FEE1` Live Activity Packet
-
-Observed examples:
-
-```text
-0A 01 00 DA 00 00 0C 00 00
-26 01 00 F1 00 00 0D 00 00
-5A 01 00 1C 01 00 0F 00 00
-```
-
-Current decode:
+### `FEE1` Live Activity Packet Breakdown
 
 | Offset | Size | Meaning | Notes |
-| :--- | :--- | :--- | :--- |
-| `0` | 1 | Stream sequence/counter | Rolls forward with incoming notifications. |
-| `1..2` | 2 LE | `activityCount` | Not steps; currently remains low/slow-moving. Possibly active minutes, motion state, or segment count. |
-| `3..4` | 2 LE | Live distance meters | Confirmed by smooth increase while walking. |
-| `5` | 1 | Unknown/reserved | Observed `00`. |
-| `6..7` | 2 LE | Calories | Confirmed by slow increase while walking. |
-| `8` | 1 | Unknown/reserved | Observed `00`. |
+|:-------|:-----|:--------|:------|
+| `0` | 1 | Sequence Counter | Rolls forward with notifications. |
+| `1..2` | 2 LE | `activityCount` | Possibly movement intensity or segment count. |
+| `3..4` | 2 LE | Live distance (m) | Confirmed by smooth increase. |
+| `5` | 1 | Reserved | Observed `00`. |
+| `6..7` | 2 LE | Calories | Confirmed by slow increase. |
+| `8` | 1 | Reserved | Observed `00`. |
 
-`FEA1` mirror examples:
+---
 
-```text
-FEE1: 5A 02 00 EE 01 00 1B 00 00
-FEA1: 07 5A 02 00 EE 01 00 1B 00 00
-```
+## Remote Event Details
 
-Known `FEE1` walking frames are kept out of the Unknown tab and logged as decoded activity. The app also suppresses duplicate `FEA1` mirror frames from the System Log and Unknown tab, and avoids duplicate activity updates when the same sequence was already received on `FEE1`. If a mirror arrives with a new sequence, it is still accepted as a fallback activity update and logged.
+### Music Control (`0x67`)
+Received on `FEE3` when music buttons are pressed on the watch:
+- `FE EA 20 06 67 01`: Previous Track
+- `FE EA 20 06 67 02`: Next Track
+- `FE EA 20 06 67 06`: Play/Pause
 
-`RX 2A19 raw=2F`, `2E`, `2D` are standard battery notifications, not unknown proprietary packets. They decode as hex battery percentages: `0x2F` = 47%, `0x2E` = 46%, `0x2D` = 45%.
+### Shutter (`0x66`)
+Received on `FEE3` when the watch shutter button is pressed:
+- `FE EA 20 05 66`: Shutter event.
 
-## Verified Commands
+---
 
-| Header | Length | CMD | Description | Payload / Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| `10` | `09` | `31` | **Clock Sync** | `[4-byte Big-Endian Local Timestamp] 08` |
-| `10` | `04` | `2F` | Query Sensors | Uwatch2 reference lists `2F` as timing HR query; local code uses it as a general data/health query, but this is not yet verified for TANK M1 main-screen data. |
-| `10` | `05` | `32` | Sync Sleep | Legacy reference command. Current TANK M1 sleep boundaries are confirmed on native `20/32`. |
-| `10` | `05` | `34` | Query Dynamic HR | From Uwatch2 outgoing logs. Needs local verification. |
-| `10` | `06` | `35` | Query HR | Payload examples: `04`, `05`, `06`, `07` in Uwatch2 logs. Needs local verification. |
-| `10` | `06` | `59` | Query Steps | Payload examples: `00`, `02` in Uwatch2 logs. This may be a better candidate for restoring main-screen step data than `20 33 01`. |
-| `10` | `05` | `0D` | **Find My Watch** | `01 01` (Vibrate trigger) |
-| `20` | `0F` | `36` | Memory Sync / Handshake | `00 36 00 DA 01 00 00 11 03 20 31` (Can reboot if sent in live mode) |
-| `20` | `06` | `5A 00` | Handshake | Device Info Request ("MOYOUNG-V2") |
-| `20` | `06` | `5A 01` | Firmware Info | Firmware Version ("MOY-QGF3-2.0.3") |
-| `20` | `0F` | `33 01` | Daily Totals | Steps, Distance, Calories (Little Endian). **Suspect**: local writes may not elicit a response now. |
-| `20` | `VAR` | `32` | **Sleep boundaries** | Confirmed from Da Fit sync. Payload is 3-byte markers `[state] [hour] [minute]`. Current state labels: `02=Syva`, `01=Kevyt/REM provisional`, `00=Hereilla/end`. |
-| `20` | `1E` | `33 04` | Sleep Summary | Total, Deep, Light minutes. **Suspect** until confirmed. |
-| `20` | `VAR` | `08` | **Notification Push** | Confirmed working without checksum for Legacy Short (`type=0x01`) and Legacy Call (`type=0x02`). Format: `[Type] [TitleLen] [Title] [TextLen] [Text]`; checksum variants remain probes. |
-| `20` | `VAR` | `41` | **Notification Push** | Confirmed working on `FEE2`. Payload starts with `80`, followed by UTF-8 text. Watch displays these as `Other: ...`. Display testing is complete through the current UI set; mirroring is capped at 238 text bytes. |
-| `20` | `06` | `B4` | Buffer Allocation | Part of extended data handshake (Params: 00, 12, 10, 20) |
-| `20` | `06` | `F1` | Handshake Ready | Final signal before extended data push |
-| `20` | `05` | `61` | **Find My Watch** | Confirmed working from jampsFit on `FEE2` / handle `0x0047`. Previous reboot was from wrong characteristic. |
-| `20` | `0D` | `11` | **Alarm Record** | Confirmed working for alarm slots 1 and 3 from jampsFit on `FEE2`. Payload: `[slot] [enabled] [mode] [hour] [minute] [extra1] [extra2] [repeatMask]`. |
-| `20` | `09` | `72` | **Quick View active window** | Captured from Da Fit and added to Watch > Display for testing. Payload: `[start hour] [start minute] [end hour] [end minute]`; example `FE EA 20 09 72 0A 00 15 3B` = `10:00-21:59`. |
-| `20` | `06` | `7D` | **Auto-lock seconds** | Confirmed working from jampsFit on `FEE2`. Example: `FE EA 20 06 7D 14` for 20 seconds. |
-| `20` | `09` | `16` | Step goal | Captured as `FE EA 20 09 16 00 00 23 28` for 9000 steps. Da Fit UI allows 2000-35000 in 1000-step increments. Added as a connected-only experimental control; still needs live confirmation. |
-| `20` | `1A` | `42` | **Forecast data** | Confirmed working from jampsFit on `FEE2`. Seven triples: `[icon/weatherCode] [high C] [low C]`. First triple updates today's range; next six appear as future forecast days. |
-| `20` | `0C` | `45` | Weather city name | Captured as the final city-name packet in the weather sequence. Added as a connected-only experimental control with the captured surrounding weather packets; still needs live confirmation. |
+## Sleep Data Mapping
 
-## Gadgetbridge-Derived Probes
+Sleep markers arrive via `0x32` on `FEE3`. States:
+- `00`: Hereillä (Awake)
+- `01`: Kevyt (Light/REM provisional)
+- `02`: Syvä (Deep)
+- `03`: REM (Rarely observed directly)
 
-These probes are based on Gadgetbridge Moyoung V2 notes and must be live-tested on this watch:
+Internal markers (repeating `01` state) likely indicate movement intensity within a sleep phase.
 
-| Button | Packet | Rationale |
-| :--- | :--- | :--- |
-| Get Alarms | `FE EA 20 05 21` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
-| Get Step Goal | `FE EA 20 05 26` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
-| Get Auto-lock | `FE EA 20 05 8D` | Confirmed working. No longer shown as a manual probe; Controls auto-queries it once per connected Controls session. |
-| Heartbeat 64 | `FE EA 20 05 64` | Retired from UI: no visible effect in live testing. Still treated as a known incoming keep-alive candidate when watch-originated. |
-| HR 6D | `FE EA 20 05 6D` | Retired from UI: starts visible HR measurement, with watch vibration and display wake. Need a different silent HR probe. |
-| HR Stop | `FE EA 20 06 6D 00` | Retired from UI: also starts visible HR measurement, with watch vibration and display wake. `FE EA 20 06 6D 01` remains blocked because it rebooted this watch. |
-| Time 12h | `FE EA 20 06 17 00` | Confirmed working; moved to Watch > Display. |
-| Time 24h | `FE EA 20 06 17 01` | Confirmed working; moved to Watch > Display. |
-| Quick Off | `FE EA 20 06 18 00` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. |
-| Quick On | `FE EA 20 06 18 01` | Confirmed working from the original Gadgetbridge-derived send path; Watch > Display now uses that exact path. If it appears not to work, verify the active window below includes the current time. |
-| Quick View Window | `FE EA 20 09 72 [SH] [SM] [EH] [EM]` | Captured from Da Fit at 2026-05-22 14:23 after setting `10:00-21:59`: `FE EA 20 09 72 0A 00 15 3B`. Added under Watch > Display for live testing. |
-| Auto HR Off | `FE EA 20 06 1F 00` | Candidate derived from the captured interval enum. Added as a cautious App-tab setting; still needs live confirmation. |
-| Auto HR 5m | `FE EA 20 06 1F 01` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 5 minutes. Added to App tab as the preferred silent-HR experiment. |
-| Auto HR 10m | `FE EA 20 06 1F 02` | Captured from Da Fit at 2026-05-18 03:41 when setting automatic HR measurement interval to 10 minutes. Added to App tab as a captured silent-HR experiment. |
-| Auto HR 15m / 30m / 60m | `FE EA 20 06 1F 03/04/05` | Candidate continuation of the captured `0x1F` interval enum. UI marks these with `?` until captured or live-confirmed. |
-| Move Reminder On | `FE EA 20 06 1D 01` | Captured from Da Fit at 2026-05-18 03:42 when enabling sedentary / move reminder. The 10:00-22:00 range may be stored separately; no obvious range packet was isolated. |
-| Move Reminder Off | `FE EA 20 06 1D 00` | Captured from Da Fit at 2026-05-18 03:43 when disabling sedentary / move reminder. |
-| B9 Weather | `FE EA 20 08 B9 19 00` | Captured before weather writes; `0xB9` is described by Gadgetbridge as an advanced command namespace. |
-| B9 Card Cfg | `FE EA 20 09 B9 12 00 02` | Gadgetbridge example advanced command / eCard config request. |
-| B9 Card Data | `FE EA 20 09 B9 12 00 03` | Gadgetbridge example advanced command / eCard content request. |
-
-Weather:
-
-| Control | Packet / Sequence | Status |
-| :--- | :--- | :--- |
-| Weather On | `B9 19 00` -> `43 ... [city UTF-16LE]` -> `42 ... forecast triples` -> `B5 ... [city ASCII]` -> `45 [city ASCII]` | Partly confirmed working with the Joensuu sample sequence. Current conditions and exact field meanings need more testing. |
-
-Step priority probes:
-
-| Button | Packet | Expected useful reply |
-| :--- | :--- | :--- |
-| 33 00 | `FE EA 20 06 33 00` | No visible reply in repeated tests, including the latest round. |
-| 33 01 | `FE EA 20 06 33 01` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
-| 33 02 | `FE EA 20 06 33 02` | Latest live value: `13259`, while watch face showed `11379`. Do not promote to current steps. |
-| 59 00 | `FE EA 20 06 59 00` | Current-step bucket 0. In the 2026-05-22 15:51 Da Fit sync, summed three 16-bit fields to `6492`. |
-| 59 01 | `FE EA 20 06 59 01` | Current-step bucket 1. In the 2026-05-22 15:51 Da Fit sync, summed three 16-bit fields to `837`; `59 00 + 59 01 = 7329`, matching the watch face and Da Fit weekly total. |
-| 59 02 | `FE EA 20 06 59 02` | History/forensic bucket. Same capture summed to `6939`, close to but not exactly the Da Fit daily-screen value `6970`; do not use as current watch-face steps. |
-| 59 03 | `FE EA 20 06 59 03` | History/forensic bucket. Same capture summed to `4648`; do not use as current watch-face steps. |
-| 10/59 00 | `FE EA 10 05 59 00` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
-| 10/59 01 | `FE EA 10 05 59 01` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
-| 10/59 02 | `FE EA 10 05 59 02` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
-| 10/59 03 | `FE EA 10 05 59 03` | Latest live value: `6939`, while watch face showed `11379`; legacy query still appears to collapse to native `59` behavior. |
-
-The app decodes known `0x33` daily-total-shaped replies and `0x59` bucket replies. Each `0x59` record contains three little-endian 16-bit step categories, currently labelled `stepsDown`, `stepsUp`, and `stepsOther`; bucket total is their sum across the eight records. The 2026-05-22 15:51 capture established the current-step formula for this watch state: `currentSteps = total(59 00) + total(59 01)`. `59 02` and `59 03` are retained as history/forensic logs until their day/page meaning is pinned down.
-
-jampsFit fetches current steps by requesting `FE EA 20 06 59 00`, waiting briefly, then requesting `FE EA 20 06 59 01`. The Home tab Steps play button runs that fetch manually. Controls > App exposes `Fetch Steps Automatically`, with intervals such as 15m, 30m, 1h, 2h, and 4h; the scheduler only runs while the watch is connected.
-
-Implementation note: `0x32` is treated as known on `FEE3`; the no-payload packet `FE EA 20 05 32` can arrive as a sleep boundary marker/query echo and should not be stored as Unknown.
-
-Implementation note: `0x21` and `0x26` are now treated as known `FEE3` replies instead of Unknown. `0x21` is decoded as 8-byte alarm records when possible. `0x26` is decoded as a step-goal payload candidate, using the final big-endian 16-bit value or the captured `00 00 [hi] [lo]` layout.
-
-App behavior: when the Controls tab becomes visible while connected, jampsFit queries `0x21`, `0x26`, and `0x8D` once for that connection/session and hydrates the alarm controls, Step goal slider, and Auto-lock slider from the watch response.
-
-Live results:
-
-```text
-Get Alarms request:  FE EA 20 05 21
-Get Alarms response: FE EA 20 1D 21
-  00 01 02 07 05 00 00 3E  -> alarm 1 on, 07:05, weekdays
-  01 01 01 17 3B 00 00 7F  -> alarm 2 on, 23:59, every day
-  02 01 01 0D 24 00 00 7F  -> alarm 3 on, 13:36, every day
-
-Get Step Goal request:  FE EA 20 05 26
-Get Step Goal response: FE EA 20 09 26 00 D0 07 00
-  Payload `00 D0 07 00` decodes as little-endian 0x07D0 = 2000.
-```
-
-## Da Fit Settings Capture 2026-05-18
-
-Capture file: ignored local archive `dafit_hr_settings_capture.zip`. The btsnoop log shows all relevant Da Fit writes on `FEE2` / ATT handle `0x0047`.
-
-Timeline supplied by tester and packet matches:
-
-| Time | Action | Packet(s) |
-| :--- | :--- | :--- |
-| 03:35 | Time mode 12h | `FE EA 20 06 17 01` |
-| 03:36 | Time mode 24h | `FE EA 20 06 17 00` |
-| 03:37 | Quick View / wrist raise off | `FE EA 20 06 18 00` |
-| 03:38 | Quick View / wrist raise on | `FE EA 20 06 18 01` |
-| 03:39 | Weather off | No distinct `FE EA` watch write isolated in this capture. |
-| 03:40 | Weather on, Celsius, Joensuu | Working Joensuu sequence: `43`, `B5`, `45`, `42` packets. |
-| 03:41 | Auto HR interval 10 minutes | `FE EA 20 06 1F 02` |
-| 03:41 | Auto HR interval 5 minutes | `FE EA 20 06 1F 01` |
-| 03:42 | Move reminder on | `FE EA 20 06 1D 01` |
-| 03:43 | Move reminder off | `FE EA 20 06 1D 00` |
-
-The capture also shows Da Fit querying history during reconnect/session sync: `33`, `35`, `36`, `37`, `59`, `AB`, plus `B6` / `BC` page selectors. These are promising sources for HR and historical activity data.
-
-## Current Safety Notes
-
-- `FE EA 10 09 31 [timestamp BE] 08` written to `FEE2` is confirmed good for clock sync.
-- `FE EA 20 05 61` written to `FEE2` is confirmed good for Find My Watch.
-- `FE EA 20 0D 11 ...` written to `FEE2` is confirmed good for alarm writes; alarm slots 1 and 3 were live-tested.
-- App-origin measurement start commands such as `FE EA 20 06 6D 01` for Heart Rate are unsafe on this watch and can reboot it. jampsFit currently listens for watch-origin `FEE3` measurement results instead.
-- Public references confirm MoYoung/Da Fit has distinct HR APIs such as `startMeasureOnceHeartRate`, `stopMeasureOnceHeartRate`, `queryTodayHeartRate`, `queryPastHeartRate`, and `queryHistoryHeartRate`, but the public API docs do not reveal the raw BLE bytes. HR buttons should therefore remain cautious probes until verified against Da Fit captures.
-- Main screen passive data is restored through `FEE1`: `activityCount`, live distance, calories, and standard battery.
-- The vendor phone capture confirms `MOYOUNG-V2`, `FEE2`, `FEE3`, `6387`, and `6487` are present. Use `btlog.txt` and `btsnoop_hci.log` as ground truth before promoting any command to verified.
-- Real steps are still not decoded from the live `FEE1` packet. Candidate sources remain snapshot packets such as `33`/`59` from captures.
-- Handshake, weather writes, step-goal writes, standard notification send, long notification diagnostic send, and any `6387` query bursts are still experimental or unsafe until tested carefully on the correct characteristic.
-- Keep packets exact length. Do not pad variable commands to 20 bytes.
-
-## Remote Event Notes
-
-- The event formerly labelled `Wrist Shake / Shutter` is a Shutter-screen event, not a global wrist-raise event.
-- Normal wrist raise only wakes the watch display/backlight. If the watch is left on its Shutter screen, a wrist shake can wake the display and send the Shutter event to the phone, triggering the configured Shutter Action such as Find My Phone.
-
-## Sleep Boundary Capture 2026-05-22
-
-Capture file: ignored local archive `dafit_sleep_sync_20260522_1643.zip`. Da Fit showed sleep slices for 2026-05-22: `03:42-05:11 Kevyt`, `05:11-05:32 Syva`, `05:32-05:48 REM`, `05:48-06:40 Kevyt`, `06:40-07:04 Syva`; sleep score was `40`.
-
-The matching watch packet was:
-
-```text
-FE EA 20 20 32
-01 03 2A
-01 04 1D
-01 04 29
-01 05 00
-02 05 0B
-01 05 20
-01 05 30
-02 06 28
-00 07 04
-```
-
-Decoded markers:
-
-| Time | State byte | Current label |
-| :--- | :--- | :--- |
-| 03:42 | `01` | Kevyt/REM provisional |
-| 04:29 | `01` | Internal marker |
-| 04:41 | `01` | Internal marker |
-| 05:00 | `01` | Internal marker |
-| 05:11 | `02` | Syva |
-| 05:32 | `01` | Kevyt/REM provisional |
-| 05:48 | `01` | Internal marker |
-| 06:40 | `02` | Syva |
-| 07:04 | `00` | Hereilla/end |
-
-jampsFit currently merges adjacent same-state markers for display but marks the range with `*` when internal watch markers were present. The packet does not yet distinguish Da Fit's displayed REM slice because both 05:32 and 05:48 use state `01`; keep REM mapping provisional until a second sleep capture isolates the missing flag or packet.
-
-## Da Fit Native Session State
-
-Fresh HCI capture with Bluetooth toggled off/on showed that Da Fit sends a large `FE EA 20` preamble on `FEE2` after connect before commands such as Find My Watch. Earlier jampsFit tests sent these packets to `6387`, which is not what Da Fit did in the capture.
-
-Initial minimal ready cluster from earlier connect preamble:
-
-```text
-FE EA 20 05 84
-FE EA 20 06 B4 00
-FE EA 20 06 B4 12
-FE EA 20 06 B4 10
-FE EA 20 06 B4 20
-FE EA 20 09 12 A8 55 29 00
-FE EA 20 06 F1 00
-```
-
-Live testing showed that the full cluster above reboots the watch when sent by jampsFit, likely because `12 A8...` / `F1` is only safe after additional Da Fit state. A later single-action capture showed the immediate pre-Find cluster excludes those two packets and repeats only:
-
-```text
-FE EA 20 05 84
-FE EA 20 06 B4 00
-FE EA 20 06 B4 12
-FE EA 20 06 B4 10
-FE EA 20 06 B4 20
-```
-
-Live testing showed that this stripped `84/B4` cluster rebooted the watch when sent by jampsFit to `6387`. This result is now considered invalid for judging the Da Fit sequence because the target characteristic was wrong. The prep buttons remain disabled until reintroduced on `FEE2`.
-
-Current staged startup experiments:
-
-```text
-Start P1:
-FE EA 20 06 5A 00
-FE EA 20 06 B7 0E
-FE EA 20 0A 31 [local timestamp LE] 08
-FE EA 20 07 BB 16 00
-FE EA 20 0B BB 07 00 30 2A 00 00
-FE EA 20 0B BB 07 00 30 2A 00 00
-
-Start P2:
-FE EA 20 08 5A 02 00 00
-FE EA 20 07 67 0C 00
-FE EA 20 07 67 0D 1E
-FE EA 20 06 7B 00
-FE EA 20 06 5A 01
-```
-
-Test P1 alone first. P2 should only be tried if P1 does not reboot.
-
-Live result: **Start P1 rebooted the watch** when sent to `6387`, so both P1 and P2 are disabled in the app. This result is also considered invalid for judging Da Fit startup because the captured Da Fit traffic was actually on `FEE2`.
-
-Captured action packets. Find My Watch and alarms now work from jampsFit when sent to `FEE2`; weather remains experimental:
-
-```text
-Find My Watch: FE EA 20 05 61
-Alarm 1 on:   FE EA 20 0D 11 00 01 00 07 0F B5 11 00
-Alarm 1 off:  FE EA 20 0D 11 00 00 00 07 0F B5 11 00
-Weather city: FE EA 20 0C 45 4A 6F 65 6E 73 75 75
-Forecast:     FE EA 20 1A 42 03 0E 07 00 0E 06 03 13 0A 03 10 0C 00 0F 0A 03 0D 09 03 09 07
-```
-
-Live jampsFit forecast sample result on 2026-05-17:
-
-```text
-Sent: FE EA 20 1A 42 00 1C 12 01 1A 10 02 18 0E 03 16 0C 04 14 0A 05 12 08 06 10 06
-
-Today 2026-05-17: range 28C-18C
-2026-05-19: 26C-16C, icon code 01, shown like two lines under a cloud
-2026-05-20: 24C-14C, icon code 02, shown like two clouds
-2026-05-21: 22C-12C, icon code 03, shown like raining cloud
-2026-05-22: 20C-10C, icon code 04, shown like snowing cloud
-2026-05-23: 18C-8C, icon code 05, shown like sun
-2026-05-24: 16C-6C, icon code 06, shown like tornado/wind
-```
-
-The current-day actual temperature (`7C` in the live test) did not come from the `0x42` sample packet. It likely comes from the preceding captured weather/status packet, probably `0x43` or `0xB5`.
-
-Current-weather probe buttons:
-
-| Button | Packet | Purpose |
-| :--- | :--- | :--- |
-| 43 Cold | `FE EA 20 10 43 00 01 07 00 05 00 03 00 FF FF` | Tests whether `0x43` carries current/high/low style values. |
-| 43 Warm | `FE EA 20 10 43 00 01 07 00 17 00 15 00 0F 00` | Same layout with obvious warm values. |
-| B5 Warm | `FE EA 20 16 B5 00 01 07 00 00 03 17 15 0F 6A 6F 65 6E 73 75 75` | Tests whether `0xB5` carries current/high/low plus city slug. |
-
-Live result: isolated `43 Cold`, `43 Warm`, and `B5 Warm` probes did not visibly change the watch weather. `Send Weather City` and `Send Forecast Sample` still update city/forecast/ranges, but today's current temperature remains `7C`. Current temperature may be cached, may require the complete weather transaction order, or may live in another packet/field not isolated yet.
-
-Live result on 2026-05-23 after `Weather On`: the watch showed an unknown current-weather icon, current temperature `7C`, today's range `14C-7C`, then forecast rows `05/24 partly cloudy 14C-6C`, `05/25 strong rain 19C-10C`, `05/26 strong rain 16C-12C`, `05/27 partly cloudy 15C-10C`, `05/28 strong rain 13C-9C`, and `05/29 strong rain 9C-7C`. This confirms the combined sequence can populate six future rows plus today's range, while the current icon/current temperature still need targeted transaction-order testing.
-
-Alarm record fields currently decode as:
-
-| Field | Meaning |
-| :--- | :--- |
-| `slot` | `00..02` for alarm 1..3 |
-| `enabled` | `00` off, `01` on |
-| `mode` | `00` once/no repeat, `01` every day, `02` custom repeat |
-| `hour/minute` | 24-hour alarm time |
-| `repeatMask` | `00` once, `3E` weekdays, `7F` every day |
-
-## Handshake Procedures
-
-### Extended Data / Large Notification Handshake (Experimental)
-
-Notification probes were removed from the Controls UI after the remaining `0x08` and checksum variants produced no useful watch behavior. Keep these notes for protocol history only:
-
-| Button | Packet family | Notes |
-| :--- | :--- | :--- |
-| Legacy Short | `FE EA 10` / `0x08` | Short title/text format already used by the notification mirroring code. |
-| Legacy Call | `FE EA 10` / `0x08` | Same format with type `0x02`. |
-| Type 1/2/3/5 | `FE EA 20` / `0x08` | Da Fit-style native notification candidates without checksum. |
-| Csum 1/3 | `FE EA 20` / `0x08` | Same native `0x08` format with one trailing sum checksum byte. |
-| Tiny 0x41 | `FE EA 20` / `0x41` | Confirmed working. Displayed on watch as `Other: jampsFit tiny 41`. |
-
-Live result: Only the `Tiny 0x41` probe worked. The confirmed packet was:
-
-```text
-FE EA 20 16 41 80 6A 61 6D 70 73 46 69 74 20 74 69 6E 79 20 34 31
-```
-
-The watch rendered it as:
-
-```text
-Other: jampsFit tiny 41
-```
-
-Current implication: direct `0x41` on `FEE2` is the best notification path. Next tests should vary only one factor at a time: payload length, subtype byte (`80`), and text encoding/content. Avoid the older B4/F1 prep sequence unless a later capture proves it is required for longer payloads.
-
-Implementation update: jampsFit notification mirroring now formats normal incoming phone notifications as direct `0x41` messages:
-
-```text
-FE EA 20 [len] 41 80 [UTF-8 title/text]
-```
-
-The app also implements **Dynamic App Discovery** by extracting friendly app labels from the Android Package Manager during notification arrival, allowing users to filter notifications by app name rather than raw package IDs.
-
-The Controls tab includes direct `0x41` length probes at 20, 40, 60, 80, 120, 160, 180, 220, 232, 236, 238, 239, 240, and 249 text bytes. Live result: fixed marker probes through 238 bytes displayed with the `END` suffix. The 240-byte marker was accepted but displayed only through `...7890 E`, truncating before the final `ND`. Current mirroring cap is therefore 238 text bytes. The one-byte packet-length format can carry up to 249 text bytes (`255 total - 5 header/cmd bytes - 1 subtype byte`), but the watch UI display limit appears lower.
-
-Legacy short/call notification update: `FE EA 20 ... 08` type `0x01` and type `0x02` now work from jampsFit on `FEE2`. Controls > App exposes custom title/message fields for the short format and a call-format test button. Android notification mirroring also carries package names into the service so the app can filter noisy packages before sending to the watch; call-category Android notifications can be sent using the confirmed call packet when the option is enabled.
-
-The vendor capture shows long AccuBattery notifications using `6387` / handle `0x0047`. This is now implemented behind the experimental `Exp Notif` button only.
-
-Observed sequence:
-
-1. `FE EA 20 06 B4 00`
-2. `FE EA 20 06 B4 12`
-3. `FE EA 20 06 B4 10`
-4. `FE EA 20 06 B4 20`
-5. `FE EA 20 09 12 A8 4B 29 00`
-6. `FE EA 20 06 F1 00`
-7. Send `0x41` notification packet.
-
-Observed timing between writes was roughly `150-180ms` for the first five writes and about `300ms` before `F1`, not a strict ACK-based flow. The current experimental implementation uses timed delays and exact-length packets.
-
-Captured `0x41` example:
-
-```text
-FE EA 20 44 41 80 4E 79 74 3A ... 29
-```
-
-Current interpretation:
-
-| Offset | Meaning |
-| :--- | :--- |
-| `0..2` | Header `FE EA 20` |
-| `3` | Total packet length |
-| `4` | Command `41` |
-| `5` | Notification subtype/flags, observed `80` |
-| `6..end` | UTF-8 notification text |
-
-The final byte in the captured sample (`29`) is the ASCII/UTF-8 `)` from the notification text, not proven to be a checksum.
+---
 
 ## BLE UUIDs
 
@@ -458,14 +121,14 @@ The final byte in the captured sample (`29`) is the ASCII/UTF-8 `)` from the not
 - **Standard Heart Rate**: `00002a37-0000-1000-8000-00805f9b34fb`
 
 ### MoYoung Custom Pipes
-- **Control (Native Write)**: `00006387-3c17-d293-8e48-14fe2e4da212` (Write No Response / Handle 0x0047)
-- **Data (Native Notify)**: `00006487-3c17-d293-8e48-14fe2e4da212`
-- **Legacy Write**: `0000fee2-0000-1000-8000-00805f9b34fb`
-- **Legacy Notify**: `0000fee3-0000-1000-8000-00805f9b34fb`
+- **Control (Native Write)**: `0000fee2-0000-1000-8000-00805f9b34fb` (Handle 0x0047)
+- **Data (Native Notify)**: `0000fee3-0000-1000-8000-00805f9b34fb` (Handle 0x0049)
+- **Alt Control**: `00006387-3c17-d293-8e48-14fe2e4da212` (Use with caution)
+- **Alt Data**: `00006487-3c17-d293-8e48-14fe2e4da212`
+
+---
 
 ## Implementation Notes
-- **Timezone**: The watch expects **Local Time** (UTC + Offset) in Big Endian for the timestamp.
-- **Stability**: Sending 20-byte padded frames to variable-length endpoints (like 6387) causes immediate firmware reboots. Commands must be sent with their exact length.
-- **Debug logging**: App debug log entries are also emitted to Android Logcat under tag `WatchManager`, so `adb logcat -s WatchManager NotificationReceiver` can collect packet logs without manual copy/paste.
-- **Persistence**: Local data is stored in a Room database (`jampsfit_database`) with versioned migrations and exported schemas. Non-destructive migrations (e.g., `MIGRATION_5_6`) are used to preserve historical data when adding new tables like `unknown_packets` or `seen_notifications`.
-- **Threading**: `updateDebugLog()` must synchronize access to its in-memory buffer. BLE callbacks can arrive concurrently and previously caused `ConcurrentModificationException`.
+- **Timezone**: The watch expects **Local Time** in Big Endian for the Series 10 timestamp.
+- **Persistence**: Local data is stored in Room (`jampsfit_database`).
+- **Debugging**: Use `adb logcat -s WatchManager` for packet logs.

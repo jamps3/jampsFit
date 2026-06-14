@@ -15,24 +15,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import kotlinx.coroutines.*
 import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
-import com.labbaslabs.jampsfit.ui.components.SleekCard
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
 import com.labbaslabs.jampsfit.ui.components.TabSpec
 import com.labbaslabs.jampsfit.ui.screens.*
@@ -58,8 +51,8 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
-            isBound = false
             watchService = null
+            isBound = false
         }
     }
 
@@ -67,138 +60,123 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
         if (permissions.all { it.value }) {
-            startWatchService()
+            startWatchServiceIfAutoConnectEnabled()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        
-        setShowWhenLocked(true)
-        setTurnScreenOn(true)
+        enableEdgeToEdge()
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        enableEdgeToEdge()
-        
-        Intent(this, WatchService::class.java).also { intent ->
-            bindService(intent, connection, BIND_AUTO_CREATE)
+        if (!hasPermissions()) {
+            requestPermissions()
+        } else {
+            startWatchServiceIfAutoConnectEnabled()
         }
-        startWatchServiceIfAutoConnectEnabled()
         requestIgnoreBatteryOptimizations()
 
         setContent {
             JampsFitTheme {
-                val service = watchService
-                val state = service?.watchManager?.state?.collectAsState()?.value ?: WatchState()
+                val state = watchService?.watchManager?.state?.collectAsState()?.value ?: WatchState()
                 
                 CompositionLocalProvider(LocalWatchState provides state) {
-                    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-                
-                val homeScrollState = rememberScrollState()
-                val graphsScrollState = rememberScrollState()
-                val controlsScrollState = rememberScrollState()
-                val remoteScrollState = rememberScrollState()
-                val logsUnknownScrollState = rememberScrollState()
-                val logsSystemScrollState = rememberScrollState()
+                    var currentTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Scaffold(
-                            containerColor = Color.Transparent,
-                            modifier = Modifier.fillMaxSize(),
-                            bottomBar = {
-                                val tabs = listOf(
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        bottomBar = {
+                            SleekNavigationBar(
+                                selectedTab = currentTabIndex,
+                                onTabSelected = { currentTabIndex = it },
+                                tabs = listOf(
                                     TabSpec("Home", Icons.Default.Home),
-                                    TabSpec("Graphs", Icons.Default.Timeline),
-                                    TabSpec("Controls", Icons.Default.Tune),
                                     TabSpec("Remote", Icons.Default.SettingsRemote),
-                                    TabSpec("Logs", Icons.AutoMirrored.Filled.Article)
+                                    TabSpec("Debug", Icons.Default.BugReport),
+                                    TabSpec("Settings", Icons.Default.Settings),
+                                ),
+                            )
+                        },
+                    ) { innerPadding ->
+                        Box(modifier = Modifier.padding(innerPadding)) {
+                            when (currentTabIndex) {
+                                0 -> HomeScreen(state)
+                                1 -> RemoteScreen(state)
+                                2 -> LogsScreen(state) { clearUnknownPackets() }
+                                3 -> ControlsScreen(
+                                    state = state,
+                                    onScanClick = { startScan() },
+                                    onDisconnectClick = { disconnect() },
                                 )
-                                SleekNavigationBar(
-                                    selectedTab = selectedTab,
-                                    onTabSelected = { selectedTab = it },
-                                    tabs = tabs
-                                )
-                            }
-                        ) { innerPadding ->
-                            Box(modifier = Modifier.padding(innerPadding)) {
-                                when (selectedTab) {
-                                    0 -> HomeScreen(state = state, scrollState = homeScrollState)
-                                    1 -> GraphsScreen(state = state, scrollState = graphsScrollState)
-                                    2 -> ControlsScreen(
-                                        state = state,
-                                        scrollState = controlsScrollState,
-                                        onScanClick = { checkPermissionsAndStart() },
-                                    ) { disconnect() }
-                                    3 -> RemoteScreen(state = state, scrollState = remoteScrollState)
-                                    4 -> LogsScreen(
-                                        state = state,
-                                        unknownScrollState = logsUnknownScrollState,
-                                        systemScrollState = logsSystemScrollState,
-                                        onResetClick = {
-                                            watchService?.watchManager?.clearUnknownPackets()
-                                        }
-                                    )
-                                }
                             }
                         }
 
                         if (state.isFindingPhone) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.8f))
-                                    .clickable(enabled = false) {},
-                                contentAlignment = Alignment.Center
-                            ) {
-                                SleekCard(modifier = Modifier.padding(32.dp)) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.NotificationsActive,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(64.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            "Finding Phone...",
-                                            style = MaterialTheme.typography.headlineMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            "Your watch is looking for this phone.",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Button(
-                                            onClick = { watchService?.watchManager?.setFindingPhone(active = false) },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.error
-                                            )
-                                        ) {
-                                            Text("Stop Ringing")
-                                        }
+                            AlertDialog(
+                                onDismissRequest = { findPhone(active = false) },
+                                title = { Text("Finding Phone") },
+                                text = { Text("Your watch is currently looking for this phone!") },
+                                confirmButton = {
+                                    Button(onClick = { findPhone(active = false) }) {
+                                        Text("I found it!")
                                     }
-                                }
-                            }
+                                },
+                            )
                         }
                     }
-                }
                 }
             }
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        watchService?.watchManager?.checkFullScreenIntentPermission()
+    private fun hasPermissions(): Boolean {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            permissions.add(Manifest.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE)
+        }
+        return permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
-    private fun startWatchService() {
+    private fun requestPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            permissions.add(Manifest.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE)
+        }
+        requestPermissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun startWatchServiceIfAutoConnectEnabled() {
+        val prefs = getSharedPreferences("jampsFitPrefs", MODE_PRIVATE)
+        val autoStart = prefs.getBoolean("autoStart", true)
+        val autoConnect = prefs.getBoolean("autoConnect", true)
+        
+        if (autoStart || autoConnect) {
+            startWatchService()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Intent(this, WatchService::class.java).also { intent ->
+            bindService(intent, connection, BIND_AUTO_CREATE)
+        }
+    }
+
+    fun startWatchService() {
         val intent = Intent(this, WatchService::class.java)
         startForegroundService(intent)
         
@@ -210,46 +188,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startWatchServiceIfAutoConnectEnabled() {
-        val prefs = getSharedPreferences("jampsFitPrefs", MODE_PRIVATE)
-        val autoConnect = prefs.getBoolean("autoConnect", true)
-        if (autoConnect && hasWatchServicePermissions()) {
-            startWatchService()
-        }
-    }
-
     fun stopWatchService() {
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
         val intent = Intent(this, WatchService::class.java)
         stopService(intent)
+        watchService = null
     }
 
     fun checkPermissionsAndStart() {
-        val permissions = listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        )
-
-        if (hasWatchServicePermissions()) {
+        if (hasPermissions()) {
             startWatchService()
         } else {
-            requestPermissionLauncher.launch(permissions.toTypedArray())
+            requestPermissions()
         }
     }
 
-    private fun hasWatchServicePermissions(): Boolean {
-        val permissions = listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        )
-        return permissions.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
+    fun startScan() {
+        watchService?.watchManager?.startScan()
     }
 
     fun updateShutterAction(action: String) {
@@ -266,9 +224,6 @@ class MainActivity : ComponentActivity() {
 
     fun toggleAutoStart(enabled: Boolean) {
         watchService?.watchManager?.toggleAutoStart(enabled)
-        if (enabled) {
-            checkPermissionsAndStart()
-        }
     }
 
     fun toggleAutoConnect(enabled: Boolean) {
@@ -359,11 +314,12 @@ class MainActivity : ComponentActivity() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             try {
+                @Suppress("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS")
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
+                    data = "package:$packageName".toUri()
                 }
                 startActivity(intent)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Fallback for some devices/OS versions
                 try {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
@@ -444,6 +400,10 @@ class MainActivity : ComponentActivity() {
         watchService?.watchManager?.sendWeatherForecastSample()
     }
 
+    fun findPhone(active: Boolean) {
+        watchService?.watchManager?.setFindingPhone(active)
+    }
+
     fun sendGadgetbridgeProbe(kind: String) {
         watchService?.watchManager?.sendGadgetbridgeProbe(kind)
     }
@@ -471,8 +431,10 @@ class MainActivity : ComponentActivity() {
             }
             try {
                 startActivity(intent)
-            } catch (e: Exception) {
-                startActivity(Intent("android.settings.MANAGE_FULL_SCREEN_INTENT"))
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent("android.settings.MANAGE_FULL_SCREEN_INTENT"))
+                } catch (_: Exception) {}
             }
         }
     }
@@ -483,6 +445,10 @@ class MainActivity : ComponentActivity() {
 
     fun querySleepBoundaries() {
         watchService?.watchManager?.querySleepBoundaries()
+    }
+
+    fun clearUnknownPackets() {
+        watchService?.watchManager?.clearUnknownPackets()
     }
 
     fun exportData() {
