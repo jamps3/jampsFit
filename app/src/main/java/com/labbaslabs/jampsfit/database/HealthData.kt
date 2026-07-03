@@ -159,6 +159,9 @@ interface HealthDao {
     @Query("DELETE FROM health_data")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM health_data WHERE timestamp < :threshold")
+    suspend fun cleanupOldHealthData(threshold: Long)
+
     @Insert
     suspend fun insertUnknown(packet: UnknownPacket)
 
@@ -167,6 +170,9 @@ interface HealthDao {
 
     @Query("DELETE FROM unknown_packets")
     suspend fun deleteAllUnknown()
+
+    @Query("DELETE FROM unknown_packets WHERE id NOT IN (SELECT id FROM unknown_packets ORDER BY timestamp DESC LIMIT :limit)")
+    suspend fun trimUnknownPackets(limit: Int)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSeenNotification(notification: SeenNotification): Long

@@ -185,6 +185,7 @@ class WatchManager(private val context: Context) {
     private var reconnectJob: Job? = null
     private var scanWatchdogJob: Job? = null
     private var connectWatchdogJob: Job? = null
+    private var operationWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
     private var autoSyncTimeJob: Job? = null
     private var logBuffer = mutableListOf<String>()
@@ -309,7 +310,10 @@ class WatchManager(private val context: Context) {
     private fun cleanupSeenNotifications() {
         managerScope.launch {
             val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+            val sixMonthsAgo = System.currentTimeMillis() - (180L * 24 * 60 * 60 * 1000)
             healthDao.cleanupOldNotifications(oneMonthAgo)
+            healthDao.cleanupOldHealthData(sixMonthsAgo)
+            healthDao.trimUnknownPackets(500)
         }
     }
 
@@ -338,6 +342,8 @@ class WatchManager(private val context: Context) {
     companion object {
         private const val TAG = "WatchManager"
         private const val TARGET_NAME = "TANK M1"
+        private const val LAST_DEVICE_ADDRESS_KEY = "lastDeviceAddress"
+        private const val OPERATION_TIMEOUT_MS = 10_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -364,6 +370,25 @@ class WatchManager(private val context: Context) {
     }
 
     fun clearQueue() { synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") } }
+
+    fun close() {
+        userRequestedDisconnect = true
+        reconnectJob?.cancel()
+        scanWatchdogJob?.cancel()
+        connectWatchdogJob?.cancel()
+        operationWatchdogJob?.cancel()
+        autoStepFetchJob?.cancel()
+        autoSyncTimeJob?.cancel()
+        synchronized(operationQueue) {
+            operationQueue.clear()
+            isOperating = false
+        }
+        stopScan()
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        bluetoothGatt = null
+        managerScope.cancel()
+    }
 
     suspend fun exportDataToCsv(): String {
         val entries = healthDao.getAllEntriesList(); val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -496,8 +521,9 @@ class WatchManager(private val context: Context) {
     private fun doNextOperation() {
         synchronized(operationQueue) {
             if (isOperating) return; val op = operationQueue.poll() ?: return; isOperating = true; lastOpTime = System.currentTimeMillis()
+            startOperationWatchdog()
             managerScope.launch {
-                val gatt = bluetoothGatt ?: run { isOperating = false; return@launch }
+                val gatt = bluetoothGatt ?: run { finishOperation(); return@launch }
                 val code = when (op) {
                     is GattOperation.WriteDescriptor -> gatt.writeDescriptor(op.descriptor, op.value)
                     is GattOperation.ReadCharacteristic -> if (gatt.readCharacteristic(op.characteristic)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
@@ -506,7 +532,7 @@ class WatchManager(private val context: Context) {
                         gatt.services.flatMap { it.characteristics }.find { it.uuid.toString().substring(4, 8).lowercase() == uuid }?.let { gatt.writeCharacteristic(it, op.value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) } ?: BluetoothStatusCodes.ERROR_UNKNOWN
                     }
                 }
-                if (code != BluetoothStatusCodes.SUCCESS) { isOperating = false; doNextOperation() }
+                if (code != BluetoothStatusCodes.SUCCESS) finishOperation()
             }
         }
     }
@@ -541,6 +567,7 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob?.cancel()
         stopScan()
         lastConnectedDevice = device
+        prefs.edit { putString(LAST_DEVICE_ADDRESS_KEY, device.address) }
         _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }
         bluetoothGatt?.close()
         bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
@@ -561,9 +588,9 @@ class WatchManager(private val context: Context) {
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
             } }; restartAutoStepFetch(); restartAutoSyncTime()
         }
-        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { synchronized(operationQueue) { isOperating = false }; doNextOperation() }
-        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { synchronized(operationQueue) { isOperating = false }; doNextOperation() }
-        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); synchronized(operationQueue) { isOperating = false }; doNextOperation() }
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { finishOperation() }
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { finishOperation() }
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); finishOperation() }
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray) { logIncomingPacket(c.uuid, v); decoder.decode(c.uuid, v) }
     }
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
@@ -585,13 +612,23 @@ class WatchManager(private val context: Context) {
             delay(d)
             if (!_state.value.isConnected) {
                 if (adapter?.isEnabled == true) {
-                    startScan()
+                    connectKnownDeviceOrScan()
                 } else {
                     _state.update { it.copy(connectionStatus = "Bluetooth off") }
                     delay(10_000)
                     scheduleReconnect(0)
                 }
             }
+        }
+    }
+    private fun connectKnownDeviceOrScan() {
+        val address = prefs.getString(LAST_DEVICE_ADDRESS_KEY, null)
+        val knownDevice = address?.let { runCatching { adapter?.getRemoteDevice(it) }.getOrNull() }
+        if (knownDevice != null) {
+            updateDebugLog("Reconnecting to remembered watch $address")
+            connectToDevice(knownDevice)
+        } else {
+            startScan()
         }
     }
     private fun startScanWatchdog() { scanWatchdogJob?.cancel(); scanWatchdogJob = managerScope.launch { delay(12000); if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning...") startScan() } }
@@ -610,15 +647,26 @@ class WatchManager(private val context: Context) {
     private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null) {
         managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)) }
     }
+    private fun finishOperation() {
+        synchronized(operationQueue) { isOperating = false }
+        operationWatchdogJob?.cancel()
+        doNextOperation()
+    }
+    private fun startOperationWatchdog() {
+        operationWatchdogJob?.cancel()
+        operationWatchdogJob = managerScope.launch {
+            delay(OPERATION_TIMEOUT_MS)
+            synchronized(operationQueue) {
+                if (!isOperating || System.currentTimeMillis() - lastOpTime < OPERATION_TIMEOUT_MS) return@launch
+                isOperating = false
+            }
+            updateDebugLog("GATT operation timed out; continuing queue.")
+            doNextOperation()
+        }
+    }
     private fun rememberRecentPayload(k: String, q: ArrayDeque<String>, s: MutableSet<String>): Boolean = synchronized(q) { if (!s.add(k)) true else { q.addLast(k); while (q.size > 32) s.remove(q.removeFirst()); false } }
     private fun nativePacket(cmd: Int, vararg p: Int): ByteArray = ByteArray(5 + p.size).apply { this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x20.toByte(); this[3] = size.toByte(); this[4] = cmd.toByte(); p.forEachIndexed { i, v -> this[5 + i] = (v and 0xFF).toByte() } }
     private fun sendFee2NativeRaw(b: ByteArray) = enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, b))
-    fun sendWeightCandidate() { updateDebugLog("Weight write disabled.") }
-    fun sendExperimentalNotification() { updateDebugLog("Exp notif disabled.") }
-    fun prepareDaFitSession() { updateDebugLog("Prep disabled.") }
-    fun prepareAndFindWatch() { updateDebugLog("Prep+Find disabled.") }
-    fun sendStartupPreamblePhase1() { updateDebugLog("Phase 1 disabled.") }
-    fun sendStartupPreamblePhase2() { updateDebugLog("Phase 2 disabled.") }
     fun sendLegacyShortNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true) }
     fun sendLegacyCallNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true, legacyType = 0x02) }
     fun clearUnknownPackets() { managerScope.launch { healthDao.deleteAllUnknown() } }

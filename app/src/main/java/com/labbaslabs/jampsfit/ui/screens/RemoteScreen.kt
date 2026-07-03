@@ -76,44 +76,6 @@ fun RemoteScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
             }
         }
 
-
-        SleekCard {
-            Text(text = "Legacy & Testing", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Text("Notification Tests", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                // Testing notifications still requires MainActivity for simplicity as it uses WatchService directly
-                // But we can move it to ViewModel if we add it there.
-                // For now, let's assume we want to keep it in the ViewModel for consistency.
-                Button(onClick = { /* ViewModel doesn't have postTestPhoneNotification yet */ }, modifier = Modifier.weight(1f)) { Text("Short", fontSize = 11.sp) }
-                Button(onClick = { }, modifier = Modifier.weight(1f)) { Text("Long", fontSize = 11.sp) }
-                Button(onClick = { }, modifier = Modifier.weight(1f)) { Text("Upd", fontSize = 11.sp) }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { viewModel.sendExperimentalNotification() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Send Exp. Notification (Watch Reboot?)", fontSize = 12.sp)
-            }
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.2f))
-            Text("Da Fit Sync Preamble", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { viewModel.sendStartupPreamblePhase1() }, modifier = Modifier.weight(1f)) { Text("Phase 1", fontSize = 11.sp) }
-                Button(onClick = { viewModel.sendStartupPreamblePhase2() }, modifier = Modifier.weight(1f)) { Text("Phase 2", fontSize = 11.sp) }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { viewModel.prepareDaFitSession() }, modifier = Modifier.weight(1f)) { Text("Prep DaFit", fontSize = 11.sp) }
-                Button(onClick = { viewModel.prepareAndFindWatch() }, modifier = Modifier.weight(1f)) { Text("Prep+Find", fontSize = 11.sp) }
-            }
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.Gray.copy(alpha = 0.2f))
-            Text("Health Data Tests", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Button(onClick = { viewModel.sendWeightCandidate() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Send Weight Candidate", fontSize = 12.sp)
-            }
-        }
-
         SleekCard {
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(

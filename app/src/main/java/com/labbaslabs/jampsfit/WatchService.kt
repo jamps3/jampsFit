@@ -110,10 +110,6 @@ class WatchService : Service() {
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         createNotificationChannels()
         
-        if (watchManager.state.value.autoConnect) {
-            watchManager.startScan()
-        }
-
         val filter = IntentFilter().apply {
             addAction("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
             addAction("com.labbaslabs.jampsfit.NOTIFICATION_REMOVED")
@@ -464,7 +460,7 @@ class WatchService : Service() {
         watchManager.setServiceRunning(false)
         serviceScope.cancel()
         unregisterReceiver(notificationReceiver)
-        watchManager.disconnect()
+        watchManager.close()
         super.onDestroy()
     }
 }

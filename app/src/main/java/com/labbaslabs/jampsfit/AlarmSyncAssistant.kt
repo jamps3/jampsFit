@@ -28,8 +28,12 @@ class AlarmSyncAssistant {
 
         if ((pkg == "com.google.android.deskclock" || pkg == "com.android.deskclock")) {
             try {
-                val timeRegex = Regex("([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])")
-                val match = timeRegex.find(text) ?: timeRegex.find(title)
+                val colonTimeRegex = Regex("([0-1]?[0-9]|2[0-3]):([0-5][0-9])")
+                val dotTimeRegex = Regex("([0-1]?[0-9]|2[0-3])[.]([0-5][0-9])")
+                val match = colonTimeRegex.find(text)
+                    ?: colonTimeRegex.find(title)
+                    ?: dotTimeRegex.find(text)
+                    ?: dotTimeRegex.find(title)
                 
                 if (match != null) {
                     var hour = match.groupValues[1].toInt()

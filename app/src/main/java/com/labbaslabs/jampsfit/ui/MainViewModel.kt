@@ -75,13 +75,6 @@ class MainViewModel : ViewModel() {
     fun startMeasurement(type: String) = watchManager?.startMeasurement(type)
     fun stopMeasurement() = watchManager?.stopMeasurement()
     
-    fun sendExperimentalNotification() = watchManager?.sendExperimentalNotification()
-    fun sendStartupPreamblePhase1() = watchManager?.sendStartupPreamblePhase1()
-    fun sendStartupPreamblePhase2() = watchManager?.sendStartupPreamblePhase2()
-    fun prepareDaFitSession() = watchManager?.prepareDaFitSession()
-    fun prepareAndFindWatch() = watchManager?.prepareAndFindWatch()
-    fun sendWeightCandidate() = watchManager?.sendWeightCandidate()
-    
     fun clearUnknownPackets() = watchManager?.clearUnknownPackets()
     fun sendLegacyShortNotification(t: String, m: String) = watchManager?.sendLegacyShortNotification(t, m)
     fun sendLegacyCallNotification(t: String, m: String) = watchManager?.sendLegacyCallNotification(t, m)

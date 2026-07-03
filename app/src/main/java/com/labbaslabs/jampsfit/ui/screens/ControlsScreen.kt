@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.MainActivity
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.SleekCard
@@ -41,14 +42,15 @@ fun ControlsScreen(
     onDisconnectClick: () -> Unit,
 ) {
     val activity = LocalActivity.current as? MainActivity
+    val viewModel = LocalMainViewModel.current
     var queriedSettings by rememberSaveable { mutableStateOf(value = false) }
     var controlsTab by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(state.isConnected) {
         if (state.isConnected && !queriedSettings) {
-            activity?.sendGadgetbridgeProbe("get-alarms")
-            activity?.sendGadgetbridgeProbe("get-step-goal")
-            activity?.sendGadgetbridgeProbe("get-auto-lock")
+            viewModel.sendGadgetbridgeProbe("get-alarms")
+            viewModel.sendGadgetbridgeProbe("get-step-goal")
+            viewModel.sendGadgetbridgeProbe("get-auto-lock")
             queriedSettings = true
         }
         if (!state.isConnected) queriedSettings = false
@@ -82,13 +84,14 @@ private fun WatchSettingsControls(
     onScanClick: () -> Unit,
     onDisconnectClick: () -> Unit,
 ) {
+    val viewModel = LocalMainViewModel.current
     WatchConnectionCard(state, activity, onScanClick, onDisconnectClick)
 
     SleekCard {
         Text(text = "Watch Actions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Button(
-            onClick = { activity?.findWatch() },
+            onClick = { viewModel.findWatch() },
             enabled = state.isConnected,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -103,13 +106,13 @@ private fun WatchSettingsControls(
         Text(text = "History Sync", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            Button(onClick = { activity?.sendGadgetbridgeProbe("sync-history-3d") }, shape = RoundedCornerShape(8.dp)) {
+            Button(onClick = { viewModel.sendGadgetbridgeProbe("sync-history-3d") }, shape = RoundedCornerShape(8.dp)) {
                 Text("Sync All (3 days)")
             }
-            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("sleep-32-01") }, label = { Text("Sleep Yest") })
-            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("totals-33-01") }, label = { Text("Totals Yest") })
-            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("sleep-32-02") }, label = { Text("Sleep DBY") })
-            AssistChip(onClick = { activity?.sendGadgetbridgeProbe("totals-33-02") }, label = { Text("Totals DBY") })
+            AssistChip(onClick = { viewModel.sendGadgetbridgeProbe("sleep-32-01") }, label = { Text("Sleep Yest") })
+            AssistChip(onClick = { viewModel.sendGadgetbridgeProbe("totals-33-01") }, label = { Text("Totals Yest") })
+            AssistChip(onClick = { viewModel.sendGadgetbridgeProbe("sleep-32-02") }, label = { Text("Sleep DBY") })
+            AssistChip(onClick = { viewModel.sendGadgetbridgeProbe("totals-33-02") }, label = { Text("Totals DBY") })
         }
     }
 
@@ -163,7 +166,7 @@ private fun WatchSettingsControls(
             }
         }
         Button(
-            onClick = { activity?.setAlarm(alarmSlot, alarmEnabled, alarmHour, alarmMinute, alarmRepeat) },
+            onClick = { viewModel.setAlarm(alarmSlot, alarmEnabled, alarmHour, alarmMinute, alarmRepeat) },
             enabled = state.isConnected,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -192,19 +195,19 @@ private fun WatchSettingsControls(
         Text("Auto-lock: ${autoLockSeconds.toInt()}s")
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Slider(value = autoLockSeconds, onValueChange = { autoLockSeconds = it.toInt().toFloat() }, valueRange = 5f..60f, steps = 10, modifier = Modifier.weight(1f))
-            Button(onClick = { activity?.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
+            Button(onClick = { viewModel.setAutoLockSeconds(autoLockSeconds.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
         }
         Text("Time format", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
-                onClick = { activity?.sendGadgetbridgeProbe("time-12h") },
+                onClick = { viewModel.sendGadgetbridgeProbe("time-12h") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp),
                 border = if (!state.is24HourFormat) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
             ) { Text("12h", fontSize = 12.sp) }
             OutlinedButton(
-                onClick = { activity?.sendGadgetbridgeProbe("time-24h") },
+                onClick = { viewModel.sendGadgetbridgeProbe("time-24h") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp),
@@ -221,14 +224,14 @@ private fun WatchSettingsControls(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
-                onClick = { activity?.sendGadgetbridgeProbe("quick-view-off") },
+                onClick = { viewModel.sendGadgetbridgeProbe("quick-view-off") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp),
                 border = if (!state.quickViewEnabled) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else ButtonDefaults.outlinedButtonBorder(state.isConnected)
             ) { Text("Quick Off", fontSize = 12.sp) }
             OutlinedButton(
-                onClick = { activity?.sendGadgetbridgeProbe("quick-view-on") },
+                onClick = { viewModel.sendGadgetbridgeProbe("quick-view-on") },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp),
@@ -262,7 +265,7 @@ private fun WatchSettingsControls(
         )
         Button(
             onClick = {
-                activity?.setQuickViewWindow(
+                viewModel.setQuickViewWindow(
                     quickStartHour,
                     quickStartMinute,
                     quickEndHour,
@@ -279,7 +282,7 @@ private fun WatchSettingsControls(
         Text(text = "Weather", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Button(
-            onClick = { activity?.setWeatherCity("Joensuu") },
+            onClick = { viewModel.setWeatherCity("Joensuu") },
             enabled = state.isConnected,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -306,11 +309,11 @@ private fun WatchSettingsControls(
         Text("Step goal: ${stepGoal.toInt()}")
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Slider(value = stepGoal, onValueChange = { stepGoal = (it / 1000f).toInt() * 1000f }, valueRange = 2000f..35000f, steps = 32, modifier = Modifier.weight(1f))
-            Button(onClick = { activity?.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
+            Button(onClick = { viewModel.setStepGoal(stepGoal.toInt()) }, enabled = state.isConnected, shape = RoundedCornerShape(8.dp)) { Text("Send") }
         }
 
         OutlinedButton(
-            onClick = { activity?.sendWeatherForecastSample() },
+            onClick = { viewModel.sendWeatherForecastSample() },
             enabled = state.isConnected,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -335,6 +338,7 @@ private fun WatchConnectionCard(
     onScanClick: () -> Unit,
     onDisconnectClick: () -> Unit,
 ) {
+    val viewModel = LocalMainViewModel.current
     SleekCard {
         Text(text = "Watch Connection", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
@@ -349,17 +353,17 @@ private fun WatchConnectionCard(
             Text(if (state.isConnected) "Disconnect Watch" else "Scan & Connect")
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { activity?.syncTime() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+        Button(onClick = { viewModel.syncTime() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
             Icon(Icons.Default.Schedule, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Sync Watch Clock")
         }
-        OutlinedButton(onClick = { activity?.readBattery() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+        OutlinedButton(onClick = { viewModel.readBattery() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
             Icon(Icons.Default.BatteryChargingFull, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Refresh Battery Status")
         }
-        OutlinedButton(onClick = { activity?.clearQueue() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+        OutlinedButton(onClick = { viewModel.clearQueue() }, enabled = state.isConnected, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
             Icon(Icons.Default.ClearAll, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Clear Comm Queue")
@@ -372,6 +376,7 @@ private fun AppSettingsControls(
     state: WatchState,
     activity: MainActivity?,
 ) {
+    val viewModel = LocalMainViewModel.current
     SleekCard {
         Text(text = "Data Management", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
@@ -407,7 +412,7 @@ private fun AppSettingsControls(
                 FilterChip(
                     selected = state.profileGender == gender,
                     onClick = {
-                        activity?.updateProfile(
+                        viewModel.updateProfile(
                             gender,
                             state.profileHeightCm,
                             state.profileWeightKg,
@@ -424,7 +429,7 @@ private fun AppSettingsControls(
         Slider(
             value = state.profileHeightCm.toFloat(),
             onValueChange = {
-                activity?.updateProfile(
+                viewModel.updateProfile(
                     state.profileGender,
                     it.toInt(),
                     state.profileWeightKg,
@@ -441,7 +446,7 @@ private fun AppSettingsControls(
             value = state.profileWeightKg,
             onValueChange = {
                 val roundedWeight = kotlin.math.round(it * 10f) / 10f
-                activity?.updateProfile(
+                viewModel.updateProfile(
                     state.profileGender,
                     state.profileHeightCm,
                     roundedWeight,
@@ -456,7 +461,7 @@ private fun AppSettingsControls(
         Slider(
             value = state.profileAgeYears.toFloat(),
             onValueChange = {
-                activity?.updateProfile(
+                viewModel.updateProfile(
                     state.profileGender,
                     state.profileHeightCm,
                     state.profileWeightKg,
@@ -512,7 +517,7 @@ private fun AppSettingsControls(
                             if (state.borderColor == colorVal.toInt()) Color.White else Color.Transparent,
                             RoundedCornerShape(16.dp)
                         )
-                        .clickable { activity?.updateBorderColor(colorVal.toInt()) }
+                        .clickable { viewModel.updateBorderColor(colorVal.toInt()) }
                 )
             }
         }
@@ -521,7 +526,7 @@ private fun AppSettingsControls(
         Text("Border Thickness: ${"%.1f".format(state.borderThickness)}dp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         Slider(
             value = state.borderThickness,
-            onValueChange = { activity?.updateBorderThickness(it) },
+            onValueChange = { viewModel.updateBorderThickness(it) },
             valueRange = 0.5f..4.0f,
             steps = 6,
             modifier = Modifier.padding(horizontal = 8.dp)
@@ -530,7 +535,7 @@ private fun AppSettingsControls(
         Text("Border Brightness: ${(state.borderAlpha * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         Slider(
             value = state.borderAlpha,
-            onValueChange = { activity?.updateBorderAlpha(it) },
+            onValueChange = { viewModel.updateBorderAlpha(it) },
             valueRange = 0.1f..1.0f,
             modifier = Modifier.padding(horizontal = 8.dp)
         )
@@ -572,14 +577,14 @@ private fun AppSettingsControls(
             }
         }
 
-        SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { activity?.toggleAutoStart(it) }
+        SettingSwitch(label = "Start on Phone Boot", checked = state.autoStart) { viewModel.toggleAutoStart(it) }
         SettingSwitch(label = "Persistent Background Service", checked = state.isServiceRunning) { 
             if (it) activity?.checkPermissionsAndStart() else activity?.stopWatchService()
         }
-        SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { activity?.toggleAutoConnect(it) }
-        SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { activity?.toggleAutoFetchSteps(it) }
-        SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { activity?.toggleAutoFetchBattery(it) }
-        SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { activity?.toggleAutoFetchSleep(it) }
+        SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { viewModel.toggleAutoConnect(it) }
+        SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { viewModel.toggleAutoFetchSteps(it) }
+        SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { viewModel.toggleAutoFetchBattery(it) }
+        SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { viewModel.toggleAutoFetchSleep(it) }
         if (state.autoFetchSteps || state.autoFetchBattery || state.autoFetchSleep) {
             val intervalOptions = listOf(15, 30, 60, 120, 240)
             Text("Auto-fetch interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -587,27 +592,27 @@ private fun AppSettingsControls(
                 intervalOptions.forEach { minutes ->
                     FilterChip(
                         selected = state.stepFetchIntervalMinutes == minutes,
-                        onClick = { activity?.updateStepFetchInterval(minutes) },
+                        onClick = { viewModel.updateStepFetchInterval(minutes) },
                         label = { Text(if (minutes < 60) "${minutes}m" else "${minutes / 60}h", fontSize = 11.sp) }
                     )
                 }
             }
         }
-        SettingSwitch(label = "Sync Time Automatically", checked = state.autoSyncTime) { activity?.toggleAutoSyncTime(it) }
+        SettingSwitch(label = "Sync Time Automatically", checked = state.autoSyncTime) { viewModel.toggleAutoSyncTime(it) }
         if (state.autoSyncTime) {
             Text("Sync interval: ${state.syncTimeIntervalHours}h", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Slider(
                 value = state.syncTimeIntervalHours.toFloat(),
-                onValueChange = { activity?.updateSyncTimeInterval(it.toInt()) },
+                onValueChange = { viewModel.updateSyncTimeInterval(it.toInt()) },
                 valueRange = 1f..24f,
                 steps = 22,
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
         }
-        SettingSwitch(label = "Auto-sync Alarm 1 to Phone", checked = state.autoSyncAlarm) { activity?.toggleAutoSyncAlarm(it) }
+        SettingSwitch(label = "Auto-sync Alarm 1 to Phone", checked = state.autoSyncAlarm) { viewModel.toggleAutoSyncAlarm(it) }
         if (state.autoSyncAlarm) {
             SettingSwitch(label = "  Mute Alarm Sync Notification", checked = state.muteAlarmSyncNotification) { 
-                activity?.toggleMuteAlarmSyncNotification(it) 
+                viewModel.toggleMuteAlarmSyncNotification(it) 
             }
         }
     }
@@ -616,7 +621,7 @@ private fun AppSettingsControls(
         Text(text = "Battery Notification", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text("Notify at ${state.batteryThreshold}%")
-        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { activity?.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
+        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { viewModel.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
     }
 
     SleekCard {
@@ -627,7 +632,7 @@ private fun AppSettingsControls(
             listOf(0, 5, 10).forEach { minutes ->
                 FilterChip(
                     selected = state.autoHeartRateIntervalMinutes == minutes,
-                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    onClick = { viewModel.setAutoHeartRateInterval(minutes) },
                     enabled = state.isConnected,
                     label = { Text(if (minutes == 0) "Off" else "${minutes}m", fontSize = 11.sp) }
                 )
@@ -637,7 +642,7 @@ private fun AppSettingsControls(
             listOf(15, 30, 60).forEach { minutes ->
                 FilterChip(
                     selected = state.autoHeartRateIntervalMinutes == minutes,
-                    onClick = { activity?.setAutoHeartRateInterval(minutes) },
+                    onClick = { viewModel.setAutoHeartRateInterval(minutes) },
                     enabled = state.isConnected,
                     label = { Text("${minutes}m?", fontSize = 11.sp) }
                 )
@@ -661,15 +666,16 @@ private fun NotificationSettingsControls(
     state: WatchState,
     activity: MainActivity?,
 ) {
+    val viewModel = LocalMainViewModel.current
     SleekCard {
         Text(text = "Mirroring Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
-        SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { activity?.toggleNotifications(it) }
+        SettingSwitch(label = "Mirror Notifications", checked = state.notificationsEnabled) { viewModel.toggleNotifications(it) }
 
         if (state.notificationsEnabled) {
             Spacer(modifier = Modifier.height(8.dp))
             SettingSwitch(label = "Ignore Duplicate Notifications", checked = state.ignoreDuplicateNotifications) { 
-                activity?.toggleIgnoreDuplicates(it) 
+                viewModel.toggleIgnoreDuplicates(it) 
             }
             Text(
                 text = "Prevents the same notification content from being sent multiple times (remembered for 30 days).",
@@ -696,8 +702,8 @@ private fun NotificationSettingsControls(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { 
-                                    if (isBlocked) activity?.removeNotificationFilter(pkg) 
-                                    else activity?.addNotificationFilter(pkg) 
+                                    if (isBlocked) viewModel.removeNotificationFilter(pkg) 
+                                    else viewModel.addNotificationFilter(pkg) 
                                 }
                                 .padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -710,8 +716,8 @@ private fun NotificationSettingsControls(
                             Switch(
                                 checked = !isBlocked,
                                 onCheckedChange = { 
-                                    if (it) activity?.removeNotificationFilter(pkg) 
-                                    else activity?.addNotificationFilter(pkg) 
+                                    if (it) viewModel.removeNotificationFilter(pkg) 
+                                    else viewModel.addNotificationFilter(pkg) 
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = MaterialTheme.colorScheme.primary,
@@ -733,7 +739,7 @@ private fun NotificationSettingsControls(
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
-                IconButton(onClick = { if (newPkg.isNotBlank()) { activity?.addNotificationFilter(newPkg); newPkg = "" } }) {
+                IconButton(onClick = { if (newPkg.isNotBlank()) { viewModel.addNotificationFilter(newPkg); newPkg = "" } }) {
                     Icon(Icons.Default.Add, contentDescription = "Add Filter", tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -761,7 +767,7 @@ private fun NotificationSettingsControls(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(
-                onClick = { activity?.sendLegacyShortNotification(customTitle, customText) },
+                onClick = { viewModel.sendLegacyShortNotification(customTitle, customText) },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp)
@@ -771,7 +777,7 @@ private fun NotificationSettingsControls(
                 Text("Send")
             }
             OutlinedButton(
-                onClick = { activity?.sendLegacyCallNotification(customTitle.ifBlank { "Call" }, customText.ifBlank { "Incoming call" }) },
+                onClick = { viewModel.sendLegacyCallNotification(customTitle.ifBlank { "Call" }, customText.ifBlank { "Incoming call" }) },
                 enabled = state.isConnected,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(8.dp)
@@ -784,7 +790,7 @@ private fun NotificationSettingsControls(
         SettingSwitch(
             label = "Use Call Format for Incoming Calls",
             checked = state.useLegacyCallNotifications
-        ) { activity?.toggleLegacyCallNotifications(it) }
+        ) { viewModel.toggleLegacyCallNotifications(it) }
         Text(
             text = "Uses the confirmed short notification and call packet formats; app notification mirroring still obeys the filters above.",
             style = MaterialTheme.typography.labelSmall,
@@ -795,6 +801,7 @@ private fun NotificationSettingsControls(
 
 @Composable
 private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
+    val viewModel = LocalMainViewModel.current
     SleekCard {
         Text(text = "Protocol Configuration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
@@ -802,7 +809,7 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             listOf("FE EA 20", "FE EA 10", "FE EA 21").forEach { header ->
                 FilterChip(
                     selected = state.protocolHeader == header,
-                    onClick = { activity?.updateProtocol(header, state.writeUuidShort, state.payloadLengthOnly) },
+                    onClick = { viewModel.updateProtocol(header, state.writeUuidShort, state.payloadLengthOnly) },
                     label = { Text(header.split(" ").last(), fontSize = 11.sp) }
                 )
             }
@@ -811,13 +818,13 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             listOf("fee2", "6387", "fee5", "fee6").forEach { uuid ->
                 FilterChip(
                     selected = state.writeUuidShort == uuid,
-                    onClick = { activity?.updateProtocol(state.protocolHeader, uuid, state.payloadLengthOnly) },
+                    onClick = { viewModel.updateProtocol(state.protocolHeader, uuid, state.payloadLengthOnly) },
                     label = { Text(uuid, fontSize = 11.sp) }
                 )
             }
         }
         SettingSwitch(label = "Length = Payload Only", checked = state.payloadLengthOnly) {
-            activity?.updateProtocol(state.protocolHeader, state.writeUuidShort, it)
+            viewModel.updateProtocol(state.protocolHeader, state.writeUuidShort, it)
         }
     }
 
@@ -844,7 +851,7 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
             AssistChip(onClick = { rawCommand = "FE EA 20 05 26"; useNativeChannel = false }, label = { Text("Goal") })
         }
         Button(
-            onClick = { activity?.sendRawTest(rawCommand, useNativeChannel) },
+            onClick = { viewModel.sendRawTest(rawCommand, useNativeChannel) },
             enabled = state.isConnected && rawCommand.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp)
@@ -862,8 +869,9 @@ private fun GadgetProbeButton(
     activity: MainActivity?,
     modifier: Modifier = Modifier
 ) {
+    val viewModel = LocalMainViewModel.current
     OutlinedButton(
-        onClick = { activity?.sendGadgetbridgeProbe(kind) },
+        onClick = { viewModel.sendGadgetbridgeProbe(kind) },
         enabled = enabled,
         modifier = modifier,
         shape = RoundedCornerShape(8.dp)
@@ -968,3 +976,4 @@ fun TimeDropdown(
         }
     }
 }
+
