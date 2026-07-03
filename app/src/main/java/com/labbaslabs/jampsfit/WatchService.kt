@@ -17,10 +17,12 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlin.time.Duration.Companion.seconds
 
 class WatchService : Service() {
     private val binder = WatchBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val alarmSyncAssistant = AlarmSyncAssistant()
     
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -40,80 +42,24 @@ class WatchService : Service() {
                         return
                     }
 
-                    val isAlarmPkg = pkg.contains("clock") || pkg.contains("alarm") || 
-                                    category == Notification.CATEGORY_ALARM ||
-                                    pkg == "com.sec.android.app.clockpackage" ||
-                                    pkg == "com.oneplus.deskclock" ||
-                                    pkg == "com.coloros.alarmclock" ||
-                                    pkg == "com.oppo.alarmclock"
+                    val parsed = alarmSyncAssistant.parseNotification(pkg, title, text, category)
                     
-                    val lowerText = text.lowercase()
-                    val lowerTitle = title.lowercase()
-                    val isUpcoming = lowerText.contains("tuleva") || lowerText.contains("upcoming") || 
-                                    lowerTitle.contains("tuleva") || lowerTitle.contains("upcoming")
-
-                    var isFiringAlarm = false
-                    if (isAlarmPkg && !isUpcoming) {
-                        // These keywords are common in alarm notifications ONLY when they are firing
-                        isFiringAlarm = lowerText.contains("lopeta") || lowerText.contains("stop") || 
-                                       lowerText.contains("dismiss") || lowerText.contains("snooze") || 
-                                       lowerText.contains("torkku") || lowerTitle.contains("torkku")
-
-                    }
-
-                    if ((pkg == "com.google.android.deskclock" || pkg == "com.android.deskclock") && state.autoSyncAlarm) {
-                        try {
-                            val timeRegex = Regex("([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])")
-                            val match = timeRegex.find(text) ?: timeRegex.find(title)
-                            
-                            if (match != null) {
-                                var hour = match.groupValues[1].toInt()
-                                val minute = match.groupValues[2].toInt()
-                                val combined = "$lowerTitle $lowerText"
-                                if (combined.contains("pm") && (hour < 12)) hour += 12
-                                if (combined.contains("am") && (hour == 12)) hour = 0
-                                
-                                // Try to extract date if it looks like a date (ma 15.07)
-                                var month = 0
-                                var day = 0
-                                val dateRegex = Regex("(?:ma|ti|ke|to|pe|la|su)\\s+([0-3]?[0-9])[.]([0-1]?[0-9])")
-                                val dateMatch = dateRegex.find(text) ?: dateRegex.find(title)
-                                if (dateMatch != null) {
-                                    day = dateMatch.groupValues[1].toInt()
-                                    month = dateMatch.groupValues[2].toInt()
-                                }
-
-                                val typeLabel = when {
-                                    isFiringAlarm -> "Active"
-                                    isUpcoming -> "Upcoming"
-                                    else -> "Unknown"
-                                }
-                                Log.d("WatchService", "$typeLabel alarm sync to $hour:$minute (date=$day.$month) from $pkg")
-                                watchManager.setAlarm(slot = 0, enabled = true, hour = hour, minute = minute, repeatMask = 0, month = month, day = day)
-                            }
-                        } catch (e: Exception) {
-                            Log.e("WatchService", "Error parsing alarm time: ${e.message}")
-                        }
+                    if (parsed != null && state.autoSyncAlarm && parsed.hour != -1) {
+                        Log.d("WatchService", "Alarm sync to ${parsed.hour}:${parsed.minute} (date=${parsed.day}.${parsed.month}) from $pkg")
+                        watchManager.setAlarm(slot = 0, enabled = true, hour = parsed.hour, minute = parsed.minute, repeatMask = 0, month = parsed.month, day = parsed.day)
                     }
 
                     if (state.useLegacyCallNotifications && category == Notification.CATEGORY_CALL) {
                         watchManager.sendLegacyCallNotification(title, text)
                     } else {
-                        if (isAlarmPkg && state.muteAlarmSyncNotification && !isFiringAlarm) {
+                        val isAlarmPkg = pkg.contains("clock") || pkg.contains("alarm")
+                        if (isAlarmPkg && state.muteAlarmSyncNotification && (parsed == null || !parsed.isFiring)) {
                             Log.d("WatchService", "Muting watch message for $pkg")
                         } else {
-                            if (isFiringAlarm) {
-                                // For firing alarm, ensure it shows up prominently.
-                                // Use mirrored notification (0x41) which is confirmed working for display.
-                                // We ignore duplicate check to ensure it always pops up.
+                            if (parsed?.isFiring == true) {
                                 val alarmTitle = if (!title.lowercase().contains("alarm") && !title.lowercase().contains("herätys")) "Alarm: $title" else title
                                 watchManager.sendNotification(alarmTitle, text, ignoreDuplicate = true, forceMirrored = true)
-                                
-                                // Start repeating vibration after a delay to let notification render
-                                serviceScope.launch {
-                                    delay(2000)
-                                    startAlarmVibration()
-                                }
+                                serviceScope.launch { delay(2.seconds); startAlarmVibration() }
                             } else {
                                 watchManager.sendNotification(title, text)
                             }
@@ -153,7 +99,6 @@ class WatchService : Service() {
         private const val LOW_BATTERY_NOTIFICATION_ID = 2
         private const val DISCONNECT_NOTIFICATION_ID = 3
         private const val CONNECTED_NOTIFICATION_ID = 4
-        private const val TEST_NOTIFICATION_ID = 5
         private const val FIND_PHONE_NOTIFICATION_ID = 6
     }
 
@@ -227,17 +172,21 @@ class WatchService : Service() {
                 )
 
                 val notificationManager = getSystemService(NotificationManager::class.java)
-                @SuppressLint("LaunchFullIntent")
-                val notification = NotificationCompat.Builder(this, FIND_PHONE_CHANNEL_ID)
+                val canUseFullScreenIntent = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+                    notificationManager.canUseFullScreenIntent()
+                val notificationBuilder = NotificationCompat.Builder(this, FIND_PHONE_CHANNEL_ID)
                     .setContentTitle("Find My Phone")
                     .setContentText("Your watch is looking for this phone!")
                     .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                     .setPriority(NotificationCompat.PRIORITY_MAX)
                     .setCategory(NotificationCompat.CATEGORY_ALARM)
-                    .setFullScreenIntent(pendingIntent, true)
                     .setAutoCancel(false)
                     .setOngoing(true)
-                    .build()
+                if (canUseFullScreenIntent) {
+                    @SuppressLint("LaunchFullIntent")
+                    notificationBuilder.setFullScreenIntent(pendingIntent, true)
+                }
+                val notification = notificationBuilder.build()
 
                 notificationManager.notify(FIND_PHONE_NOTIFICATION_ID, notification)
 
@@ -259,7 +208,7 @@ class WatchService : Service() {
 
                     while (isActive) {
                         vibrator.vibrate(VibrationEffect.createOneShot(1000, VibrationEffect.DEFAULT_AMPLITUDE))
-                        delay(2000)
+                        delay(2.seconds)
                     }
                 }
             }
@@ -391,7 +340,7 @@ class WatchService : Service() {
                 if (watchManager.state.value.isConnected) {
                     watchManager.findWatch()
                 }
-                delay(5000)
+                delay(5.seconds)
             }
         }
     }
@@ -439,25 +388,6 @@ class WatchService : Service() {
         manager.notify(CONNECTED_NOTIFICATION_ID, notification)
     }
 
-    fun postTestPhoneNotification(kind: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        val (title, text) = when (kind) {
-            "short" -> "jampsFit Test" to "Short phone notification"
-            "long" -> "jampsFit Long Test" to "This longer Android notification tests whether Da Fit mirrors jampsFit notifications safely to the watch."
-            "update" -> "jampsFit Update" to "Notification update test ${System.currentTimeMillis() % 100000}"
-            else -> "jampsFit Test" to "Phone notification path"
-        }
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .build()
-        manager.notify(TEST_NOTIFICATION_ID, notification)
-    }
-
     private fun cancelDisconnectNotification() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.cancel(DISCONNECT_NOTIFICATION_ID)
@@ -466,6 +396,7 @@ class WatchService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification("Initializing...")
         startForeground(NOTIFICATION_ID, notification)
+        watchManager.ensureAutoConnect()
         return START_STICKY
     }
 

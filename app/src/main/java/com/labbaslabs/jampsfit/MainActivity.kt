@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -29,10 +30,13 @@ import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
 import com.labbaslabs.jampsfit.ui.components.TabSpec
 import com.labbaslabs.jampsfit.ui.screens.*
+import com.labbaslabs.jampsfit.ui.MainViewModel
 
 val LocalWatchState = compositionLocalOf { WatchState() }
+val LocalMainViewModel = staticCompositionLocalOf<MainViewModel> { error("No MainViewModel provided") }
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: MainViewModel by viewModels()
     private var watchService: WatchService? by mutableStateOf(null)
     private var isBound by mutableStateOf(value = false)
     private var pendingScanRequest = false
@@ -43,6 +47,8 @@ class MainActivity : ComponentActivity() {
             val s = binder.getService()
             watchService = s
             isBound = true
+            
+            viewModel.setWatchManager(s.watchManager)
             
             if (pendingScanRequest) {
                 s.watchManager.startScan()
@@ -80,9 +86,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             JampsFitTheme {
-                val state = watchService?.watchManager?.state?.collectAsState()?.value ?: WatchState()
+                val state by viewModel.uiState.collectAsState()
                 
-                CompositionLocalProvider(LocalWatchState provides state) {
+                CompositionLocalProvider(
+                    LocalWatchState provides state,
+                    LocalMainViewModel provides viewModel
+                ) {
                     var currentTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
                     Scaffold(
@@ -104,22 +113,22 @@ class MainActivity : ComponentActivity() {
                             when (currentTabIndex) {
                                 0 -> HomeScreen(state)
                                 1 -> RemoteScreen(state)
-                                2 -> LogsScreen(state) { clearUnknownPackets() }
+                                2 -> LogsScreen(state) { viewModel.clearUnknownPackets() }
                                 3 -> ControlsScreen(
                                     state = state,
-                                    onScanClick = { startScan() },
-                                    onDisconnectClick = { disconnect() },
+                                    onScanClick = { viewModel.startScan() },
+                                    onDisconnectClick = { viewModel.disconnect() },
                                 )
                             }
                         }
 
                         if (state.isFindingPhone) {
                             AlertDialog(
-                                onDismissRequest = { findPhone(active = false) },
+                                onDismissRequest = { viewModel.setFindingPhone(active = false) },
                                 title = { Text("Finding Phone") },
                                 text = { Text("Your watch is currently looking for this phone!") },
                                 confirmButton = {
-                                    Button(onClick = { findPhone(active = false) }) {
+                                    Button(onClick = { viewModel.setFindingPhone(active = false) }) {
                                         Text("I found it!")
                                     }
                                 },
@@ -206,110 +215,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun startScan() {
-        watchService?.watchManager?.startScan()
-    }
-
-    fun updateShutterAction(action: String) {
-        watchService?.watchManager?.updateShutterAction(action)
-    }
-
-    fun updateMusicAction(action: String) {
-        watchService?.watchManager?.updateMusicAction(action)
-    }
-
-    fun updateCustomAction(button: String, action: String) {
-        watchService?.watchManager?.updateCustomAction(button, action)
-    }
-
-    fun toggleAutoStart(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoStart(enabled)
-    }
-
-    fun toggleAutoConnect(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoConnect(enabled)
-    }
-
-    fun toggleAutoSyncAlarm(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoSyncAlarm(enabled)
-    }
-
-    fun toggleAutoSyncTime(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoSyncTime(enabled)
-    }
-
-    fun updateSyncTimeInterval(hours: Int) {
-        watchService?.watchManager?.updateSyncTimeInterval(hours)
-    }
-
-    fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
-        watchService?.watchManager?.toggleMuteAlarmSyncNotification(enabled)
-    }
-
-    fun toggleAutoFetchSteps(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoFetchSteps(enabled)
-    }
-
-    fun toggleAutoFetchBattery(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoFetchBattery(enabled)
-    }
-
-    fun toggleAutoFetchSleep(enabled: Boolean) {
-        watchService?.watchManager?.toggleAutoFetchSleep(enabled)
-    }
-
-    fun updateStepFetchInterval(minutes: Int) {
-        watchService?.watchManager?.updateStepFetchInterval(minutes)
-    }
-
-    fun setAutoHeartRateInterval(minutes: Int) {
-        watchService?.watchManager?.setAutoHeartRateInterval(minutes)
-    }
-
-    fun toggleNotifications(enabled: Boolean) {
-        watchService?.watchManager?.toggleNotifications(enabled)
-    }
-
-    fun toggleIgnoreDuplicates(enabled: Boolean) {
-        watchService?.watchManager?.toggleIgnoreDuplicates(enabled)
-    }
-
-    fun toggleLegacyCallNotifications(enabled: Boolean) {
-        watchService?.watchManager?.toggleLegacyCallNotifications(enabled)
-    }
-
-    fun addNotificationFilter(pkg: String) {
-        watchService?.watchManager?.addNotificationFilter(pkg)
-    }
-
-    fun removeNotificationFilter(pkg: String) {
-        watchService?.watchManager?.removeNotificationFilter(pkg)
-    }
-
-    fun updateBorderColor(color: Int) {
-        watchService?.watchManager?.updateBorderColor(color)
-    }
-
-    fun updateBorderThickness(thickness: Float) {
-        watchService?.watchManager?.updateBorderThickness(thickness)
-    }
-
-    fun updateBorderAlpha(alpha: Float) {
-        watchService?.watchManager?.updateBorderAlpha(alpha)
-    }
-
-    fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) {
-        watchService?.watchManager?.updateProfile(gender, heightCm, weightKg, ageYears)
-    }
-
-    fun updateVolumeSteps(steps: Int) {
-        watchService?.watchManager?.updateVolumeSteps(steps)
-    }
-
-    fun disconnect() {
-        watchService?.watchManager?.disconnect()
-    }
-
     private fun requestIgnoreBatteryOptimizations() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
@@ -328,100 +233,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun updateBatteryThreshold(threshold: Int) {
-        watchService?.watchManager?.updateBatteryThreshold(threshold)
-    }
-
-    fun updateProtocol(header: String, uuid: String, payloadOnly: Boolean) {
-        watchService?.watchManager?.updateProtocol(header, uuid, payloadOnly)
-    }
-
-    fun sendLegacyShortNotification(title: String, text: String) {
-        watchService?.watchManager?.sendLegacyShortNotification(title, text)
-    }
-
-    fun sendLegacyCallNotification(title: String, text: String) {
-        watchService?.watchManager?.sendLegacyCallNotification(title, text)
-    }
-
-    fun sendExperimentalNotification() {
-        watchService?.watchManager?.sendExperimentalNotification()
-    }
-
-    fun prepareDaFitSession() {
-        watchService?.watchManager?.prepareDaFitSession()
-    }
-
-    fun prepareAndFindWatch() {
-        watchService?.watchManager?.prepareAndFindWatch()
-    }
-
-    fun sendStartupPreamblePhase1() {
-        watchService?.watchManager?.sendStartupPreamblePhase1()
-    }
-
-    fun sendStartupPreamblePhase2() {
-        watchService?.watchManager?.sendStartupPreamblePhase2()
-    }
-
-    fun postTestPhoneNotification(kind: String) {
-        watchService?.postTestPhoneNotification(kind)
-    }
-
-    fun sendRawTest(hex: String, useAlt: Boolean = false) {
-        watchService?.watchManager?.sendRawTest(hex, useAlt)
-    }
-
-    fun readBattery() {
-        watchService?.watchManager?.readBattery()
-    }
-
-    fun clearQueue() {
-        watchService?.watchManager?.clearQueue()
-    }
-
-    fun setAutoLockSeconds(seconds: Int) {
-        watchService?.watchManager?.setAutoLockSeconds(seconds)
-    }
-
-    fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
-        watchService?.watchManager?.setQuickViewWindow(startHour, startMinute, endHour, endMinute)
-    }
-
-    fun setStepGoal(goal: Int) {
-        watchService?.watchManager?.setStepGoal(goal)
-    }
-
-    fun setWeatherCity(city: String) {
-        watchService?.watchManager?.setWeatherCity(city)
-    }
-
-    fun sendWeatherForecastSample() {
-        watchService?.watchManager?.sendWeatherForecastSample()
-    }
-
-    fun findPhone(active: Boolean) {
-        watchService?.watchManager?.setFindingPhone(active)
-    }
-
-    fun sendGadgetbridgeProbe(kind: String) {
-        watchService?.watchManager?.sendGadgetbridgeProbe(kind)
-    }
-
-    fun sendWeightCandidate() {
-        watchService?.watchManager?.sendWeightCandidate()
-    }
-
-    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) {
-        watchService?.watchManager?.setAlarm(slot, enabled, hour, minute, repeatMask)
-    }
-
-    fun findWatch() {
-        watchService?.watchManager?.findWatch()
-    }
-
-    fun syncTime() {
-        watchService?.watchManager?.syncTime()
+    fun exportData() {
+        val scope = CoroutineScope(Dispatchers.Main + Job())
+        scope.launch {
+            val csv = watchService?.watchManager?.exportDataToCsv() ?: return@launch
+            val sendIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_TEXT, csv)
+                putExtra(Intent.EXTRA_TITLE, "jampsFit Health Data")
+                type = "text/csv"
+            }
+            val shareIntent = Intent.createChooser(sendIntent, "Export Health Data")
+            startActivity(shareIntent)
+        }
     }
 
     fun requestFullScreenIntentPermission() {
@@ -439,40 +263,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun queryCurrentSteps() {
-        watchService?.watchManager?.queryCurrentSteps()
-    }
-
-    fun querySleepBoundaries() {
-        watchService?.watchManager?.querySleepBoundaries()
-    }
-
-    fun clearUnknownPackets() {
-        watchService?.watchManager?.clearUnknownPackets()
-    }
-
-    fun exportData() {
-        val scope = CoroutineScope(Dispatchers.Main + Job())
-        scope.launch {
-            val csv = watchService?.watchManager?.exportDataToCsv() ?: return@launch
-            val sendIntent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, csv)
-                putExtra(Intent.EXTRA_TITLE, "jampsFit Health Data")
-                type = "text/csv"
-            }
-            val shareIntent = Intent.createChooser(sendIntent, "Export Health Data")
-            startActivity(shareIntent)
-        }
-    }
-
-    fun startMeasurement(type: String) {
-        watchService?.watchManager?.startMeasurement(type)
-    }
-
-    fun stopMeasurement() {
-        watchService?.watchManager?.stopMeasurement()
-    }
+    fun findWatch() = viewModel.findWatch()
+    fun syncTime() = viewModel.syncTime()
+    fun readBattery() = viewModel.readBattery()
+    fun clearQueue() = viewModel.clearQueue()
+    fun sendGadgetbridgeProbe(kind: String) = viewModel.sendGadgetbridgeProbe(kind)
+    fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int) = viewModel.setAlarm(slot, enabled, hour, minute, repeatMask)
+    fun setAutoLockSeconds(seconds: Int) = viewModel.setAutoLockSeconds(seconds)
+    fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) = viewModel.setQuickViewWindow(startHour, startMinute, endHour, endMinute)
+    fun setWeatherCity(city: String) = viewModel.setWeatherCity(city)
+    fun sendWeatherForecastSample() = viewModel.sendWeatherForecastSample()
+    fun setStepGoal(goal: Int) = viewModel.setStepGoal(goal)
+    fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) = viewModel.updateProfile(gender, heightCm, weightKg, ageYears)
+    fun updateBorderColor(color: Int) = viewModel.updateBorderColor(color)
+    fun updateBorderThickness(thickness: Float) = viewModel.updateBorderThickness(thickness)
+    fun updateBorderAlpha(alpha: Float) = viewModel.updateBorderAlpha(alpha)
+    fun toggleAutoStart(enabled: Boolean) = viewModel.toggleAutoStart(enabled)
+    fun toggleAutoConnect(enabled: Boolean) = viewModel.toggleAutoConnect(enabled)
+    fun toggleAutoFetchSteps(enabled: Boolean) = viewModel.toggleAutoFetchSteps(enabled)
+    fun toggleAutoFetchBattery(enabled: Boolean) = viewModel.toggleAutoFetchBattery(enabled)
+    fun toggleAutoFetchSleep(enabled: Boolean) = viewModel.toggleAutoFetchSleep(enabled)
+    fun updateStepFetchInterval(minutes: Int) = viewModel.updateStepFetchInterval(minutes)
+    fun toggleAutoSyncTime(enabled: Boolean) = viewModel.toggleAutoSyncTime(enabled)
+    fun updateSyncTimeInterval(hours: Int) = viewModel.updateSyncTimeInterval(hours)
+    fun toggleAutoSyncAlarm(enabled: Boolean) = viewModel.toggleAutoSyncAlarm(enabled)
+    fun toggleMuteAlarmSyncNotification(enabled: Boolean) = viewModel.toggleMuteAlarmSyncNotification(enabled)
+    fun updateBatteryThreshold(threshold: Int) = viewModel.updateBatteryThreshold(threshold)
+    fun setAutoHeartRateInterval(minutes: Int) = viewModel.setAutoHeartRateInterval(minutes)
+    fun toggleNotifications(enabled: Boolean) = viewModel.toggleNotifications(enabled)
+    fun toggleIgnoreDuplicates(enabled: Boolean) = viewModel.toggleIgnoreDuplicates(enabled)
+    fun addNotificationFilter(pkg: String) = viewModel.addNotificationFilter(pkg)
+    fun removeNotificationFilter(pkg: String) = viewModel.removeNotificationFilter(pkg)
+    fun sendLegacyShortNotification(title: String, text: String) = viewModel.sendLegacyShortNotification(title, text)
+    fun sendLegacyCallNotification(title: String, text: String) = viewModel.sendLegacyCallNotification(title, text)
+    fun toggleLegacyCallNotifications(enabled: Boolean) = viewModel.toggleLegacyCallNotifications(enabled)
+    fun updateProtocol(header: String, writeUuid: String, payloadLengthOnly: Boolean) = viewModel.updateProtocol(header, writeUuid, payloadLengthOnly)
+    fun sendRawTest(hex: String, useAltChar: Boolean) = viewModel.sendRawTest(hex, useAltChar)
 
     override fun onDestroy() {
         super.onDestroy()

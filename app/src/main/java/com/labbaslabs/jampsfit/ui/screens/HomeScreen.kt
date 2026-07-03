@@ -18,8 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import com.labbaslabs.jampsfit.MainActivity
+import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.R
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.DataCard
@@ -28,8 +27,7 @@ import androidx.compose.foundation.border
 
 @Composable
 fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
-    val context = LocalContext.current
-    val activity = context as? MainActivity
+    val viewModel = LocalMainViewModel.current
 
     Column(
         modifier = Modifier
@@ -86,7 +84,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                 MeasurementButton(
                     isActive = false,
                     enabled = state.isConnected,
-                    onClick = { activity?.queryCurrentSteps() }
+                    onClick = { viewModel.queryCurrentSteps() }
                 )
             }
         )
@@ -117,7 +115,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                     MeasurementButton(
                         isActive = false,
                         enabled = state.isConnected,
-                        onClick = { activity?.querySleepBoundaries() }
+                        onClick = { viewModel.querySleepBoundaries() }
                     )
                 }
             }
@@ -152,8 +150,8 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                     isActive = state.activeMeasurement == "Heart Rate",
                     enabled = state.isConnected,
                     onClick = {
-                        if (state.activeMeasurement == "Heart Rate") activity?.stopMeasurement()
-                        else activity?.startMeasurement("Heart Rate")
+                        if (state.activeMeasurement == "Heart Rate") viewModel.stopMeasurement()
+                        else viewModel.startMeasurement("Heart Rate")
                     }
                 )
             }
@@ -169,8 +167,8 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                     isActive = state.activeMeasurement == "SpO2",
                     enabled = state.isConnected,
                     onClick = {
-                        if (state.activeMeasurement == "SpO2") activity?.stopMeasurement()
-                        else activity?.startMeasurement("SpO2")
+                        if (state.activeMeasurement == "SpO2") viewModel.stopMeasurement()
+                        else viewModel.startMeasurement("SpO2")
                     }
                 )
             }
@@ -186,12 +184,13 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                     isActive = state.activeMeasurement == "Blood Pressure",
                     enabled = state.isConnected,
                     onClick = {
-                        if (state.activeMeasurement == "Blood Pressure") activity?.stopMeasurement()
-                        else activity?.startMeasurement("Blood Pressure")
+                        if (state.activeMeasurement == "Blood Pressure") viewModel.stopMeasurement()
+                        else viewModel.startMeasurement("Blood Pressure")
                     }
                 )
             }
         )
+
         
         DataCard(label = "Distance", value = state.distance?.let { "$it m" } ?: "--", icon = Icons.Default.Straighten, color = Color(0xFF2196F3))
         DataCard(label = "Calories", value = state.calories?.let { "$it kcal" } ?: "--", icon = Icons.Default.LocalFireDepartment, color = Color(0xFFFF9800))

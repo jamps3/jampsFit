@@ -11,6 +11,7 @@ import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
 import com.labbaslabs.jampsfit.database.HealthEntry
+import com.labbaslabs.jampsfit.database.HistoryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,14 +62,14 @@ data class WatchState(
     val sleepSegments: List<SleepSegment> = emptyList(),
     val isFindingPhone: Boolean = false,
     val volumeSteps: Int = 1,
-    val batteryHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val heartRateHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val spo2History: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val batteryHistory: List<HistoryPoint> = emptyList(),
+    val heartRateHistory: List<HistoryPoint> = emptyList(),
+    val spo2History: List<HistoryPoint> = emptyList(),
     val bpHistory: List<HealthEntry> = emptyList(),
-    val stepsHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val distanceHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val caloriesHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
-    val activityHistory: List<com.labbaslabs.jampsfit.database.HistoryPoint> = emptyList(),
+    val stepsHistory: List<HistoryPoint> = emptyList(),
+    val distanceHistory: List<HistoryPoint> = emptyList(),
+    val caloriesHistory: List<HistoryPoint> = emptyList(),
+    val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
     val weeklyStats: List<HealthEntry> = emptyList(),
@@ -130,8 +131,7 @@ class WatchManager(private val context: Context) {
     private val adapter: BluetoothAdapter? = bluetoothManager.adapter
     private val scanner get() = adapter?.bluetoothLeScanner
 
-    private val _state = MutableStateFlow(
-        WatchState(
+    private val _state = MutableStateFlow(WatchState(
         autoStart = prefs.getBoolean("autoStart", true),
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
@@ -175,25 +175,21 @@ class WatchManager(private val context: Context) {
     ))
     val state = _state.asStateFlow()
 
+    private val decoder = ProtocolDecoder { result -> handleDecodedResult(result) }
     private var bluetoothGatt: BluetoothGatt? = null
     private var lastConnectedDevice: BluetoothDevice? = null
     private val operationQueue: Queue<GattOperation> = LinkedList()
     private var isOperating = false
     private var lastOpTime = 0L
-    private var isConfigured = false
     private var userRequestedDisconnect = false
     private var reconnectJob: Job? = null
     private var scanWatchdogJob: Job? = null
+    private var connectWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
-    private var autoBatteryFetchJob: Job? = null
-    private var autoSleepFetchJob: Job? = null
     private var autoSyncTimeJob: Job? = null
     private var logBuffer = mutableListOf<String>()
-    private var lastActivitySeq: Int? = null
     private val recentActivityPayloads = ArrayDeque<String>()
     private val recentActivityPayloadSet = mutableSetOf<String>()
-    private val recentFee1Payloads = ArrayDeque<String>()
-    private val recentFee1PayloadSet = mutableSetOf<String>()
     private val recentStepBuckets = mutableMapOf<Int, StepBucketTotals>()
 
     private data class StepBucketTotals(
@@ -209,15 +205,104 @@ class WatchManager(private val context: Context) {
         observeHistory()
         cleanupSeenNotifications()
         checkFullScreenIntentPermission()
+        updateDebugLog("WatchManager build: modular-decoder-v2")
+    }
+
+    private fun handleDecodedResult(result: ProtocolDecoder.DecodedResult) {
+        when (result) {
+            is ProtocolDecoder.DecodedResult.Battery -> {
+                _state.update { it.copy(battery = result.level) }
+                saveToDb(battery = result.level)
+                updateDebugLog("Battery: ${result.level}%")
+            }
+            is ProtocolDecoder.DecodedResult.HeartRate -> {
+                _state.update { it.copy(heartRate = result.bpm) }
+                saveToDb(heartRate = result.bpm)
+                updateDebugLog("Heart Rate: ${result.bpm} bpm")
+            }
+            is ProtocolDecoder.DecodedResult.SpO2 -> {
+                _state.update { it.copy(spo2 = result.percent) }
+                saveToDb(spo2 = result.percent)
+                updateDebugLog("SpO2: ${result.percent}%")
+            }
+            is ProtocolDecoder.DecodedResult.BloodPressure -> {
+                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic) }
+                saveToDb(systolic = result.systolic, diastolic = result.diastolic)
+                updateDebugLog("BP: ${result.systolic}/${result.diastolic}")
+            }
+            is ProtocolDecoder.DecodedResult.Activity -> {
+                if (rememberRecentPayload(result.seq.toString(), recentActivityPayloads, recentActivityPayloadSet)) return
+                _state.update { it.copy(activityCount = result.activityCount, distance = result.distance, calories = result.calories) }
+                saveToDb(activityCount = result.activityCount, distance = result.distance, calories = result.calories)
+                updateDebugLog("Activity: seq=${result.seq} count=${result.activityCount} dist=${result.distance}m cal=${result.calories}")
+            }
+            is ProtocolDecoder.DecodedResult.DailyTotals -> {
+                _state.update { it.copy(steps = result.steps, distance = result.distance, calories = result.calories) }
+                saveToDb(steps = result.steps, distance = result.distance, calories = result.calories)
+                updateDebugLog("Daily Totals: steps=${result.steps} dist=${result.distance}m cal=${result.calories}")
+            }
+            is ProtocolDecoder.DecodedResult.HourlyActivity -> {
+                val totals = StepBucketTotals(result.stepsDown, result.stepsUp, result.stepsOther)
+                recentStepBuckets[result.bucket] = totals
+                val b0 = recentStepBuckets[0]; val b1 = recentStepBuckets[1]
+                if (b0 != null && b1 != null && Math.abs(b0.timestamp - b1.timestamp) <= 30_000L) {
+                    val currentSteps = b0.totalSteps + b1.totalSteps
+                    _state.update { it.copy(steps = currentSteps) }
+                    saveToDb(steps = currentSteps)
+                    updateDebugLog("Current steps (bucket sum): $currentSteps")
+                }
+            }
+            is ProtocolDecoder.DecodedResult.SleepBoundaries -> {
+                _state.update { it.copy(sleepMinutes = result.total, deepSleepMinutes = result.deep, lightSleepMinutes = result.light, sleepSegments = result.segments) }
+                saveToDb(sleepMinutes = result.total, deepSleepMinutes = result.deep, lightSleepMinutes = result.light)
+                updateDebugLog("Sleep boundaries: total=${result.total}m deep=${result.deep}m light=${result.light}m")
+            }
+            is ProtocolDecoder.DecodedResult.DeviceInfo -> {
+                result.name?.let { updateDebugLog("Device info: $it") }
+                result.firmware?.let { fw ->
+                    prefs.edit { putString("firmwareVersion", fw) }
+                    _state.update { it.copy(firmwareVersion = fw) }
+                    updateDebugLog("Firmware: $fw")
+                }
+            }
+            is ProtocolDecoder.DecodedResult.AlarmSettings -> {
+                _state.update { it.copy(alarmSettings = result.alarms.sortedBy { a -> a.slot }) }
+                updateDebugLog("Alarms synced: ${result.alarms.size} slots")
+            }
+            is ProtocolDecoder.DecodedResult.StepGoal -> {
+                _state.update { it.copy(stepGoalSetting = result.goal) }
+                updateDebugLog("Step goal: ${result.goal}")
+            }
+            is ProtocolDecoder.DecodedResult.AutoLock -> {
+                _state.update { it.copy(autoLockSecondsSetting = result.seconds) }
+                updateDebugLog("Auto-lock: ${result.seconds}s")
+            }
+            is ProtocolDecoder.DecodedResult.RemoteEvent -> {
+                _state.update { it.copy(lastRemoteEvent = result.event) }
+                updateDebugLog("Remote event: ${result.event}")
+                managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
+            }
+            is ProtocolDecoder.DecodedResult.AutoHeartRate -> {
+                _state.update { it.copy(autoHeartRateIntervalMinutes = result.minutes) }
+                updateDebugLog("Auto HR: ${result.minutes}m")
+            }
+            is ProtocolDecoder.DecodedResult.PowerSave -> {
+                updateDebugLog("Power save: ${if (result.enabled) "enabled" else "disabled"}")
+            }
+            is ProtocolDecoder.DecodedResult.ShutterEvent -> {
+                _state.update { it.copy(lastRemoteEvent = "Shutter") }
+                updateDebugLog("Remote event: Shutter")
+                managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
+            }
+            else -> {}
+        }
     }
 
     fun checkFullScreenIntentPermission() {
         val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             notificationManager?.canUseFullScreenIntent() ?: true
-        } else {
-            true
-        }
+        } else true
         _state.update { it.copy(hasFullScreenIntentPermission = hasPermission) }
     }
 
@@ -229,71 +314,19 @@ class WatchManager(private val context: Context) {
     }
 
     private fun observeHistory() {
-        managerScope.launch {
-            healthDao.getBatteryHistory().collect { history ->
-                _state.update { it.copy(batteryHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getHeartRateHistory().collect { history ->
-                _state.update { it.copy(heartRateHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getSpO2History().collect { history ->
-                _state.update { it.copy(spo2History = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getBloodPressureHistory().collect { history ->
-                _state.update { it.copy(bpHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getStepsHistory().collect { history ->
-                _state.update { it.copy(stepsHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getDistanceHistory().collect { history ->
-                _state.update { it.copy(distanceHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getActivityHistory().collect { history ->
-                _state.update { it.copy(activityHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getCaloriesHistory().collect { history ->
-                _state.update { it.copy(caloriesHistory = history.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getLast24hStats().collect { stats ->
-                _state.update { it.copy(last24hStats = stats.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getDailyStats().collect { stats ->
-                _state.update { it.copy(dailyStats = stats.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getWeeklyStats().collect { stats ->
-                _state.update { it.copy(weeklyStats = stats.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getMonthlyStats().collect { stats ->
-                _state.update { it.copy(monthlyStats = stats.reversed()) }
-            }
-        }
-        managerScope.launch {
-            healthDao.getAllUnknownPackets().collect { history ->
-                _state.update { it.copy(unknownMessages = history) }
-            }
-        }
+        managerScope.launch { healthDao.getBatteryHistory().collect { h -> _state.update { it.copy(batteryHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getHeartRateHistory().collect { h -> _state.update { it.copy(heartRateHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getSpO2History().collect { h -> _state.update { it.copy(spo2History = h.reversed()) } } }
+        managerScope.launch { healthDao.getBloodPressureHistory().collect { h -> _state.update { it.copy(bpHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getStepsHistory().collect { h -> _state.update { it.copy(stepsHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getDistanceHistory().collect { h -> _state.update { it.copy(distanceHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getActivityHistory().collect { h -> _state.update { it.copy(activityHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getCaloriesHistory().collect { h -> _state.update { it.copy(caloriesHistory = h.reversed()) } } }
+        managerScope.launch { healthDao.getLast24hStats().collect { h -> _state.update { it.copy(last24hStats = h.reversed()) } } }
+        managerScope.launch { healthDao.getDailyStats().collect { h -> _state.update { it.copy(dailyStats = h.reversed()) } } }
+        managerScope.launch { healthDao.getWeeklyStats().collect { h -> _state.update { it.copy(weeklyStats = h.reversed()) } } }
+        managerScope.launch { healthDao.getMonthlyStats().collect { h -> _state.update { it.copy(monthlyStats = h.reversed()) } } }
+        managerScope.launch { healthDao.getAllUnknownPackets().collect { h -> _state.update { it.copy(unknownMessages = h) } } }
     }
 
     sealed class GattOperation {
@@ -305,1506 +338,292 @@ class WatchManager(private val context: Context) {
     companion object {
         private const val TAG = "WatchManager"
         private const val TARGET_NAME = "TANK M1"
-        private val BATTERY_CHAR = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
-        private val HEART_RATE_CHAR = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
-        private val FEE1_CHAR = UUID.fromString("0000fee1-0000-1000-8000-00805f9b34fb")
-        private val FEA1_CHAR = UUID.fromString("0000fea1-0000-1000-8000-00805f9b34fb")
+        private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
+        private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
+        private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
         private val FEE2_WRITE = UUID.fromString("0000fee2-0000-1000-8000-00805f9b34fb")
-        private val FEE3_NOTIFY = UUID.fromString("0000fee3-0000-1000-8000-00805f9b34fb")
-        private val DATA_CHAR_UUID = UUID.fromString("00006387-3c17-d293-8e48-14fe2e4da212")
+        private val FEE3_NOTIFY = ProtocolDecoder.UUID_FEE3
         private val SKIP_NOTIFY_CHAR = UUID.fromString("00002a05-0000-1000-8000-00805f9b34fb")
         private val CLIENT_CONFIG_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
-    init {
-        updateDebugLog("WatchManager build: passive-listen/no-mtu")
-    }
-
     fun findWatch() {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Find My Watch skipped: watch is not connected.")
-            return
-        }
-        val packet = nativePacket(0x61)
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Find My Watch via FEE2: ${packet.toHexString()}")
-    }
-
-    fun vibrateOnly() {
         if (!_state.value.isConnected) return
-        // Legacy 10-series find command often vibrates without full UI on some firmwares
-        // Using length 06 (Total length - 1)
-        val packet = intArrayOf(0xFE, 0xEA, 0x10, 0x06, 0x0D, 0x01, 0x01).map { it.toByte() }.toByteArray()
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Vibrate only via legacy FEE2: ${packet.toHexString()}")
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x61)))
+        updateDebugLog("Find My Watch via FEE2")
     }
 
     fun syncTime() {
-        // MATCH WORKING BIG ENDIAN LOGIC on FEE2
-        val tz = TimeZone.getDefault()
-        val now = (System.currentTimeMillis() + tz.getOffset(System.currentTimeMillis())) / 1000
-        val packet = ByteArray(10)
-        packet[0] = 0xFE.toByte(); packet[1] = 0xEA.toByte(); packet[2] = 0x10.toByte()
-        packet[3] = 0x09.toByte(); packet[4] = 0x31.toByte()
-        packet[5] = ((now shr 24) and 0xFF).toByte(); packet[6] = ((now shr 16) and 0xFF).toByte()
-        packet[7] = ((now shr 8) and 0xFF).toByte(); packet[8] = (now and 0xFF).toByte()
-        packet[9] = 0x08.toByte()
+        val tz = TimeZone.getDefault(); val now = (System.currentTimeMillis() + tz.getOffset(System.currentTimeMillis())) / 1000
+        val packet = ByteArray(10).apply {
+            this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x10.toByte(); this[3] = 0x09.toByte(); this[4] = 0x31.toByte()
+            this[5] = ((now shr 24) and 0xFF).toByte(); this[6] = ((now shr 16) and 0xFF).toByte(); this[7] = ((now shr 8) and 0xFF).toByte(); this[8] = (now and 0xFF).toByte(); this[9] = 0x08.toByte()
+        }
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         updateDebugLog("Syncing clock (Big Endian FEE2)...")
     }
 
-    fun clearQueue() {
-        synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") }
-    }
+    fun clearQueue() { synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") } }
 
     suspend fun exportDataToCsv(): String {
-        val entries = healthDao.getAllEntriesList()
-        val csv = StringBuilder()
-        csv.append("Timestamp,Time,Battery,HeartRate,SpO2,Systolic,Diastolic,Steps,ActivityCount,Distance,Calories\n")
-        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        entries.forEach { e ->
-            csv.append("${e.timestamp},")
-            csv.append("${sdf.format(Date(e.timestamp))},")
-            csv.append("${e.battery ?: ""},")
-            csv.append("${e.heartRate ?: ""},")
-            csv.append("${e.spo2 ?: ""},")
-            csv.append("${e.systolic ?: ""},")
-            csv.append("${e.diastolic ?: ""},")
-            csv.append("${e.steps ?: ""},")
-            csv.append("${e.activityCount ?: ""},")
-            csv.append("${e.distance ?: ""},")
-            csv.append("${e.calories ?: ""}\n")
-        }
-        return csv.toString()
+        val entries = healthDao.getAllEntriesList(); val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        return "Timestamp,Time,Battery,HeartRate,SpO2,Systolic,Diastolic,Steps,ActivityCount,Distance,Calories\n" +
+            entries.joinToString("\n") { e -> "${e.timestamp},${sdf.format(Date(e.timestamp))},${e.battery ?: ""},${e.heartRate ?: ""},${e.spo2 ?: ""},${e.systolic ?: ""},${e.diastolic ?: ""},${e.steps ?: ""},${e.activityCount ?: ""},${e.distance ?: ""},${e.calories ?: ""}" }
     }
 
-    fun sendNotification(
-        title: String,
-        text: String,
-        forceLegacy: Boolean = false,
-        ignoreDuplicate: Boolean = false,
-        legacyType: Int = 0x01,
-        forceMirrored: Boolean = false
-    ) {
-        val message = listOf(title.trim(), text.trim())
-            .asSequence()
-            .filter { it.isNotBlank() }
-            .joinToString(": ")
-        
-        if (message.isBlank()) return
-        
+    fun sendNotification(title: String, text: String, forceLegacy: Boolean = false, ignoreDuplicate: Boolean = false, legacyType: Int = 0x01, forceMirrored: Boolean = false) {
+        val message = listOf(title.trim(), text.trim()).filter { it.isNotBlank() }.joinToString(": "); if (message.isBlank()) return
         managerScope.launch {
             if (_state.value.ignoreDuplicateNotifications && !forceLegacy && !ignoreDuplicate) {
                 val hash = message.hashCode()
-                val since = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-                if (healthDao.countSeenNotification(hash, since) > 0) {
-                    updateDebugLog("Duplicate notification ignored: $message")
-                    return@launch
-                }
+                if (healthDao.countSeenNotification(hash, System.currentTimeMillis() - (30L * 24 * 3600_000)) > 0) return@launch
                 healthDao.insertSeenNotification(com.labbaslabs.jampsfit.database.SeenNotification(content_hash = hash))
             }
-
-            if (!forceMirrored && (forceLegacy || _state.value.useLegacyCallNotifications)) {
-                sendNativeNotification08(title, text, type = legacyType, checksum = false, logLabel = "legacy")
-            } else {
-                sendNativeNotification41(message, maxBytes = 238, logLabel = "mirrored")
-            }
+            if (!forceMirrored && (forceLegacy || _state.value.useLegacyCallNotifications)) sendNativeNotification08(title, text, type = legacyType)
+            else sendNativeNotification41(message, maxBytes = 238)
         }
     }
 
-    fun sendLegacyShortNotification(title: String, text: String) {
-        sendNotification(title, text, forceLegacy = true)
+    private fun sendNativeNotification08(title: String, text: String, type: Int) {
+        val titleBytes = title.take(18).toByteArray(Charsets.UTF_8); val textBytes = text.take(40).toByteArray(Charsets.UTF_8)
+        val payload = mutableListOf<Int>().apply { add(type and 0xFF); add(titleBytes.size); titleBytes.forEach { add(it.toInt() and 0xFF) }; add(textBytes.size); textBytes.forEach { add(it.toInt() and 0xFF) } }
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x08, *payload.toIntArray())))
     }
 
-    fun sendLegacyCallNotification(title: String, text: String) {
-        sendNotification(title, text, forceLegacy = true)
+    private fun sendNativeNotification41(message: String, maxBytes: Int) {
+        val textBytes = message.toByteArray(Charsets.UTF_8).let { it.copyOfRange(0, it.size.coerceAtMost(maxBytes.coerceIn(1, 249))) }
+        val payload = IntArray(1 + textBytes.size).apply { this[0] = 0x80; textBytes.forEachIndexed { i, b -> this[i + 1] = b.toInt() and 0xFF } }
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x41, *payload)))
     }
 
-    private fun sendNativeNotification08(title: String, text: String, type: Int, checksum: Boolean, logLabel: String) {
-        val titleBytes = title.take(18).toByteArray(Charsets.UTF_8)
-        val textBytes = text.take(40).toByteArray(Charsets.UTF_8)
-        val payload = mutableListOf<Int>()
-        payload.add(type and 0xFF)
-        payload.add(titleBytes.size)
-        titleBytes.forEach { payload.add(it.toInt() and 0xFF) }
-        payload.add(textBytes.size)
-        textBytes.forEach { payload.add(it.toInt() and 0xFF) }
-        val base = nativePacket(0x08, *payload.toIntArray())
-        val packet = if (checksum) base.withTrailingSumChecksum() else base
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Notification 20/08 $logLabel type=$type checksum=$checksum -> ${packet.toHexString()}")
-    }
-
-    private fun sendNativeNotification41(message: String, maxBytes: Int = 40, logLabel: String = "tiny") {
-        val textBytes = message.toByteArray(Charsets.UTF_8).copyOfRangeSafe(0, maxBytes.coerceIn(1, 249))
-        val payload = IntArray(1 + textBytes.size)
-        payload[0] = 0x80
-        textBytes.forEachIndexed { index, byte -> payload[index + 1] = byte.toInt() and 0xFF }
-        val packet = nativePacket(0x41, *payload)
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        updateDebugLog("Notification 20/41 $logLabel bytes=${textBytes.size} -> ${packet.toHexString()}")
-    }
-
-    fun sendExperimentalNotification() {
-        updateDebugLog("Experimental notification disabled: use Android notification mirroring path; this button rebooted the watch.")
-    }
-
-    fun prepareDaFitSession() {
-        updateDebugLog("Find prep disabled: the 84/B4 cluster rebooted this watch outside Da Fit startup state.")
-    }
-
-    fun prepareAndFindWatch() {
-        updateDebugLog("Prep + Find disabled: Find prep rebooted this watch outside Da Fit startup state.")
-    }
-
-    fun sendStartupPreamblePhase1() {
-        updateDebugLog("Startup phase 1 disabled: old test wrote Da Fit FEE2 traffic to the wrong characteristic.")
-    }
-
-    fun sendStartupPreamblePhase2() {
-        updateDebugLog("Startup phase 2 disabled: old test wrote Da Fit FEE2 traffic to the wrong characteristic.")
-    }
-
-    fun setAutoLockSeconds(seconds: Int) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Auto-lock test skipped: watch is not connected.")
-            return
-        }
-        val safeSeconds = seconds.coerceIn(5, 60)
-        val packet = nativePacket(0x7D, safeSeconds)
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        _state.update { it.copy(autoLockSecondsSetting = safeSeconds) }
-        updateDebugLog("Auto-lock via FEE2: ${safeSeconds}s -> ${packet.toHexString()}")
-    }
-
+    fun setAutoLockSeconds(seconds: Int) { val safe = seconds.coerceIn(5, 60); enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x7D, safe))); _state.update { it.copy(autoLockSecondsSetting = safe) } }
     fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Quick View window skipped: watch is not connected.")
-            return
-        }
-        val safeStartHour = startHour.coerceIn(0, 23)
-        val safeStartMinute = startMinute.coerceIn(0, 59)
-        val safeEndHour = endHour.coerceIn(0, 23)
-        val safeEndMinute = endMinute.coerceIn(0, 59)
-        val packet = nativePacket(0x72, safeStartHour, safeStartMinute, safeEndHour, safeEndMinute)
-        sendFee2NativeRaw(packet)
-        
-        prefs.edit {
-            putInt("quickViewStartHour", safeStartHour)
-            putInt("quickViewStartMinute", safeStartMinute)
-            putInt("quickViewEndHour", safeEndHour)
-            putInt("quickViewEndMinute", safeEndMinute)
-        }
-        _state.update { 
-            it.copy(
-                quickViewStartHour = safeStartHour,
-                quickViewStartMinute = safeStartMinute,
-                quickViewEndHour = safeEndHour,
-                quickViewEndMinute = safeEndMinute
-            )
-        }
-
-        updateDebugLog(
-            "Quick View window via FEE2: " +
-                "%02d:%02d-%02d:%02d -> %s".format(
-                    safeStartHour,
-                    safeStartMinute,
-                    safeEndHour,
-                    safeEndMinute,
-                    packet.toHexString()
-                )
-        )
+        val sH = startHour.coerceIn(0, 23); val sM = startMinute.coerceIn(0, 59); val eH = endHour.coerceIn(0, 23); val eM = endMinute.coerceIn(0, 59)
+        sendFee2NativeRaw(nativePacket(0x72, sH, sM, eH, eM))
+        prefs.edit { putInt("quickViewStartHour", sH); putInt("quickViewStartMinute", sM); putInt("quickViewEndHour", eH); putInt("quickViewEndMinute", eM) }
+        _state.update { it.copy(quickViewStartHour = sH, quickViewStartMinute = sM, quickViewEndHour = eH, quickViewEndMinute = eM) }
     }
 
-    fun setStepGoal(goal: Int) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Step-goal test skipped: watch is not connected.")
-            return
-        }
-        val safeGoal = (goal / 1000).coerceIn(2, 35) * 1000
-        val packet = nativePacket(0x16, 0x00, (safeGoal shr 8) and 0xFF, safeGoal and 0xFF)
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        _state.update { it.copy(stepGoalSetting = safeGoal) }
-        updateDebugLog("Step goal via FEE2: $safeGoal -> ${packet.toHexString()}")
-    }
-
-    fun queryCurrentSteps() {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Current steps query skipped: watch is not connected.")
-            return
-        }
-        managerScope.launch {
-            sendFee2NativeRaw(nativePacket(0x59, 0x00))
-            delay(180)
-            sendFee2NativeRaw(nativePacket(0x59, 0x01))
-            updateDebugLog("Current steps query via FEE2: requested 59 00 + 59 01")
-        }
-    }
-
-    fun querySleepBoundaries() {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Sleep boundary query skipped: watch is not connected.")
-            return
-        }
-        val packet = nativePacket(0x32)
-        sendFee2NativeRaw(packet)
-        updateDebugLog("Sleep boundary query via FEE2 -> ${packet.toHexString()}")
-    }
+    fun setStepGoal(goal: Int) { val safe = (goal / 1000).coerceIn(2, 35) * 1000; enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x16, 0x00, (safe shr 8) and 0xFF, safe and 0xFF))); _state.update { it.copy(stepGoalSetting = safe) } }
+    fun queryCurrentSteps() { managerScope.launch { sendFee2NativeRaw(nativePacket(0x59, 0x00)); delay(180); sendFee2NativeRaw(nativePacket(0x59, 0x01)) } }
+    fun querySleepBoundaries() = sendFee2NativeRaw(nativePacket(0x32))
 
     private fun restartAutoStepFetch() {
-        autoStepFetchJob?.cancel()
-        autoStepFetchJob = null
-        val state = _state.value
-        if (!state.autoFetchSteps || !state.isConnected) return
-        val intervalMs = state.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
-        autoStepFetchJob = managerScope.launch {
-            updateDebugLog("Auto step fetch enabled: every ${state.stepFetchIntervalMinutes}m")
-            while (isActive) {
-                queryCurrentSteps()
-                delay(intervalMs)
-            }
-        }
+        autoStepFetchJob?.cancel(); if (!_state.value.autoFetchSteps || !_state.value.isConnected) return
+        autoStepFetchJob = managerScope.launch { val interval = _state.value.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L; while (isActive) { queryCurrentSteps(); delay(interval) } }
     }
 
     private fun restartAutoSyncTime() {
-        autoSyncTimeJob?.cancel()
-        autoSyncTimeJob = null
-        val state = _state.value
-        if (!state.autoSyncTime || !state.isConnected) return
-        val intervalMs = state.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L
-        autoSyncTimeJob = managerScope.launch {
-            updateDebugLog("Auto sync time enabled: every ${state.syncTimeIntervalHours}h")
-            while (isActive) {
-                syncTime()
-                delay(intervalMs)
-            }
-        }
-    }
-
-    private fun restartAutoBatteryFetch() {
-        autoBatteryFetchJob?.cancel()
-        autoBatteryFetchJob = null
-        val state = _state.value
-        if (!state.autoFetchBattery || !state.isConnected) return
-        val intervalMs = state.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
-        autoBatteryFetchJob = managerScope.launch {
-            updateDebugLog("Auto battery fetch enabled: every ${state.stepFetchIntervalMinutes}m")
-            while (isActive) {
-                readBattery()
-                delay(intervalMs)
-            }
-        }
-    }
-
-    private fun restartAutoSleepFetch() {
-        autoSleepFetchJob?.cancel()
-        autoSleepFetchJob = null
-        val state = _state.value
-        if (!state.autoFetchSleep || !state.isConnected) return
-        autoSleepFetchJob = managerScope.launch {
-            updateDebugLog("Auto sleep fetch enabled: every 4h")
-            while (isActive) {
-                querySleepBoundaries()
-                delay(4 * 3600_000L)
-            }
-        }
+        autoSyncTimeJob?.cancel(); if (!_state.value.autoSyncTime || !_state.value.isConnected) return
+        autoSyncTimeJob = managerScope.launch { val interval = _state.value.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L; while (isActive) { syncTime(); delay(interval) } }
     }
 
     fun setWeatherCity(city: String) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Weather test skipped: watch is not connected.")
-            return
-        }
-        val safeCity = city.trim().ifBlank { "Joensuu" }.take(12)
+        val safeCity = city.trim().ifBlank { "London" }.take(12)
         managerScope.launch {
-            updateDebugLog("Weather city via FEE2 '$safeCity' sequence starting...")
-            val cityLower = safeCity.lowercase(Locale.US)
-            val cityAscii = cityLower.toByteArray(Charsets.UTF_8)
-            val cityUtf16 = cityLower.toByteArray(Charsets.UTF_16LE)
-            val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
-
-            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00))
-            delay(180)
-            sendFee2NativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray()))
-            delay(180)
-            sendFee2NativeRaw(nativePacket(0x42, 0x03, 0x0E, 0x07, 0x00, 0x0E, 0x06, 0x03, 0x13, 0x0A, 0x03, 0x10, 0x0C, 0x00, 0x0F, 0x0A, 0x03, 0x0D, 0x09, 0x03, 0x09, 0x07))
-            delay(180)
-            sendFee2NativeRaw(nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 0x38, 0x15, 0x39, *cityAscii.map { it.toInt() and 0xFF }.toIntArray()))
-            delay(180)
-            val cityPacket = nativePacket(0x45, *displayAscii.map { it.toInt() and 0xFF }.toIntArray())
-            sendFee2NativeRaw(cityPacket)
-            updateDebugLog("Weather city via FEE2 '$safeCity' sent -> ${cityPacket.toHexString()}")
+            val cityAscii = safeCity.lowercase().toByteArray(Charsets.UTF_8); val cityUtf16 = safeCity.lowercase().toByteArray(Charsets.UTF_16LE); val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
+            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00)); delay(180); sendFee2NativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray())); delay(180)
+            sendFee2NativeRaw(nativePacket(0x42, 0x03, 0x0E, 0x07, 0x00, 0x0E, 0x06, 0x03, 0x13, 0x0A, 0x03, 0x10, 0x0C, 0x00, 0x0F, 0x0A, 0x03, 0x0D, 0x09, 0x03, 0x09, 0x07)); delay(180)
+            sendFee2NativeRaw(nativePacket(0xB5, 0x00, 0x01, 0x07, 0x00, 0x00, 0x03, 38, 15, 39, *cityAscii.map { it.toInt() and 0xFF }.toIntArray())); delay(180)
+            sendFee2NativeRaw(nativePacket(0x45, *displayAscii.map { it.toInt() and 0xFF }.toIntArray()))
         }
     }
 
     fun sendWeatherForecastSample() {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Weather forecast test skipped: watch is not connected.")
-            return
-        }
         managerScope.launch {
-            updateDebugLog("Weather forecast sample via FEE2 starting...")
-            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00))
-            delay(180)
-            // Captures suggest command 0x42 is seven forecast triples: condition, high C, low C.
-            val forecastPacket = nativePacket(
-                0x42,
-                0x00, 0x1C, 0x12,
-                0x01, 0x1A, 0x10,
-                0x02, 0x18, 0x0E,
-                0x03, 0x16, 0x0C,
-                0x04, 0x14, 0x0A,
-                0x05, 0x12, 0x08,
-                0x06, 0x10, 0x06
-            )
-            sendFee2NativeRaw(forecastPacket)
-            updateDebugLog("Weather forecast sample via FEE2 sent -> ${forecastPacket.toHexString()}")
+            sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00)); delay(180)
+            sendFee2NativeRaw(nativePacket(0x42, 0x00, 28, 18, 0x01, 26, 16, 0x02, 24, 14, 0x03, 22, 12, 0x04, 20, 10, 0x05, 18, 8, 0x06, 16, 6))
         }
     }
 
     fun sendGadgetbridgeProbe(kind: String) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Gadgetbridge probe skipped: watch is not connected.")
-            return
-        }
         val packet = when (kind) {
-            "get-alarms" -> nativePacket(0x21)
-            "get-step-goal" -> nativePacket(0x26)
-            "get-auto-lock" -> nativePacket(0x8D)
-            "heartbeat-64" -> nativePacket(0x64)
-            "time-12h" -> {
-                prefs.edit { putBoolean("is24HourFormat", false) }
-                _state.update { it.copy(is24HourFormat = false) }
-                nativePacket(0x17, 0x00)
-            }
-            "time-24h" -> {
-                prefs.edit { putBoolean("is24HourFormat", true) }
-                _state.update { it.copy(is24HourFormat = true) }
-                nativePacket(0x17, 0x01)
-            }
-            "quick-view-off" -> {
-                prefs.edit { putBoolean("quickViewEnabled", false) }
-                _state.update { it.copy(quickViewEnabled = false) }
-                nativePacket(0x18, 0x00)
-            }
-            "quick-view-on" -> {
-                prefs.edit { putBoolean("quickViewEnabled", true) }
-                _state.update { it.copy(quickViewEnabled = true) }
-                nativePacket(0x18, 0x01)
-            }
-            "auto-hr-10m" -> nativePacket(0x1F, 0x02)
-            "auto-hr-5m" -> nativePacket(0x1F, 0x01)
-            "move-reminder-on" -> nativePacket(0x1D, 0x01)
-            "move-reminder-off" -> nativePacket(0x1D, 0x00)
-            "b9-ecard-config" -> nativePacket(0xB9, 0x12, 0x00, 0x02)
-            "b9-ecard-content" -> nativePacket(0xB9, 0x12, 0x00, 0x03)
-            "b9-weather-19" -> nativePacket(0xB9, 0x19, 0x00)
-            "hr-6d-query" -> nativePacket(0x6D)
-            "hr-6d-stop" -> nativePacket(0x6D, 0x00)
-            "steps-33-00" -> nativePacket(0x33, 0x00)
-            "steps-33-01" -> nativePacket(0x33, 0x01)
-            "steps-33-02" -> nativePacket(0x33, 0x02)
-            "steps-59-00" -> nativePacket(0x59, 0x00)
-            "steps-59-01" -> nativePacket(0x59, 0x01)
-            "steps-59-02" -> nativePacket(0x59, 0x02)
-            "steps-59-03" -> nativePacket(0x59, 0x03)
-            "steps-10-59-00" -> legacyPacket(0x00)
-            "steps-10-59-01" -> legacyPacket(0x01)
-            "steps-10-59-02" -> legacyPacket(0x02)
-            "steps-10-59-03" -> legacyPacket(0x03)
-            "sleep-32-00" -> nativePacket(0x32, 0x00)
-            "sleep-32-01" -> nativePacket(0x32, 0x01)
-            "sleep-32-02" -> nativePacket(0x32, 0x02)
-            "sleep-32-03" -> nativePacket(0x32, 0x03)
-            "totals-33-00" -> nativePacket(0x33, 0x00)
-            "totals-33-01" -> nativePacket(0x33, 0x01)
-            "totals-33-02" -> nativePacket(0x33, 0x02)
-            "totals-33-03" -> nativePacket(0x33, 0x03)
-            "moyoung-51-01" -> nativePacket(0x51, 0x01)
-            "moyoung-52-01" -> nativePacket(0x52, 0x01)
-            "moyoung-53-01" -> nativePacket(0x53, 0x01)
-            "sync-history-3d" -> {
-                managerScope.launch {
-                    listOf(0x32, 0x33, 0x51, 0x52, 0x53).forEach { cmd ->
-                        (0..3).forEach { offset ->
-                            sendFee2NativeRaw(nativePacket(cmd, offset))
-                            delay(200)
-                        }
-                    }
-                }
-                nativePacket(0x64) // dummy
-            }
-            else -> {
-                updateDebugLog("Unknown Gadgetbridge probe: $kind")
-                return
-            }
+            "get-alarms" -> nativePacket(0x21); "get-step-goal" -> nativePacket(0x26); "get-auto-lock" -> nativePacket(0x8D)
+            "time-12h" -> { _state.update { it.copy(is24HourFormat = false) }; nativePacket(0x17, 0x00) }
+            "time-24h" -> { _state.update { it.copy(is24HourFormat = true) }; nativePacket(0x17, 0x01) }
+            "quick-view-off" -> { _state.update { it.copy(quickViewEnabled = false) }; nativePacket(0x18, 0x00) }
+            "quick-view-on" -> { _state.update { it.copy(quickViewEnabled = true) }; nativePacket(0x18, 0x01) }
+            "auto-hr-10m" -> nativePacket(0x1F, 0x02); "move-reminder-on" -> nativePacket(0x1D, 0x01); "sync-history-3d" -> { managerScope.launch { listOf(0x32, 0x33, 0x51, 0x52, 0x53).forEach { c -> (0..3).forEach { o -> sendFee2NativeRaw(nativePacket(c, o)); delay(200) } } }; nativePacket(0x64) }
+            else -> return
         }
         sendFee2NativeRaw(packet)
-        updateDebugLog("Gadgetbridge probe $kind via FEE2 -> ${packet.toHexString()}")
     }
 
     fun setAutoHeartRateInterval(minutes: Int) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Auto HR setting skipped: watch is not connected.")
-            return
-        }
-        val code = when (minutes) {
-            0 -> 0x00
-            5 -> 0x01
-            10 -> 0x02
-            15 -> 0x03
-            30 -> 0x04
-            60 -> 0x05
-            else -> {
-                updateDebugLog("Auto HR interval ${minutes}m is not mapped.")
-                return
-            }
-        }
-        val packet = nativePacket(0x1F, code)
-        sendFee2NativeRaw(packet)
-        prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }
-        _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
-        val confidence = if ((minutes == 5 || minutes == 10)) "captured Da Fit" else "candidate"
-        val label = if (minutes == 0) "off" else "${minutes}m"
-        updateDebugLog("Auto HR $label via FEE2 ($confidence): ${packet.toHexString()}")
-    }
-
-    fun sendWeightCandidate() {
-        updateDebugLog("Weight write disabled until we capture a second known value.")
+        val code = when (minutes) { 0 -> 0x00; 5 -> 0x01; 10 -> 0x02; 15 -> 0x03; 30 -> 0x04; 60 -> 0x05; else -> return }
+        sendFee2NativeRaw(nativePacket(0x1F, code)); prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }; _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
     }
 
     fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int, month: Int = 0, day: Int = 0) {
-        if (!_state.value.isConnected) {
-            updateDebugLog("Alarm write skipped: watch is not connected.")
-            return
-        }
-        val safeSlot = slot.coerceIn(0, 2)
-        val safeHour = hour.coerceIn(0, 23)
-        val safeMinute = minute.coerceIn(0, 59)
-        val safeRepeatMask = repeatMask and 0x7F
-        val enabledByte = if (enabled) 0x01 else 0x00
-        val mode = when {
-            safeRepeatMask != 0 -> 0x02
-            else -> 0x00
-        }
-        val packet = nativePacket(
-            0x11,
-            safeSlot,
-            enabledByte,
-            mode,
-            safeHour,
-            safeMinute,
-            month,
-            day,
-            safeRepeatMask
-        )
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
-        _state.update {
-            val alarms = it.alarmSettings.filterNot { alarm -> alarm.slot == safeSlot } +
-                WatchAlarm(safeSlot, enabled, mode, safeHour, safeMinute, safeRepeatMask)
-            it.copy(alarmSettings = alarms.sortedBy { alarm -> alarm.slot })
-        }
-        val dateInfo = if (month > 0) " date=%02d.%02d".format(day, month) else ""
-        updateDebugLog("Alarm ${safeSlot + 1} via FEE2: ${if (enabled) "on" else "off"} ${"%02d:%02d".format(safeHour, safeMinute)} repeat=0x${"%02X".format(safeRepeatMask)}$dateInfo -> ${packet.toHexString()}")
+        val sS = slot.coerceIn(0, 2); val sH = hour.coerceIn(0, 23); val sM = minute.coerceIn(0, 59); val sR = repeatMask and 0x7F; val mode = if (sR != 0) 0x02 else 0x00
+        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x11, sS, if (enabled) 0x01 else 0x00, mode, sH, sM, month, day, sR)))
+        _state.update { val alarms = it.alarmSettings.filterNot { a -> a.slot == sS } + WatchAlarm(sS, enabled, mode, sH, sM, sR); it.copy(alarmSettings = alarms.sortedBy { a -> a.slot }) }
     }
 
-    private fun ByteArray.copyOfRangeSafe(fromIndex: Int, maxLength: Int): ByteArray {
-        return copyOfRange(fromIndex, size.coerceAtMost(fromIndex + maxLength))
-    }
-
-    fun sendRawTest(hex: String, useAltChar: Boolean = false) {
-        val bytes = hex.split(" ").filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
-        enqueueOperation(GattOperation.WriteCharacteristic(if (useAltChar) DATA_CHAR_UUID else null, bytes))
-    }
-
-    private fun sendFee2NativeRaw(bytes: ByteArray) {
-        enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, bytes))
-    }
-
-    private fun nativePacket(cmd: Int, vararg payload: Int): ByteArray {
-        val packet = ByteArray(5 + payload.size)
-        packet[0] = 0xFE.toByte()
-        packet[1] = 0xEA.toByte()
-        packet[2] = 0x20.toByte()
-        packet[3] = packet.size.toByte()
-        packet[4] = cmd.toByte()
-        payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
-        return packet
-    }
-
-    private fun legacyPacket(vararg payload: Int): ByteArray {
-        val packet = ByteArray(5 + payload.size)
-        packet[0] = 0xFE.toByte()
-        packet[1] = 0xEA.toByte()
-        packet[2] = 0x10.toByte()
-        packet[3] = (packet.size - 1).toByte()
-        packet[4] = 0x59.toByte()
-        payload.forEachIndexed { index, value -> packet[5 + index] = (value and 0xFF).toByte() }
-        return packet
-    }
-
-    private fun ByteArray.toHexString(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
-
-    private fun ByteArray.withTrailingSumChecksum(): ByteArray {
-        val packet = copyOf(size + 1)
-        packet[3] = packet.size.toByte()
-        packet[packet.lastIndex] = (packet.dropLast(1).sumOf { it.toInt() and 0xFF } and 0xFF).toByte()
-        return packet
-    }
-
-    fun readBattery() {
-        val gatt = bluetoothGatt ?: return
-        for (s in gatt.services) {
-            val c = s.getCharacteristic(BATTERY_CHAR)
-            if (c != null) { enqueueOperation(GattOperation.ReadCharacteristic(c)); return }
-        }
-    }
-
-    fun startMeasurement(type: String) {
-        val cmd = when (type) { "Heart Rate" -> 0x6D; "SpO2" -> 0x6B; "Blood Pressure" -> 0x69; else -> return }
-        updateDebugLog("$type app-start disabled: FE EA 20 06 ${"%02X".format(cmd)} 01 reboots this watch. Start the measurement on the watch; jampsFit will listen for FEE3 results.")
-    }
-
-    fun stopMeasurement() {
-        val type = _state.value.activeMeasurement ?: return
-        updateDebugLog("$type app-stop ignored: app-origin measurement commands are disabled to avoid watch reboot.")
-        _state.update { it.copy(activeMeasurement = null) }
-    }
-
+    fun readBattery() { bluetoothGatt?.services?.forEach { s -> s.getCharacteristic(BATTERY_CHAR)?.let { enqueueOperation(GattOperation.ReadCharacteristic(it)); return } } }
+    fun startMeasurement(type: String) { updateDebugLog("$type app-start disabled. Use watch UI.") }
+    fun stopMeasurement() { _state.update { it.copy(activeMeasurement = null) } }
     fun updateShutterAction(a: String) { prefs.edit { putString("shutterAction", a) }; _state.update { it.copy(shutterAction = a) } }
     fun updateMusicAction(a: String) { prefs.edit { putString("musicAction", a) }; _state.update { it.copy(musicAction = a) } }
-    fun updateCustomAction(b: String, a: String) {
-        when (b) { "Play/Pause" -> { prefs.edit { putString("playPauseAction", a) }; _state.update { it.copy(playPauseAction = a) } }
-        "Next" -> { prefs.edit { putString("nextAction", a) }; _state.update { it.copy(nextAction = a) } }
-        "Previous" -> { prefs.edit { putString("prevAction", a) }; _state.update { it.copy(prevAction = a) } } }
-    }
-
+    fun updateCustomAction(b: String, a: String) { when (b) { "Play/Pause" -> { prefs.edit { putString("playPauseAction", a) }; _state.update { it.copy(playPauseAction = a) } }; "Next" -> { prefs.edit { putString("nextAction", a) }; _state.update { it.copy(nextAction = a) } }; "Previous" -> { prefs.edit { putString("prevAction", a) }; _state.update { it.copy(prevAction = a) } } } }
     fun toggleAutoStart(e: Boolean) { prefs.edit { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
     fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
-    fun toggleAutoFetchSteps(e: Boolean) {
-        prefs.edit { putBoolean("autoFetchSteps", e) }
-        _state.update { it.copy(autoFetchSteps = e) }
-        restartAutoStepFetch()
-    }
-    fun toggleAutoFetchBattery(e: Boolean) {
-        prefs.edit { putBoolean("autoFetchBattery", e) }
-        _state.update { it.copy(autoFetchBattery = e) }
-        restartAutoBatteryFetch()
-    }
-    fun toggleAutoFetchSleep(e: Boolean) {
-        prefs.edit { putBoolean("autoFetchSleep", e) }
-        _state.update { it.copy(autoFetchSleep = e) }
-        restartAutoSleepFetch()
-    }
-    fun updateStepFetchInterval(minutes: Int) {
-        val safeMinutes = minutes.coerceIn(5, 1440)
-        prefs.edit { putInt("stepFetchIntervalMinutes", safeMinutes) }
-        _state.update { it.copy(stepFetchIntervalMinutes = safeMinutes) }
-        restartAutoStepFetch()
-        restartAutoBatteryFetch()
-    }
+    fun toggleAutoFetchSteps(e: Boolean) { prefs.edit { putBoolean("autoFetchSteps", e) }; _state.update { it.copy(autoFetchSteps = e) }; restartAutoStepFetch() }
+    fun toggleAutoFetchBattery(e: Boolean) { prefs.edit { putBoolean("autoFetchBattery", e) }; _state.update { it.copy(autoFetchBattery = e) } }
+    fun toggleAutoFetchSleep(e: Boolean) { prefs.edit { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) } }
+    fun updateStepFetchInterval(m: Int) { prefs.edit { putInt("stepFetchIntervalMinutes", m) }; _state.update { it.copy(stepFetchIntervalMinutes = m) }; restartAutoStepFetch() }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
-    
-    fun addNotificationFilter(pkg: String) {
-        val newFilters = _state.value.notificationFilters + pkg
-        prefs.edit { putStringSet("notificationFilters", newFilters) }
-        _state.update { it.copy(notificationFilters = newFilters) }
-    }
-
-    fun removeNotificationFilter(pkg: String) {
-        val newFilters = _state.value.notificationFilters - pkg
-        prefs.edit { putStringSet("notificationFilters", newFilters) }
-        _state.update { it.copy(notificationFilters = newFilters) }
-    }
-
-    fun registerDiscoveredApp(pkg: String, name: String) {
-        if (_state.value.discoveredApps[pkg] == name) return
-        val newApps = _state.value.discoveredApps + (pkg to name)
-        prefs.edit {
-            putStringSet("discoveredApps", newApps.map { "${it.key}|${it.value}" }.toSet())
-        }
-        _state.update { it.copy(discoveredApps = newApps) }
-    }
-
+    fun addNotificationFilter(pkg: String) { val f = _state.value.notificationFilters + pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
+    fun removeNotificationFilter(pkg: String) { val f = _state.value.notificationFilters - pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
+    fun registerDiscoveredApp(p: String, n: String) { if (_state.value.discoveredApps[p] == n) return; val a = _state.value.discoveredApps + (p to n); prefs.edit { putStringSet("discoveredApps", a.map { "${it.key}|${it.value}" }.toSet()) }; _state.update { it.copy(discoveredApps = a) } }
     fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
-    
-    fun updateBorderColor(color: Int) {
-        prefs.edit { putInt("borderColor", color) }
-        _state.update { it.copy(borderColor = color) }
-    }
-
-    fun updateBorderThickness(thickness: Float) {
-        prefs.edit { putFloat("borderThickness", thickness) }
-        _state.update { it.copy(borderThickness = thickness) }
-    }
-
-    fun updateBorderAlpha(alpha: Float) {
-        prefs.edit { putFloat("borderAlpha", alpha) }
-        _state.update { it.copy(borderAlpha = alpha) }
-    }
-
-    fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) {
-        val normalizedGender = if (gender.equals("Female", ignoreCase = true)) "Female" else "Male"
-        val normalizedHeight = heightCm.coerceIn(100, 230)
-        val normalizedWeight = weightKg.coerceIn(30f, 250f)
-        val normalizedAge = ageYears.coerceIn(10, 120)
-        prefs.edit {
-            putString("profileGender", normalizedGender)
-            putInt("profileHeightCm", normalizedHeight)
-            putFloat("profileWeightKg", normalizedWeight)
-            putInt("profileAgeYears", normalizedAge)
-        }
-        _state.update {
-            it.copy(
-                profileGender = normalizedGender,
-                profileHeightCm = normalizedHeight,
-                profileWeightKg = normalizedWeight,
-                profileAgeYears = normalizedAge
-            )
-        }
-    }
-
+    fun updateBorderColor(c: Int) { prefs.edit { putInt("borderColor", c) }; _state.update { it.copy(borderColor = c) } }
+    fun updateBorderThickness(t: Float) { prefs.edit { putFloat("borderThickness", t) }; _state.update { it.copy(borderThickness = t) } }
+    fun updateBorderAlpha(a: Float) { prefs.edit { putFloat("borderAlpha", a) }; _state.update { it.copy(borderAlpha = a) } }
+    fun updateProfile(g: String, h: Int, w: Float, a: Int) { prefs.edit { putString("profileGender", g); putInt("profileHeightCm", h); putFloat("profileWeightKg", w); putInt("profileAgeYears", a) }; _state.update { it.copy(profileGender = g, profileHeightCm = h, profileWeightKg = w, profileAgeYears = a) } }
     fun updateProtocol(h: String, u: String, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
-
-    fun updateVolumeSteps(steps: Int) {
-        val s = steps.coerceIn(1, 5)
-        prefs.edit { putInt("volumeSteps", s) }
-        _state.update { it.copy(volumeSteps = s) }
-    }
-
-    fun toggleAutoSyncAlarm(enabled: Boolean) {
-        prefs.edit { putBoolean("autoSyncAlarm", enabled) }
-        _state.update { it.copy(autoSyncAlarm = enabled) }
-        updateDebugLog("Auto-sync alarm: ${if (enabled) "enabled" else "disabled"}")
-    }
-
-    fun toggleAutoSyncTime(enabled: Boolean) {
-        prefs.edit { putBoolean("autoSyncTime", enabled) }
-        _state.update { it.copy(autoSyncTime = enabled) }
-        restartAutoSyncTime()
-        updateDebugLog("Auto-sync time: ${if (enabled) "enabled" else "disabled"}")
-    }
-
-    fun updateSyncTimeInterval(hours: Int) {
-        val safeHours = hours.coerceIn(1, 24)
-        prefs.edit { putInt("syncTimeIntervalHours", safeHours) }
-        _state.update { it.copy(syncTimeIntervalHours = safeHours) }
-        restartAutoSyncTime()
-    }
-
-    fun toggleMuteAlarmSyncNotification(enabled: Boolean) {
-        prefs.edit { putBoolean("muteAlarmSyncNotification", enabled) }
-        _state.update { it.copy(muteAlarmSyncNotification = enabled) }
-        updateDebugLog("Mute alarm sync notification: ${if (enabled) "enabled" else "disabled"}")
-    }
-
-    fun setFindingPhone(active: Boolean) {
-        _state.update { it.copy(isFindingPhone = active) }
-    }
-
-    fun setServiceRunning(running: Boolean) {
-        _state.update { it.copy(isServiceRunning = running) }
-    }
-
-    private fun updateDebugLog(msg: String) {
-        Log.d(TAG, msg)
-        val timestamp = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        val logText = synchronized(logBuffer) {
-            logBuffer.add("[$timestamp] $msg")
-            while (logBuffer.size > 100) logBuffer.removeAt(0)
-            logBuffer.toList().joinToString("\n")
-        }
-        _state.update { it.copy(debugLog = logText) }
-    }
-
-    private fun checkQueueTimeout() {
-        if (isOperating && System.currentTimeMillis() - lastOpTime > 2500) {
-            isOperating = false; doNextOperation()
-        }
-    }
-
-    private fun enqueueOperation(op: GattOperation) { 
-        checkQueueTimeout()
-        synchronized(operationQueue) { operationQueue.add(op); if (!isOperating) doNextOperation() } 
-    }
-
+    fun updateVolumeSteps(s: Int) { prefs.edit { putInt("volumeSteps", s) }; _state.update { it.copy(volumeSteps = s) } }
+    fun toggleAutoSyncAlarm(e: Boolean) { prefs.edit { putBoolean("autoSyncAlarm", e) }; _state.update { it.copy(autoSyncAlarm = e) } }
+    fun toggleAutoSyncTime(e: Boolean) { prefs.edit { putBoolean("autoSyncTime", e) }; _state.update { it.copy(autoSyncTime = e) }; restartAutoSyncTime() }
+    fun updateSyncTimeInterval(h: Int) { prefs.edit { putInt("syncTimeIntervalHours", h) }; _state.update { it.copy(syncTimeIntervalHours = h) }; restartAutoSyncTime() }
+    fun toggleMuteAlarmSyncNotification(e: Boolean) { prefs.edit { putBoolean("muteAlarmSyncNotification", e) }; _state.update { it.copy(muteAlarmSyncNotification = e) } }
+    fun setFindingPhone(active: Boolean) { _state.update { it.copy(isFindingPhone = active) } }
+    fun setServiceRunning(r: Boolean) { _state.update { it.copy(isServiceRunning = r) } }
+    private fun updateDebugLog(msg: String) { Log.d(TAG, msg); val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); synchronized(logBuffer) { logBuffer.add("[$t] $msg"); while (logBuffer.size > 100) logBuffer.removeAt(0); _state.update { it.copy(debugLog = logBuffer.joinToString("\n")) } } }
+    private fun enqueueOperation(op: GattOperation) { synchronized(operationQueue) { operationQueue.add(op); if (!isOperating) doNextOperation() } }
     private fun doNextOperation() {
         synchronized(operationQueue) {
-            if (isOperating) return
-            val operation = operationQueue.poll() ?: return
-            isOperating = true; lastOpTime = System.currentTimeMillis()
+            if (isOperating) return; val op = operationQueue.poll() ?: return; isOperating = true; lastOpTime = System.currentTimeMillis()
             managerScope.launch {
-                val gatt = bluetoothGatt ?: run { synchronized(operationQueue) { isOperating = false }; return@launch }
-                val errorCode = when (operation) {
-                    is GattOperation.WriteDescriptor -> gatt.writeDescriptor(operation.descriptor, operation.value)
+                val gatt = bluetoothGatt ?: run { isOperating = false; return@launch }
+                val code = when (op) {
+                    is GattOperation.WriteDescriptor -> gatt.writeDescriptor(op.descriptor, op.value)
+                    is GattOperation.ReadCharacteristic -> if (gatt.readCharacteristic(op.characteristic)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
                     is GattOperation.WriteCharacteristic -> {
-                        var found: BluetoothGattCharacteristic? = null
-                        val short = (operation.charUuid?.toString()?.substring(4, 8) ?: _state.value.writeUuidShort).lowercase()
-                        for (s in gatt.services) {
-                            for (c in s.characteristics) {
-                                if (c.uuid.toString().substring(4, 8).lowercase() == short) {
-                                    found = c
-                                    break
-                                }
-                            }
-                            if (found != null) break
-                        }
-                        found?.let {
-                            gatt.writeCharacteristic(it, operation.value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-                        } ?: BluetoothStatusCodes.ERROR_UNKNOWN
-                    }
-                    is GattOperation.ReadCharacteristic -> {
-                        if (gatt.readCharacteristic(operation.characteristic)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
+                        val uuid = (op.charUuid?.toString()?.substring(4, 8) ?: _state.value.writeUuidShort).lowercase()
+                        gatt.services.flatMap { it.characteristics }.find { it.uuid.toString().substring(4, 8).lowercase() == uuid }?.let { gatt.writeCharacteristic(it, op.value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) } ?: BluetoothStatusCodes.ERROR_UNKNOWN
                     }
                 }
-                if (errorCode != BluetoothStatusCodes.SUCCESS) {
-                    synchronized(operationQueue) { isOperating = false }
-                    doNextOperation()
-                }
+                if (code != BluetoothStatusCodes.SUCCESS) { isOperating = false; doNextOperation() }
             }
         }
     }
-
     private val scanCallback = object : ScanCallback() {
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val name = result.scanRecord?.deviceName ?: result.device.name
-            if (name?.contains(TARGET_NAME, ignoreCase = true) == true) { stopScan(); connectToDevice(result.device) }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            updateDebugLog("Scan failed: $errorCode; retrying...")
-            scheduleReconnect(delayMs = 1500)
-        }
+        override fun onScanResult(ct: Int, res: ScanResult) { if (res.device.name?.contains(TARGET_NAME, true) == true) { stopScan(); connectToDevice(res.device) } }
+        override fun onScanFailed(err: Int) { updateDebugLog("Scan failed: $err"); scheduleReconnect(1500) }
     }
-
     fun startScan() {
         userRequestedDisconnect = false
         reconnectJob?.cancel()
+        connectWatchdogJob?.cancel()
+        if (adapter?.isEnabled != true) {
+            _state.update { it.copy(isConnected = false, connectionStatus = "Bluetooth off") }
+            updateDebugLog("Bluetooth is off; waiting to reconnect.")
+            return
+        }
         stopScan()
         _state.update { it.copy(connectionStatus = "Scanning...") }
-        scanner?.startScan(null, android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCallback)
+        scanner?.startScan(
+            null,
+            android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+            scanCallback,
+        )
         startScanWatchdog()
     }
-    fun stopScan() {
-        scanWatchdogJob?.cancel()
-        scanWatchdogJob = null
-        scanner?.stopScan(scanCallback)
-    }
-    fun disconnect() {
-        userRequestedDisconnect = true
-        reconnectJob?.cancel()
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
-        bluetoothGatt = null
-        stopScan()
-        autoStepFetchJob?.cancel()
-        autoStepFetchJob = null
-        autoBatteryFetchJob?.cancel()
-        autoBatteryFetchJob = null
-        autoSyncTimeJob?.cancel()
-        autoSyncTimeJob = null
-        _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
-    }
+    fun stopScan() { scanWatchdogJob?.cancel(); scanner?.stopScan(scanCallback) }
+    fun disconnect() { userRequestedDisconnect = true; reconnectJob?.cancel(); connectWatchdogJob?.cancel(); bluetoothGatt?.disconnect(); bluetoothGatt?.close(); bluetoothGatt = null; stopScan(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") } }
     @Suppress("DEPRECATION")
     private fun connectToDevice(device: BluetoothDevice) {
         userRequestedDisconnect = false
+        reconnectJob?.cancel()
+        connectWatchdogJob?.cancel()
         stopScan()
         lastConnectedDevice = device
         _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }
-        bluetoothGatt = device.connectGatt(
-            context,
-            false,
-            gattCallback,
-            BluetoothDevice.TRANSPORT_LE,
-            BluetoothDevice.PHY_LE_1M_MASK
-        )
+        bluetoothGatt?.close()
+        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
+        startConnectWatchdog()
     }
-
     private val gattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) { isConfigured = false; _state.update { it.copy(isConnected = true, connectionStatus = "Connected") }; gatt.discoverServices() }
-            else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                bluetoothGatt = null
-                isConfigured = false
-                autoStepFetchJob?.cancel()
-                autoStepFetchJob = null
-                autoBatteryFetchJob?.cancel()
-                autoBatteryFetchJob = null
-                autoSyncTimeJob?.cancel()
-                autoSyncTimeJob = null
-                _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
-                synchronized(operationQueue) { operationQueue.clear(); isOperating = false }
-                gatt.close()
-                scheduleReconnect()
-            }
+        override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
+            if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected") }; gatt.discoverServices() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                updateDebugLog("Services discovered; skipping MTU request")
-                setupChannels(gatt)
-            }
-        }
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            updateDebugLog("Unexpected MTU callback ignored: mtu=$mtu status=$status")
-        }
+        override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
-            if (isConfigured) return
-            isConfigured = true; updateDebugLog("Configuring channels...")
-            for (s in gatt.services) {
-                updateDebugLog("Service ${s.uuid.toString().substring(4, 8).uppercase()}")
-                for (c in s.characteristics) {
-                    val short = c.uuid.toString().substring(4, 8).lowercase()
-                    val props = mutableListOf<String>()
-                    if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) props.add("WRITE")
-                    if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) props.add("WRITE_NR")
-                    if (c.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) props.add("READ")
-                    if (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) props.add("NOTIFY")
-                    if (c.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) props.add("INDICATE")
-                    updateDebugLog("Char ${short.uppercase()} [${props.joinToString(",")}]")
-
-                    if (c.uuid == SKIP_NOTIFY_CHAR) continue
-
-                    val canNotify = (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
-                    val canIndicate = (c.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
-                    if (canNotify || canIndicate) {
-                        gatt.setCharacteristicNotification(c, true)
-                        c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let {
-                            val value = if (canNotify) {
-                                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            } else {
-                                BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                            }
-                            enqueueOperation(GattOperation.WriteDescriptor(it, value))
-                            updateDebugLog("Queued listen ${short.uppercase()}")
-                        }
-                    }
-                    if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
+            gatt.services.forEach { s -> s.characteristics.forEach { c ->
+                if (c.uuid != SKIP_NOTIFY_CHAR && (c.properties and (BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE)) != 0) {
+                    gatt.setCharacteristicNotification(c, true)
+                    c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { enqueueOperation(GattOperation.WriteDescriptor(it, if ((c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) }
                 }
-            }
-            updateDebugLog("Channels ready; listening for watch data.")
-            restartAutoStepFetch()
-            restartAutoBatteryFetch()
-            restartAutoSleepFetch()
-            restartAutoSyncTime()
+                if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
+            } }; restartAutoStepFetch(); restartAutoSyncTime()
         }
-        override fun onDescriptorWrite(gatt: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) {
-            updateDebugLog("Listen ${d.characteristic.uuid.toString().substring(4, 8).uppercase()} status=$s")
-            synchronized(operationQueue) { isOperating = false }
-            doNextOperation()
-        }
-        override fun onCharacteristicWrite(
-            gatt: BluetoothGatt,
-            c: BluetoothGattCharacteristic,
-            status: Int
-        ) {
-            updateDebugLog("Write ${c.uuid.toString().substring(4, 8)} status=$status")
-            synchronized(operationQueue) { isOperating = false }
-            doNextOperation()
-        }
-
-        override fun onCharacteristicRead(
-            gatt: BluetoothGatt,
-            c: BluetoothGattCharacteristic,
-            value: ByteArray,
-            status: Int
-        ) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                managerScope.launch { handleData(c.uuid, value) }
-            }
-            synchronized(operationQueue) { isOperating = false }
-            doNextOperation()
-        }
-
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            c: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            logIncomingPacket(c.uuid, value)
-            managerScope.launch { handleData(c.uuid, value) }
-        }
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { synchronized(operationQueue) { isOperating = false }; doNextOperation() }
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { synchronized(operationQueue) { isOperating = false }; doNextOperation() }
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); synchronized(operationQueue) { isOperating = false }; doNextOperation() }
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray) { logIncomingPacket(c.uuid, v); decoder.decode(c.uuid, v) }
     }
-
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
-        val short = uuid.toString().substring(4, 8).uppercase()
-        val rawHex = data.joinToString(" ") { "%02X".format(it) }
-        val msg = "RX $short raw=$rawHex"
-        if (uuid == BATTERY_CHAR && data.size == 1) {
-            updateDebugLog(msg)
-            return
-        }
-        if (uuid == FEE3_NOTIFY && isKnownFee3Packet(data)) {
-            updateDebugLog(msg)
-            return
-        }
-        if (uuid == FEE1_CHAR && isActivityPayload(data)) {
-            rememberRecentPayload(data.toHexKey(), recentFee1Payloads, recentFee1PayloadSet)
-            updateDebugLog(msg)
-            return
-        }
-        if (uuid == FEA1_CHAR && isFea1ActivityMirror(data)) {
-            return
-        }
-        updateDebugLog(msg)
-        addUnknownMessage(msg)
+        val short = uuid.toString().substring(4, 8).uppercase(); val hex = data.joinToString(" ") { "%02X".format(it) }
+        if (uuid == BATTERY_CHAR || uuid == FEE3_NOTIFY || uuid == FEE1_CHAR || uuid == FEA1_CHAR) { updateDebugLog("RX $short raw=$hex"); return }
+        updateDebugLog("RX $short raw=$hex"); addUnknownMessage("RX $short raw=$hex")
+    }
+    private fun addUnknownMessage(msg: String) { val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); managerScope.launch { healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = "[$t] $msg")) } }
+    fun ensureAutoConnect() {
+        if (userRequestedDisconnect || !_state.value.autoConnect || _state.value.isConnected) return
+        if (_state.value.connectionStatus == "Scanning..." || _state.value.connectionStatus == "Connecting...") return
+        scheduleReconnect(0)
     }
 
-    private fun addUnknownMessage(msg: String) {
-        val timestamp = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        val formattedMsg = "[$timestamp] $msg"
-        managerScope.launch {
-            healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = formattedMsg))
-        }
-    }
-
-    fun clearUnknownPackets() {
-        managerScope.launch {
-            healthDao.deleteAllUnknown()
-        }
-    }
-
-    private fun handleData(uuid: UUID, data: ByteArray) {
-        when (uuid) {
-            BATTERY_CHAR -> {
-                if (data.isNotEmpty()) {
-                    val b = data[0].toInt() and 0xFF
-                    _state.update { it.copy(battery = b) }
-                    saveToDb(battery = b)
-                    updateDebugLog("Battery: $b%")
-                }
-            }
-            HEART_RATE_CHAR -> parseStandardHeartRate(data)?.let {
-                if (it > 0) {
-                    _state.update { s -> s.copy(heartRate = it) }
-                    saveToDb(heartRate = it)
-                }
-            }
-            FEE1_CHAR -> {
-                if (!parseActivityPacket(data, "FEE1")) parseKospetPacket(data)
-            }
-            FEA1_CHAR -> {
-                if (isFea1ActivityMirror(data)) {
-                    handleFea1ActivityMirror(data)
-                } else if (!parseActivityPacket(data, "FEA1")) {
-                    parseKospetPacket(data)
-                }
-            }
-            else -> {
-                parseKospetPacket(data)
-                parseFee3Packet(uuid, data)
-                parseWrappedActivityPacket(data)
-            }
-        }
-    }
-
-    private fun scheduleReconnect(delayMs: Long = 3000) {
+    private fun scheduleReconnect(d: Long = 3000) {
         if (userRequestedDisconnect || !_state.value.autoConnect) return
         reconnectJob?.cancel()
         reconnectJob = managerScope.launch {
-            updateDebugLog("Auto-connect retry in ${delayMs / 1000.0}s.")
-            delay(delayMs)
-            if (!_state.value.isConnected && _state.value.autoConnect && !userRequestedDisconnect) {
-                reconnectOrScan()
+            delay(d)
+            if (!_state.value.isConnected) {
+                if (adapter?.isEnabled == true) {
+                    startScan()
+                } else {
+                    _state.update { it.copy(connectionStatus = "Bluetooth off") }
+                    delay(10_000)
+                    scheduleReconnect(0)
+                }
             }
         }
     }
-
-    private fun reconnectOrScan() {
-        val last = lastConnectedDevice
-        if (last != null) {
-            updateDebugLog("Auto-connect: trying last watch directly.")
-            connectToDevice(last)
-        } else {
-            startScan()
-        }
-    }
-
-    private fun startScanWatchdog() {
-        scanWatchdogJob?.cancel()
-        scanWatchdogJob = managerScope.launch {
-            delay(12000)
-            if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning..." && !userRequestedDisconnect) {
-                updateDebugLog("Scan watchdog: restarting scan.")
+    private fun startScanWatchdog() { scanWatchdogJob?.cancel(); scanWatchdogJob = managerScope.launch { delay(12000); if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning...") startScan() } }
+    private fun startConnectWatchdog() {
+        connectWatchdogJob?.cancel()
+        connectWatchdogJob = managerScope.launch {
+            delay(15_000)
+            if (!_state.value.isConnected && _state.value.connectionStatus == "Connecting...") {
+                updateDebugLog("Connect timed out; scanning again.")
+                bluetoothGatt?.close()
+                bluetoothGatt = null
                 startScan()
             }
         }
     }
-
-    private fun saveToDb(
-        battery: Int? = null,
-        heartRate: Int? = null,
-        spo2: Int? = null,
-        systolic: Int? = null,
-        diastolic: Int? = null,
-        steps: Int? = null,
-        activityCount: Int? = null,
-        distance: Int? = null,
-        calories: Int? = null,
-        sleepMinutes: Int? = null,
-        deepSleepMinutes: Int? = null,
-        lightSleepMinutes: Int? = null
-    ) {
-        managerScope.launch {
-            healthDao.insert(
-                HealthEntry(
-                    battery = battery,
-                    heartRate = heartRate,
-                    spo2 = spo2,
-                    systolic = systolic,
-                    diastolic = diastolic,
-                    steps = steps,
-                    activityCount = activityCount,
-                    distance = distance,
-                    calories = calories,
-                    sleepMinutes = sleepMinutes,
-                    deepSleepMinutes = deepSleepMinutes,
-                    lightSleepMinutes = lightSleepMinutes
-                )
-            )
-        }
+    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null) {
+        managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)) }
     }
-
-    private fun parseStandardHeartRate(data: ByteArray): Int? {
-        if (data.isEmpty()) return null
-        return if ((data[0].toInt() and 0x01) != 0) (if (data.size < 3) null else (data[1].toInt() and 0xFF) or ((data[2].toInt() and 0xFF) shl 8))
-        else (if (data.size < 2) null else data[1].toInt() and 0xFF)
+    private fun rememberRecentPayload(k: String, q: ArrayDeque<String>, s: MutableSet<String>): Boolean = synchronized(q) { if (!s.add(k)) true else { q.addLast(k); while (q.size > 32) s.remove(q.removeFirst()); false } }
+    private fun nativePacket(cmd: Int, vararg p: Int): ByteArray = ByteArray(5 + p.size).apply { this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x20.toByte(); this[3] = size.toByte(); this[4] = cmd.toByte(); p.forEachIndexed { i, v -> this[5 + i] = (v and 0xFF).toByte() } }
+    private fun sendFee2NativeRaw(b: ByteArray) = enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, b))
+    fun sendWeightCandidate() { updateDebugLog("Weight write disabled.") }
+    fun sendExperimentalNotification() { updateDebugLog("Exp notif disabled.") }
+    fun prepareDaFitSession() { updateDebugLog("Prep disabled.") }
+    fun prepareAndFindWatch() { updateDebugLog("Prep+Find disabled.") }
+    fun sendStartupPreamblePhase1() { updateDebugLog("Phase 1 disabled.") }
+    fun sendStartupPreamblePhase2() { updateDebugLog("Phase 2 disabled.") }
+    fun sendLegacyShortNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true) }
+    fun sendLegacyCallNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true, legacyType = 0x02) }
+    fun clearUnknownPackets() { managerScope.launch { healthDao.deleteAllUnknown() } }
+    fun sendRawTest(hex: String, useAltChar: Boolean = false) {
+        val bytes = hex.split(" ").filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
+        enqueueOperation(GattOperation.WriteCharacteristic(if (useAltChar) ProtocolDecoder.UUID_FEE3 else null, bytes)) // Placeholder logic
     }
-
-    private fun extractHeartRateCandidate(data: ByteArray): Int? {
-        for (index in 5 until data.size) {
-            val candidate = data[index].toInt() and 0xFF
-            if (candidate in 30..220) return candidate
-        }
-        return null
-    }
-
-    private fun isFea1ActivityMirror(data: ByteArray): Boolean = data.size == 10 && data[0] == 0x07.toByte()
-
-    private fun isActivityPayload(data: ByteArray): Boolean = data.size == 9
-
-    private fun handleFea1ActivityMirror(data: ByteArray): Boolean {
-        val b = data.copyOfRange(1, 10)
-        val seq = b[0].toInt() and 0xFF
-        if (hasRecentPayload(b.toHexKey(), recentFee1PayloadSet)) return true
-        if (lastActivitySeq == seq) return true
-        updateDebugLog("FEA1 activity mirror used because seq=$seq was not seen on FEE1.")
-        return parseActivityPacket(b, "FEA1 mirror")
-    }
-
-    private fun isKnownFee3Packet(data: ByteArray): Boolean {
-        if (!startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) || data.size < 5) return false
-        return when (data[4].toInt() and 0xFF) {
-            0x1F, 0x21, 0x26, 0x32, 0x33, 0x51, 0x52, 0x53, 0x59, 0x5A, 0x64, 0x66, 0x67, 0x69, 0x6B, 0x6D, 0x8D, 0xA4 -> true
-            else -> false
-        }
-    }
-
-    private fun parseFee3Packet(uuid: UUID, data: ByteArray): Boolean {
-        if (uuid != FEE3_NOTIFY || !isKnownFee3Packet(data)) return false
-        when (data[4].toInt() and 0xFF) {
-            0x1F -> {
-                val value = data.getOrNull(5)?.toInt()?.and(0xFF)
-                val interval = when (value) {
-                    0x00 -> 0
-                    0x01 -> 5
-                    0x02 -> 10
-                    0x03 -> 15
-                    0x04 -> 30
-                    0x05 -> 60
-                    else -> null
-                }
-                if (interval != null) {
-                    _state.update { it.copy(autoHeartRateIntervalMinutes = interval) }
-                    updateDebugLog("Auto HR response: ${if (interval == 0) "off" else "${interval}m"}")
-                } else {
-                    updateDebugLog("Auto HR response payload=${data.copyOfRange(5, data.size).toHexString()}")
-                }
-            }
-            0x21 -> {
-                parseAlarmQueryResponse(data)
-            }
-            0x26 -> {
-                parseStepGoalResponse(data)
-            }
-            0x32 -> {
-                if (data.size >= 8) parseSleepBoundaryPacket(data) else updateDebugLog("Sleep boundary marker/query: ${data.toHexString()}")
-            }
-            0x33 -> {
-                if (data.size >= 15) parseDailyTotalsPacket(data) else updateDebugLog("Daily totals response too short: ${data.toHexString()}")
-            }
-            0x59 -> {
-                if (data.size >= 54) parseHourlyActivityPacket(data) else updateDebugLog("Activity bucket response too short: ${data.toHexString()}")
-            }
-            0x5A -> {
-                parseDeviceInfoPacket(data)
-            }
-            0x64 -> {
-                _state.update { it.copy(lastRemoteEvent = "Watch Command 0x64") }
-                updateDebugLog("Remote event: Watch Command 0x64 (unmapped)")
-            }
-            0x8D -> {
-                data.getOrNull(5)?.toInt()?.and(0xFF)?.let { seconds ->
-                    _state.update { it.copy(autoLockSecondsSetting = seconds) }
-                    updateDebugLog("Auto-lock response: ${seconds}s")
-                } ?: updateDebugLog("Auto-lock response: empty")
-            }
-            0x6D -> {
-                val hr = extractHeartRateCandidate(data)
-                if (hr != null) {
-                    _state.update { it.copy(heartRate = hr) }
-                    saveToDb(heartRate = hr)
-                    updateDebugLog("Manual HR: $hr bpm payload=${data.copyOfRange(5, data.size).toHexString()}")
-                } else if (data.size > 5) {
-                    updateDebugLog("Manual HR response without bpm payload=${data.copyOfRange(5, data.size).toHexString()}")
-                }
-            }
-            0x6B -> {
-                if (data.size > 5) {
-                    val spo2 = data[5].toInt() and 0xFF
-                    if (spo2 > 0) {
-                        _state.update { it.copy(spo2 = spo2) }
-                        saveToDb(spo2 = spo2)
-                        updateDebugLog("Manual SpO2: $spo2%")
-                    }
-                }
-            }
-            0x69 -> {
-                if (data.size > 7) {
-                    val systolic = data[6].toInt() and 0xFF
-                    val diastolic = data[7].toInt() and 0xFF
-                    _state.update { it.copy(systolic = systolic, diastolic = diastolic) }
-                    saveToDb(systolic = systolic, diastolic = diastolic)
-                    updateDebugLog("Manual BP: $systolic/$diastolic")
-                }
-            }
-            0x66 -> {
-                _state.update { it.copy(lastRemoteEvent = "Shutter") }
-                updateDebugLog("Remote event: Shutter")
-                managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
-            }
-            0x67 -> {
-                val event = when (data.getOrNull(5)?.toInt()?.and(0xFF)) {
-                    0x01 -> "Previous Track"
-                    0x02 -> "Next Track"
-                    0x06 -> "Play/Pause"
-                    else -> null
-                }
-                if (event != null) {
-                    _state.update { it.copy(lastRemoteEvent = event) }
-                    updateDebugLog("Remote event: $event")
-                    managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
-                }
-            }
-            0xA4 -> {
-                if (data.size > 6) {
-                    val enabled = data[5].toInt() == 0x01
-                    updateDebugLog("Power save: ${if (enabled) "enabled" else "disabled"}")
-                }
-            }
-        }
-        return true
-    }
-
-    private fun parseAlarmQueryResponse(data: ByteArray) {
-        if (data.size <= 5) {
-            updateDebugLog("Alarm query response: empty")
-            return
-        }
-        val payload = data.copyOfRange(5, data.size)
-        val records = payload.size / 8
-        if (records == 0) {
-            updateDebugLog("Alarm query response payload=${payload.toHexString()}")
-            return
-        }
-        val alarms = mutableListOf<WatchAlarm>()
-        val decoded = (0 until records).joinToString("; ") { index ->
-            val offset = index * 8
-            val slot = payload[offset].toInt() and 0xFF
-            val enabled = (payload[offset + 1].toInt() and 0xFF) == 1
-            val mode = payload[offset + 2].toInt() and 0xFF
-            val hour = payload[offset + 3].toInt() and 0xFF
-            val minute = payload[offset + 4].toInt() and 0xFF
-            val repeat = payload[offset + 7].toInt() and 0xFF
-            alarms.add(WatchAlarm(slot, enabled, mode, hour, minute, repeat))
-            "slot=${slot + 1} ${if (enabled) "on" else "off"} ${"%02d:%02d".format(hour, minute)} mode=$mode repeat=0x${"%02X".format(repeat)}"
-        }
-        _state.update { it.copy(alarmSettings = alarms.sortedBy { alarm -> alarm.slot }) }
-        updateDebugLog("Alarm query response: $decoded")
-    }
-
-    private fun parseStepGoalResponse(data: ByteArray) {
-        val payload = if (data.size > 5) data.copyOfRange(5, data.size) else byteArrayOf()
-        val goal = when {
-            payload.size >= 4 && payload[0] == 0x00.toByte() -> (payload[1].toInt() and 0xFF) or ((payload[2].toInt() and 0xFF) shl 8)
-            payload.size >= 3 && payload[0] == 0x00.toByte() -> ((payload[1].toInt() and 0xFF) shl 8) or (payload[2].toInt() and 0xFF)
-            payload.size >= 2 -> ((payload[payload.size - 2].toInt() and 0xFF) shl 8) or (payload[payload.size - 1].toInt() and 0xFF)
-            else -> null
-        }
-        if (goal != null) {
-            _state.update { it.copy(stepGoalSetting = goal) }
-            updateDebugLog("Step goal response: $goal payload=${payload.toHexString()}")
-        } else {
-            updateDebugLog("Step goal response payload=${payload.toHexString()}")
-        }
-    }
-
-    private fun parseActivityPacket(data: ByteArray, source: String): Boolean {
-        val b = normalizeActivityPayload(data) ?: return false
-        val payloadKey = b.toHexKey()
-        if (isDuplicateActivityPayload(payloadKey)) return true
-
-        val seq = b[0].toInt() and 0xFF
-        val activityCount = (b[1].toInt() and 0xFF) or ((b[2].toInt() and 0xFF) shl 8)
-        val distance = (b[3].toInt() and 0xFF) or ((b[4].toInt() and 0xFF) shl 8)
-        val calories = (b[6].toInt() and 0xFF) or ((b[7].toInt() and 0xFF) shl 8)
-        lastActivitySeq = seq
-        _state.update { it.copy(activityCount = activityCount, distance = distance, calories = calories) }
-        saveToDb(activityCount = activityCount, distance = distance, calories = calories)
-        updateDebugLog("Activity live[$source]: seq=$seq activityCount=$activityCount distance=${distance}m calories=$calories")
-        return true
-    }
-
-    private fun isDuplicateActivityPayload(payloadKey: String): Boolean = synchronized(recentActivityPayloads) {
-        rememberRecentPayload(payloadKey, recentActivityPayloads, recentActivityPayloadSet)
-    }
-
-    private fun rememberRecentPayload(key: String, queue: ArrayDeque<String>, set: MutableSet<String>): Boolean = synchronized(queue) {
-        if (!set.add(key)) return@synchronized true
-        queue.addLast(key)
-        while (queue.size > 32) set.remove(queue.removeFirst())
-        false
-    }
-
-    private fun hasRecentPayload(key: String, set: Set<String>): Boolean {
-        return synchronized(recentFee1Payloads) { key in set }
-    }
-
-    private fun parseWrappedActivityPacket(data: ByteArray): Boolean {
-        if (data.size >= 14 && data[4] == 0x07.toByte()) {
-            return parseActivityPacket(data.copyOfRange(5, 14), "wrapped")
-        }
-        return false
-    }
-
-    private fun normalizeActivityPayload(data: ByteArray): ByteArray? {
-        return when {
-            isFea1ActivityMirror(data) -> data.copyOfRange(1, 10)
-            data.size == 9 -> data
-            else -> null
-        }
-    }
-
-    private fun parseKospetPacket(data: ByteArray) {
-        if (startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && data.size > 5 && data[4] == 0x5A.toByte()) {
-            parseDeviceInfoPacket(data)
-        }
-        if (data.size >= 15 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x0F.toByte(), 0x33.toByte()))) {
-            parseDailyTotalsPacket(data)
-        }
-        if (data.size >= 30 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x1E.toByte(), 0x33.toByte(), 0x04.toByte()))) {
-            parseSleepPacket(data)
-        }
-        if (data.size >= 8 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20)) && data[4] == 0x32.toByte()) {
-            parseSleepBoundaryPacket(data)
-        }
-        if (data.size >= 54 && startsWith(data, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x36.toByte(), 0x59.toByte()))) {
-            parseHourlyActivityPacket(data)
-        }
-    }
-
-    private fun parseDeviceInfoPacket(b: ByteArray) {
-        val infoType = b[5].toInt() and 0xFF
-        if (infoType == 0x00 && b.size > 6) {
-            val name = String(b.copyOfRange(6, b.size)).trim { it <= ' ' }
-            updateDebugLog("Device info: $name")
-        } else if (infoType == 0x01 && b.size > 6) {
-            val firmware = String(b.copyOfRange(6, b.size)).trim { it <= ' ' }
-            prefs.edit { putString("firmwareVersion", firmware) }
-            _state.update { it.copy(firmwareVersion = firmware) }
-            updateDebugLog("Firmware: $firmware")
-        }
-    }
-
-    private fun parseDailyTotalsPacket(b: ByteArray) {
-        val dayOffset = b[5].toInt() and 0xFF
-        val steps = readUInt24LE(b, 6)
-        val distance = readUInt24LE(b, 9)
-        val calories = readUInt24LE(b, 12)
-        if (dayOffset == 0x00) {
-            _state.update { it.copy(steps = steps, distance = distance, calories = calories) }
-            saveToDb(steps = steps, distance = distance, calories = calories)
-            updateDebugLog("Daily totals[$dayOffset]: steps=$steps distance=${distance}m calories=$calories")
-        } else {
-            updateDebugLog("Daily totals candidate[$dayOffset]: value=$steps distance=${distance}m calories=$calories")
-        }
-    }
-
-    private fun parseHourlyActivityPacket(b: ByteArray) {
-        val bucket = b[5].toInt() and 0xFF
-        var stepsDown = 0
-        var stepsUp = 0
-        var stepsOther = 0
-        val nonZeroRecords = mutableListOf<String>()
-        var offset = 6
-        var record = 0
-        while (offset + 5 < b.size) {
-            val recordSteps = readUInt16LE(b, offset)
-            val recordUp = readUInt16LE(b, offset + 2)
-            val recordOther = readUInt16LE(b, offset + 4)
-            stepsDown += recordSteps
-            stepsUp += recordUp
-            stepsOther += recordOther
-            if (recordSteps != 0 || recordUp != 0 || recordOther != 0) {
-                nonZeroRecords.add("$record:$recordSteps/$recordUp/$recordOther")
-            }
-            offset += 6
-            record += 1
-        }
-        val detail = if (nonZeroRecords.isEmpty()) "none" else nonZeroRecords.joinToString(", ")
-        val totals = StepBucketTotals(stepsDown, stepsUp, stepsOther)
-        if (bucket == 0x00 || bucket == 0x01) {
-            recentStepBuckets[bucket] = totals
-            val bucket0 = recentStepBuckets[0x00]
-            val bucket1 = recentStepBuckets[0x01]
-            if (bucket0 != null && bucket1 != null && kotlin.math.abs(bucket0.timestamp - bucket1.timestamp) <= 30_000L) {
-                val currentSteps = bucket0.totalSteps + bucket1.totalSteps
-                _state.update { it.copy(steps = currentSteps) }
-                saveToDb(steps = currentSteps)
-                updateDebugLog(
-                    "Current steps from 59 buckets: bucket0=${bucket0.totalSteps} bucket1=${bucket1.totalSteps} " +
-                        "steps=$currentSteps records[$bucket]=$detail"
-                )
-            } else {
-                updateDebugLog("Activity buckets[$bucket] partial: totalSteps=${totals.totalSteps} stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther records=$detail")
-            }
-        } else {
-            updateDebugLog("Activity buckets[$bucket] history/forensic: totalSteps=${totals.totalSteps} stepsDown=$stepsDown stepsUp=$stepsUp stepsOther=$stepsOther records=$detail")
-        }
-    }
-
-    private fun parseSleepPacket(b: ByteArray) {
-        var total = 0
-        var deep = 0
-        var light = 0
-        var offset = 6
-        while (offset + 2 < b.size) {
-            val sleepType = b[offset].toInt() and 0xFF
-            val minutes = ((b[offset + 1].toInt() and 0xFF) * 60) + (b[offset + 2].toInt() and 0xFF)
-            total += minutes
-            if (sleepType == 0x01) deep += minutes else light += minutes
-            offset += 3
-        }
-        _state.update { it.copy(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light) }
-        saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
-        updateDebugLog("Sleep summary: total=${total}m deep=${deep}m light=${light}m")
-    }
-
-    private fun parseSleepBoundaryPacket(b: ByteArray) {
-        val markers = mutableListOf<Pair<Int, Int>>()
-        var offset = 5
-        while (offset + 2 < b.size) {
-            val stateId = b[offset].toInt() and 0xFF
-            val hour = b[offset + 1].toInt() and 0xFF
-            val minute = b[offset + 2].toInt() and 0xFF
-            if (hour in 0..23 && minute in 0..59) {
-                markers.add(stateId to (hour * 60 + minute))
-            }
-            offset += 3
-        }
-        if (markers.size < 2) {
-            updateDebugLog("Sleep boundaries too short: ${b.toHexString()}")
-            return
-        }
-
-        // Adjust for sequential order handling midnight wrap
-        var lastTotalMinutes = -1
-        val adjustedMarkers = markers.map { (stateId, minutesOfDay) ->
-            var adjusted = minutesOfDay
-            if (lastTotalMinutes != -1) {
-                while (adjusted < lastTotalMinutes) {
-                    adjusted += 1440
-                }
-            }
-            lastTotalMinutes = adjusted
-            stateId to adjusted
-        }
-
-        val rawSegments = adjustedMarkers.zipWithNext { start, end ->
-            SleepSegment(
-                startMinutes = start.second,
-                endMinutes = end.second,
-                stateId = start.first,
-                label = sleepStateLabel(start.first)
-            )
-        }
-
-        val mergedSegments = rawSegments.fold(mutableListOf<SleepSegment>()) { merged, segment ->
-            val previous = merged.lastOrNull()
-            if (previous != null && previous.stateId == segment.stateId) {
-                merged[merged.lastIndex] = previous.copy(
-                    endMinutes = segment.endMinutes,
-                    hasInternalMarkers = true
-                )
-            } else {
-                merged.add(segment)
-            }
-            merged
-        }
-
-        val total = rawSegments
-            .filter { it.stateId != 0x00 }
-            .sumOf { it.endMinutes - it.startMinutes }
-        val deep = rawSegments
-            .filter { it.stateId == 0x02 }
-            .sumOf { it.endMinutes - it.startMinutes }
-        val light = rawSegments
-            .filter { it.stateId == 0x01 || it.stateId == 0x03 }
-            .sumOf { it.endMinutes - it.startMinutes }
-
-        _state.update {
-            it.copy(
-                sleepMinutes = total,
-                deepSleepMinutes = deep,
-                lightSleepMinutes = light,
-                sleepSegments = mergedSegments
-            )
-        }
-        saveToDb(sleepMinutes = total, deepSleepMinutes = deep, lightSleepMinutes = light)
-        updateDebugLog(
-            "Sleep boundaries: total=${total}m deep=${deep}m light/rem=${light}m " +
-                mergedSegments.joinToString(" | ") {
-                    "${formatMinutesOfDay(it.startMinutes)}-${formatMinutesOfDay(it.endMinutes)} ${it.label}${if (it.hasInternalMarkers) "*" else ""}"
-                }
-        )
-    }
-
-    private fun sleepStateLabel(stateId: Int): String {
-        return when (stateId) {
-            0x00 -> "Hereillä"
-            0x01 -> "Kevyt"
-            0x02 -> "Syvä"
-            0x03 -> "REM"
-            else -> "State $stateId"
-        }
-    }
-
-    private fun formatMinutesOfDay(minutes: Int): String {
-        return "%02d:%02d".format((minutes / 60) % 24, minutes % 60)
-    }
-
-    private fun readUInt16LE(b: ByteArray, offset: Int): Int {
-        if (offset + 1 >= b.size) return 0
-        return (b[offset].toInt() and 0xFF) or ((b[offset + 1].toInt() and 0xFF) shl 8)
-    }
-
-    private fun readUInt24LE(b: ByteArray, offset: Int): Int {
-        if (offset + 2 >= b.size) return 0
-        return (b[offset].toInt() and 0xFF) or ((b[offset + 1].toInt() and 0xFF) shl 8) or ((b[offset + 2].toInt() and 0xFF) shl 16)
-    }
-
-    private fun ByteArray.toHexKey(): String = joinToString("") { "%02X".format(it) }
-
-    private fun startsWith(d: ByteArray, p: ByteArray): Boolean { if (d.size < p.size) return false; for (i in p.indices) if (d[i] != p[i]) return false; return true }
 }
