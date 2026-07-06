@@ -1,67 +1,77 @@
 package com.labbaslabs.jampsfit.ui.components
 
+import android.graphics.BitmapFactory
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
 import com.labbaslabs.jampsfit.database.EventEntity
+import com.labbaslabs.jampsfit.database.FestivalEntity
+import com.labbaslabs.jampsfit.gamification.ACHIEVEMENT_SCOPE_FESTIVAL
 import com.labbaslabs.jampsfit.gamification.Achievement
 import com.labbaslabs.jampsfit.gamification.calculateGamificationSummary
+import java.io.File
 import kotlinx.coroutines.delay
-
-private val FestivalAchievementTitles = setOf(
-    "Wristband On",
-    "First Set",
-    "Main Stage",
-    "Back-to-Back Sets",
-    "Two-Day Groove",
-    "Four-Day Pass",
-    "5k Dancefloor",
-    "10k Dancefloor",
-    "Marathon Feet",
-    "Beat Keeper",
-    "Tempo Story",
-    "Heat Wave",
-    "Data Collector",
-    "Recovery Win"
-)
 
 @Composable
 fun DancingEventControlCard(
@@ -72,6 +82,7 @@ fun DancingEventControlCard(
     val activeEvent = state.activeEvent
     val latestDancingEvent = state.recentEvents.firstOrNull { it.type == EVENT_TYPE_DANCING }
     var now by remember(activeEvent?.id) { mutableLongStateOf(System.currentTimeMillis()) }
+    var confirmStop by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeEvent?.id) {
         while (activeEvent != null) {
@@ -110,7 +121,7 @@ fun DancingEventControlCard(
                     Text("Start")
                 }
             } else {
-                OutlinedButton(onClick = onStop) {
+                OutlinedButton(onClick = { confirmStop = true }) {
                     Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("Stop")
                 }
@@ -125,31 +136,124 @@ fun DancingEventControlCard(
             EventStats(event = eventForStats, now = now)
         }
     }
+
+    if (confirmStop) {
+        AlertDialog(
+            onDismissRequest = { confirmStop = false },
+            title = { Text("Stop dancing event?") },
+            text = { Text("Finish this Dancing Event and save it to the current festival.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmStop = false
+                        onStop()
+                    }
+                ) {
+                    Text("Stop")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmStop = false }) {
+                    Text("Keep dancing")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FestivalProgressCard(state: WatchState) {
-    val summary = remember(state) { calculateGamificationSummary(state) }
-    val festivalAchievements = summary.achievements.filter { it.title in FestivalAchievementTitles }
+fun FestivalProgressCard(
+    state: WatchState,
+    onCreateFestival: () -> Unit,
+    onSelectFestival: (Long) -> Unit,
+    onRenameFestival: (Long, String) -> Unit,
+    onFestivalImageChange: (Long, String?) -> Unit
+) {
+    val selectedFestival = state.selectedFestival()
+    val selectedFestivalId = selectedFestival?.id
+    val festivalEvents = remember(state.recentEvents, selectedFestivalId) {
+        state.recentEvents.filter { event -> selectedFestivalId == null || event.festivalId == selectedFestivalId }
+    }
+    val festivalState = state.copy(recentEvents = festivalEvents)
+    val summary = remember(festivalState) { calculateGamificationSummary(festivalState) }
+    val festivalAchievements = summary.achievements.filter { it.scope == ACHIEVEMENT_SCOPE_FESTIVAL }
     val unlocked = festivalAchievements.filter { it.unlocked }
-    val recentCompleted = state.recentEvents
+    val nextUp = festivalAchievements
+        .filter { !it.unlocked && it.progressTarget != null }
+        .sortedByDescending { (it.progressValue ?: 0).toFloat() / (it.progressTarget ?: 1) }
+        .take(3)
+    val groupedAchievements = festivalAchievements.groupBy { it.group }
+    val recentCompleted = festivalEvents
         .filter { it.type == EVENT_TYPE_DANCING && it.endTime != null }
         .take(3)
-
-    SleekCard(borderColor = Color(0xFF03A9F4)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF03A9F4).copy(alpha = 0.14f)) {
-                Icon(
-                    Icons.Default.EmojiEvents,
-                    contentDescription = null,
-                    tint = Color(0xFF03A9F4),
-                    modifier = Modifier.padding(8.dp).size(26.dp)
+    val selectedIndex = state.festivals.indexOfFirst { it.id == selectedFestivalId }.takeIf { it >= 0 } ?: 0
+    var editingName by remember(selectedFestivalId) { mutableStateOf(false) }
+    var draftName by remember(selectedFestival?.name) { mutableStateOf(selectedFestival?.name ?: "Festival Progress") }
+    var choosingImage by remember(selectedFestivalId) { mutableStateOf(false) }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val context = LocalContext.current
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }
-            Column {
-                Text("Festival Progress", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("${unlocked.size}/${festivalAchievements.size} unlocked", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            selectedFestivalId?.let { id -> onFestivalImageChange(id, it.toString()) }
+        }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            cameraUri?.let { uri -> selectedFestivalId?.let { id -> onFestivalImageChange(id, uri.toString()) } }
+        }
+    }
+
+    SleekCard(borderColor = Color(0xFF03A9F4)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                FestivalIcon(
+                    festival = selectedFestival,
+                    onClick = { if (selectedFestival != null) choosingImage = true }
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        selectedFestival?.name ?: "Festival Progress",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(enabled = selectedFestival != null) {
+                            draftName = selectedFestival?.name ?: ""
+                            editingName = true
+                        }
+                    )
+                    Text("${unlocked.size}/${festivalAchievements.size} unlocked", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { state.festivals.getOrNull(selectedIndex - 1)?.let { onSelectFestival(it.id) } },
+                    enabled = selectedIndex > 0
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous festival")
+                }
+                IconButton(
+                    onClick = { state.festivals.getOrNull(selectedIndex + 1)?.let { onSelectFestival(it.id) } },
+                    enabled = selectedIndex < state.festivals.lastIndex
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next festival")
+                }
+                IconButton(onClick = onCreateFestival) {
+                    Icon(Icons.Default.Add, contentDescription = "New festival")
+                }
             }
         }
 
@@ -163,9 +267,141 @@ fun FestivalProgressCard(state: WatchState) {
         }
 
         Spacer(modifier = Modifier.height(14.dp))
+        if (nextUp.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Next Up", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                nextUp.forEach { FestivalAchievementProgressRow(it) }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            festivalAchievements.forEach { achievement ->
-                FestivalAchievementChip(achievement)
+            groupedAchievements.forEach { (group, achievements) ->
+                val groupUnlocked = achievements.count { it.unlocked }
+                Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.06f)) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "$group $groupUnlocked/${achievements.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.LightGray
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            achievements.forEach { achievement ->
+                                FestivalAchievementChip(achievement)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (editingName && selectedFestival != null) {
+        AlertDialog(
+            onDismissRequest = { editingName = false },
+            title = { Text("Name this festival") },
+            text = {
+                TextField(
+                    value = draftName,
+                    onValueChange = { draftName = it },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRenameFestival(selectedFestival.id, draftName)
+                        editingName = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingName = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (choosingImage && selectedFestival != null) {
+        AlertDialog(
+            onDismissRequest = { choosingImage = false },
+            title = { Text("Festival image") },
+            text = { Text("Life is a festival anyway.") },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            choosingImage = false
+                            galleryLauncher.launch(arrayOf("image/*"))
+                        }
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Gallery")
+                    }
+                    TextButton(
+                        onClick = {
+                            choosingImage = false
+                            val dir = File(context.filesDir, "festival-images").apply { mkdirs() }
+                            val file = File(dir, "festival-${selectedFestival.id}-${System.currentTimeMillis()}.jpg")
+                            val photoUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                            cameraUri = photoUri
+                            cameraLauncher.launch(photoUri)
+                        }
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Camera")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onFestivalImageChange(selectedFestival.id, null)
+                        choosingImage = false
+                    }
+                ) {
+                    Text("Clear")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun FestivalIcon(festival: FestivalEntity?, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val bitmap = remember(festival?.imageUri) {
+        festival?.imageUri?.let { uri ->
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
+            }.getOrNull()
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF03A9F4).copy(alpha = 0.14f),
+        modifier = Modifier.size(42.dp).clickable(enabled = festival != null, onClick = onClick)
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.EmojiEvents,
+                    contentDescription = null,
+                    tint = Color(0xFF03A9F4),
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
     }
@@ -223,6 +459,31 @@ private fun FestivalAchievementChip(achievement: Achievement) {
 }
 
 @Composable
+private fun FestivalAchievementProgressRow(achievement: Achievement) {
+    val value = achievement.progressValue ?: 0
+    val target = achievement.progressTarget ?: 1
+    val progress = if (target <= 0) 0f else (value.toFloat() / target).coerceIn(0f, 1f)
+    Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.06f)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(achievement.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "${value.coerceAtMost(target)}/$target ${achievement.progressUnit}".trim(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = Color(0xFF03A9F4),
+                trackColor = Color.DarkGray.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
 private fun EventStat(label: String, value: String, icon: ImageVector, color: Color, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp), color = color.copy(alpha = 0.10f)) {
         Row(
@@ -249,4 +510,8 @@ private fun EventEntity.durationLabel(now: Long): String {
     val minutes = (seconds % 3600) / 60
     val remainder = seconds % 60
     return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, remainder) else "%d:%02d".format(minutes, remainder)
+}
+
+private fun WatchState.selectedFestival(): FestivalEntity? {
+    return festivals.firstOrNull { it.id == selectedFestivalId } ?: festivals.maxByOrNull { it.createdAt }
 }

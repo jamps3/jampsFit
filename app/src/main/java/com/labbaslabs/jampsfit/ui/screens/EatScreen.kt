@@ -32,6 +32,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -47,10 +48,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
 import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.FoodEntity
@@ -172,6 +175,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                                 lockedFoodId = ingredient.food.id
                                 lockedAmount = amount
                             },
+                            onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
                             onAddToShoppingList = { food -> viewModel.setFoodOnShoppingList(food.id, true) }
                         )
                     }
@@ -181,6 +185,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
 
         CanEatNowCard(
             foods = visibleFoods,
+            onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
             onShoppingListChange = { food, checked -> viewModel.setFoodOnShoppingList(food.id, checked) }
         )
     }
@@ -230,6 +235,7 @@ private fun MealSuggestionCard(
     suggestion: MealSuggestion,
     modifier: Modifier,
     onAmountChange: (MealIngredient, Float) -> Unit,
+    onKcalChange: (FoodEntity, Int) -> Unit,
     onAddToShoppingList: (FoodEntity) -> Unit
 ) {
     SleekCard(modifier = modifier, borderColor = if (suggestion.isCloseMatch) Color(0xFFFF9800) else Color(0xFFFFC107)) {
@@ -261,6 +267,7 @@ private fun MealSuggestionCard(
                 IngredientAmountRow(
                     ingredient = ingredient,
                     onAmountChange = { onAmountChange(ingredient, it) },
+                    onKcalChange = { onKcalChange(ingredient.food, it) },
                     onAddToShoppingList = { onAddToShoppingList(ingredient.food) }
                 )
             }
@@ -272,10 +279,12 @@ private fun MealSuggestionCard(
 private fun IngredientAmountRow(
     ingredient: MealIngredient,
     onAmountChange: (Float) -> Unit,
+    onKcalChange: (Int) -> Unit,
     onAddToShoppingList: () -> Unit
 ) {
     val food = ingredient.food
     val maxAmount = maxSliderAmount(food, ingredient.amount)
+    var kcalText by remember(food.id, food.kcalPerUnit) { mutableStateOf(food.kcalPerUnit.toString()) }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -296,6 +305,14 @@ private fun IngredientAmountRow(
                     color = Color.Gray
                 )
             }
+            KcalField(
+                value = kcalText,
+                onValueChange = { next ->
+                    kcalText = next
+                    next.toIntOrNull()?.takeIf { it > 0 }?.let(onKcalChange)
+                },
+                modifier = Modifier.widthIn(min = 72.dp, max = 86.dp)
+            )
             if (food.source != FoodSources.HOME) {
                 IconButton(onClick = onAddToShoppingList, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Default.AddShoppingCart, contentDescription = "Add", tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
@@ -314,6 +331,7 @@ private fun IngredientAmountRow(
 @Composable
 private fun CanEatNowCard(
     foods: List<FoodEntity>,
+    onKcalChange: (FoodEntity, Int) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
     SleekCard {
@@ -327,7 +345,11 @@ private fun CanEatNowCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 foods.take(12).forEach { food ->
-                    FoodAvailabilityRow(food = food, onShoppingListChange = onShoppingListChange)
+                    FoodAvailabilityRow(
+                        food = food,
+                        onKcalChange = { onKcalChange(food, it) },
+                        onShoppingListChange = onShoppingListChange
+                    )
                 }
             }
         }
@@ -337,8 +359,10 @@ private fun CanEatNowCard(
 @Composable
 private fun FoodAvailabilityRow(
     food: FoodEntity,
+    onKcalChange: (Int) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
+    var kcalText by remember(food.id, food.kcalPerUnit) { mutableStateOf(food.kcalPerUnit.toString()) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -351,11 +375,35 @@ private fun FoodAvailabilityRow(
                 Text(foodAvailabilityText(food), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
         }
+        KcalField(
+            value = kcalText,
+            onValueChange = { next ->
+                kcalText = next
+                next.toIntOrNull()?.takeIf { it > 0 }?.let(onKcalChange)
+            },
+            modifier = Modifier.widthIn(min = 72.dp, max = 86.dp)
+        )
         Checkbox(
             checked = food.onShoppingList,
             onCheckedChange = { onShoppingListChange(food, it) }
         )
     }
+}
+
+@Composable
+private fun KcalField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter { char -> char.isDigit() }.take(4)) },
+        label = { Text("kcal") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
 }
 
 @Composable

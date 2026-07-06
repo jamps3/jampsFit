@@ -11,8 +11,10 @@ import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
 import com.labbaslabs.jampsfit.database.DEFAULT_DANCING_EVENT_NAME
+import com.labbaslabs.jampsfit.database.DEFAULT_FESTIVAL_NAME
 import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
 import com.labbaslabs.jampsfit.database.EventEntity
+import com.labbaslabs.jampsfit.database.FestivalEntity
 import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
@@ -84,6 +86,8 @@ data class WatchState(
     val monthlyStats: List<HealthEntry> = emptyList(),
     val activeEvent: EventEntity? = null,
     val recentEvents: List<EventEntity> = emptyList(),
+    val festivals: List<FestivalEntity> = emptyList(),
+    val selectedFestivalId: Long? = null,
     val foods: List<FoodEntity> = emptyList(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
@@ -217,6 +221,7 @@ class WatchManager(private val context: Context) {
 
     init {
         seedDefaultFoods()
+        seedDefaultFestival()
         observeHistory()
         observeEvents()
         observeFoods()
@@ -361,7 +366,28 @@ class WatchManager(private val context: Context) {
             }
         }
         managerScope.launch {
+            eventDao.observeFestivals().collect { festivals ->
+                _state.update { state ->
+                    state.copy(
+                        festivals = festivals,
+                        selectedFestivalId = state.selectedFestivalId
+                            ?: festivals.maxByOrNull { it.createdAt }?.id
+                    )
+                }
+            }
+        }
+        managerScope.launch {
             eventDao.getActiveEventOnce()?.let { refreshEventSummary(it, System.currentTimeMillis()) }
+        }
+    }
+
+    private fun seedDefaultFestival() {
+        managerScope.launch {
+            if (eventDao.getNewestFestival() == null) {
+                val now = System.currentTimeMillis()
+                val id = eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+                _state.update { it.copy(selectedFestivalId = id) }
+            }
         }
     }
 
@@ -408,10 +434,19 @@ class WatchManager(private val context: Context) {
     }
 
     fun syncTime() {
-        val tz = TimeZone.getDefault(); val now = (System.currentTimeMillis() + tz.getOffset(System.currentTimeMillis())) / 1000
+        val tz = TimeZone.getDefault()
+        val now = (System.currentTimeMillis() + tz.getOffset(System.currentTimeMillis())) / 1000
         val packet = ByteArray(10).apply {
-            this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x10.toByte(); this[3] = 0x09.toByte(); this[4] = 0x31.toByte()
-            this[5] = ((now shr 24) and 0xFF).toByte(); this[6] = ((now shr 16) and 0xFF).toByte(); this[7] = ((now shr 8) and 0xFF).toByte(); this[8] = (now and 0xFF).toByte(); this[9] = 0x08.toByte()
+            this[0] = 0xFE.toByte()
+            this[1] = 0xEA.toByte()
+            this[2] = 0x10.toByte()
+            this[3] = 0x09.toByte()
+            this[4] = 0x31.toByte()
+            this[5] = ((now shr 24) and 0xFF).toByte()
+            this[6] = ((now shr 16) and 0xFF).toByte()
+            this[7] = ((now shr 8) and 0xFF).toByte()
+            this[8] = (now and 0xFF).toByte()
+            this[9] = 0x08.toByte()
         }
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         updateDebugLog("Syncing clock (Big Endian FEE2)...")
@@ -425,8 +460,11 @@ class WatchManager(private val context: Context) {
                 return@launch
             }
             val now = System.currentTimeMillis()
+            val festivalId = eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
             val id = eventDao.insert(
                 EventEntity(
+                    festivalId = festivalId,
                     type = EVENT_TYPE_DANCING,
                     name = DEFAULT_DANCING_EVENT_NAME,
                     startTime = now,
@@ -439,6 +477,41 @@ class WatchManager(private val context: Context) {
             )
             eventDao.getEvent(id)?.let { refreshEventSummary(it, now) }
             updateDebugLog("Dancing event started")
+        }
+    }
+
+    fun createFestival() {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            val count = _state.value.festivals.size + 1
+            val id = eventDao.insertFestival(
+                FestivalEntity(
+                    name = "Life Festival $count",
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+            _state.update { it.copy(selectedFestivalId = id) }
+            updateDebugLog("Festival created")
+        }
+    }
+
+    fun selectFestival(id: Long) {
+        _state.update { it.copy(selectedFestivalId = id) }
+    }
+
+    fun updateFestivalName(id: Long, name: String) {
+        val trimmed = name.trim().ifBlank { DEFAULT_FESTIVAL_NAME }
+        managerScope.launch {
+            val festival = eventDao.getFestival(id) ?: return@launch
+            eventDao.updateFestival(festival.copy(name = trimmed, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun updateFestivalImage(id: Long, imageUri: String?) {
+        managerScope.launch {
+            val festival = eventDao.getFestival(id) ?: return@launch
+            eventDao.updateFestival(festival.copy(imageUri = imageUri, updatedAt = System.currentTimeMillis()))
         }
     }
 
@@ -700,8 +773,22 @@ class WatchManager(private val context: Context) {
         )
         startScanWatchdog()
     }
-    fun stopScan() { scanWatchdogJob?.cancel(); scanner?.stopScan(scanCallback) }
-    fun disconnect() { userRequestedDisconnect = true; reconnectJob?.cancel(); connectWatchdogJob?.cancel(); bluetoothGatt?.disconnect(); bluetoothGatt?.close(); bluetoothGatt = null; stopScan(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") } }
+    fun stopScan() {
+        scanWatchdogJob?.cancel()
+        scanner?.stopScan(scanCallback)
+    }
+
+    fun disconnect() {
+        userRequestedDisconnect = true
+        reconnectJob?.cancel()
+        connectWatchdogJob?.cancel()
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        bluetoothGatt = null
+        stopScan()
+        _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
+    }
+
     @Suppress("DEPRECATION")
     private fun connectToDevice(device: BluetoothDevice) {
         userRequestedDisconnect = false

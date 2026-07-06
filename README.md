@@ -29,6 +29,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Live Debug Log**: Full visibility into the BLE communication lifecycle (GATT operations, service discovery, notifications).
 - **Unknown Packet Sniffer**: Dedicated tab for capturing and displaying unrecognized raw hex data from the watch.
 - **ADB-Friendly Capture**: Watch debug logs are mirrored to Logcat under `WatchManager` for direct packet collection from a connected phone.
+- **Local ADB Path**: On this workstation, use `C:\Users\ASUS\AppData\Local\Android\Sdk\platform-tools\adb.exe` for direct device/log checks.
 - **Easy Export**: Long-press any log to copy captured packets to the clipboard for further analysis.
 - **Controls Tab**: Connected-only watch controls, connection actions, hydrated alarm/Step goal/Auto-lock settings, display settings, notification tools, app behavior settings, and manual protocol tools.
 
@@ -39,7 +40,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Smart Notification Mirroring**: Push phone notifications (calls, SMS, and app alerts) directly to the watch using the high-performance direct `0x41` protocol path. Includes automatic app discovery and package-name filtering.
 - **Full History**: All health metrics and captured unknown packets are automatically saved to a local Room database with non-destructive migrations, ensuring graphs and logs survive app restarts.
 - **Decode-First Packet Policy**: Known watch values are decoded into the app; only confirmed no-data/control chatter is filtered from Unknown captures.
-- **Workout Heart-Rate Capture**: Watch exercise sessions stream live BPM through the standard heart-rate characteristic, so the Progress tab can infer duration, average BPM, BPM range, and estimated active calories before full workout-summary sync exists.
+- **Workout Heart-Rate Capture**: Watch exercise sessions stream live BPM through the standard heart-rate characteristic, so the Progress tab can infer duration, average BPM, BPM range, estimated steps, and estimated active calories before full workout-summary sync exists.
 
 ## 🎨 Design
 - **OLED-Dark UI**: Material 3 design pinned to true black backgrounds and surfaces for watch-companion use in low light.

@@ -44,7 +44,6 @@ android {
     lint {
         disable += setOf(
             "BatteryLife",
-            "BlockingMethod",
             "GradleDependency",
             "IconLocation",
             "NewerVersionAvailable",

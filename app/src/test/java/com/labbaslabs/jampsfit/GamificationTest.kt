@@ -3,6 +3,7 @@ package com.labbaslabs.jampsfit
 import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
 import com.labbaslabs.jampsfit.database.EventEntity
+import com.labbaslabs.jampsfit.gamification.ACHIEVEMENT_SCOPE_FESTIVAL
 import com.labbaslabs.jampsfit.gamification.DEFAULT_STEP_GOAL
 import com.labbaslabs.jampsfit.gamification.XP_PER_LEVEL
 import com.labbaslabs.jampsfit.gamification.calculateDailyXp
@@ -90,6 +91,38 @@ class GamificationTest {
     }
 
     @Test
+    fun festivalCatalogHasExactly101Achievements() {
+        val summary = calculateGamificationSummary(WatchState())
+        val festivalAchievements = summary.achievements.filter { it.scope == ACHIEVEMENT_SCOPE_FESTIVAL }
+
+        assertEquals(101, festivalAchievements.size)
+        assertTrue(festivalAchievements.all { it.id.startsWith("festival.") })
+        assertTrue(festivalAchievements.none { it.title == "Marathon Feet" })
+    }
+
+    @Test
+    fun dancefloorLadderRunsTo100kWithPlannedThresholds() {
+        val summary = calculateGamificationSummary(
+            WatchState(
+                recentEvents = listOf(dancingEvent(daysAgo = 0, durationSeconds = 600, steps = 55_000, calories = 0))
+            )
+        )
+
+        val festivalAchievements = summary.achievements.filter { it.scope == ACHIEVEMENT_SCOPE_FESTIVAL }
+        val expectedTitles = (5..50 step 5).map { "${it}k Dancefloor" } +
+            listOf("60k Dancefloor", "70k Dancefloor", "80k Dancefloor", "90k Dancefloor", "100k Dancefloor")
+
+        expectedTitles.forEach { title ->
+            assertTrue(title in festivalAchievements.map { it.title })
+        }
+
+        val unlocked = festivalAchievements.filter { it.unlocked }.map { it.title }
+        assertTrue("50k Dancefloor" in unlocked)
+        assertFalse("60k Dancefloor" in unlocked)
+        assertFalse("100k Dancefloor" in unlocked)
+    }
+
+    @Test
     fun festivalAchievementsUnlockFromDancingEvents() {
         val summary = calculateGamificationSummary(
             WatchState(
@@ -113,7 +146,8 @@ class GamificationTest {
         assertTrue("Four-Day Pass" in unlocked)
         assertTrue("5k Dancefloor" in unlocked)
         assertTrue("10k Dancefloor" in unlocked)
-        assertTrue("Marathon Feet" in unlocked)
+        assertTrue("20k Dancefloor" in unlocked)
+        assertFalse("25k Dancefloor" in unlocked)
         assertTrue("Beat Keeper" in unlocked)
         assertTrue("Tempo Story" in unlocked)
         assertTrue("Heat Wave" in unlocked)

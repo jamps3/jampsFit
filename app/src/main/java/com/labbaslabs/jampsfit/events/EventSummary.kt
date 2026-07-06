@@ -6,6 +6,8 @@ import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.workout.inferLatestWorkout
 import kotlin.math.roundToInt
 
+private const val DEFAULT_STRIDE_METERS = 0.75f
+
 fun summarizeEvent(
     event: EventEntity,
     healthEntries: List<HealthEntry>,
@@ -21,12 +23,14 @@ fun summarizeEvent(
         entry.heartRate?.takeIf { it > 0 }?.let { HistoryPoint(it, entry.timestamp) }
     }
     val inferredWorkout = inferLatestWorkout(heartRatePoints, weightKg)
+    val distanceDelta = calculateCounterDelta(entries.mapNotNull { it.distance }, event.startDistance)
+    val stepCounterDelta = calculateCounterDelta(entries.mapNotNull { it.steps }, event.startSteps)
 
     return event.copy(
         durationSeconds = ((summaryEnd - event.startTime) / 1000L).coerceAtLeast(0L).toInt(),
-        stepDelta = calculateCounterDelta(entries.mapNotNull { it.steps }, event.startSteps),
+        stepDelta = stepCounterDelta.takeIf { it > 0 } ?: estimateStepsFromDistance(distanceDelta),
         activityDelta = calculateCounterDelta(entries.mapNotNull { it.activityCount }, event.startActivityCount),
-        distanceDelta = calculateCounterDelta(entries.mapNotNull { it.distance }, event.startDistance),
+        distanceDelta = distanceDelta,
         calorieDelta = calculateCounterDelta(entries.mapNotNull { it.calories }, event.startCalories),
         heartRateSamples = heartRates.size,
         averageBpm = heartRates.takeIf { it.isNotEmpty() }?.average()?.roundToInt(),
@@ -51,4 +55,9 @@ fun calculateCounterDelta(values: List<Int>, baseline: Int?): Int {
         previous = current
     }
     return total.coerceAtLeast(0)
+}
+
+fun estimateStepsFromDistance(distanceMeters: Int): Int {
+    if (distanceMeters <= 0) return 0
+    return (distanceMeters / DEFAULT_STRIDE_METERS).roundToInt().coerceAtLeast(0)
 }

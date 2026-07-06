@@ -58,7 +58,10 @@ fun ControlsScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .then(if (controlsTab == 4) Modifier else Modifier.verticalScroll(scrollState)),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(text = "Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -67,13 +70,17 @@ fun ControlsScreen(
             Tab(selected = controlsTab == 1, onClick = { controlsTab = 1 }, text = { Text("App") })
             Tab(selected = controlsTab == 2, onClick = { controlsTab = 2 }, text = { Text("Notifications") })
             Tab(selected = controlsTab == 3, onClick = { controlsTab = 3 }, text = { Text("Manual") })
+            Tab(selected = controlsTab == 4, onClick = { controlsTab = 4 }, text = { Text("Debug") })
         }
 
         when (controlsTab) {
             0 -> WatchSettingsControls(state, activity, onScanClick, onDisconnectClick)
             1 -> AppSettingsControls(state, activity)
             2 -> NotificationSettingsControls(state, activity)
-            else -> ManualCommandControls(state, activity)
+            3 -> ManualCommandControls(state, activity)
+            else -> Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                LogsScreen(state) { viewModel.clearUnknownPackets() }
+            }
         }
     }
 }

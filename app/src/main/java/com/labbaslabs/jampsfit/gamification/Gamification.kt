@@ -15,6 +15,8 @@ const val DEFAULT_CALORIE_GOAL = 500
 const val DEFAULT_SLEEP_GOAL_MINUTES = 7 * 60
 const val DEFAULT_ACTIVITY_GOAL = 100
 const val XP_PER_LEVEL = 250
+const val ACHIEVEMENT_SCOPE_GENERAL = "General"
+const val ACHIEVEMENT_SCOPE_FESTIVAL = "Festival"
 
 data class GamificationSummary(
     val level: Int,
@@ -39,7 +41,13 @@ data class GoalProgress(
 data class Achievement(
     val title: String,
     val detail: String,
-    val unlocked: Boolean
+    val unlocked: Boolean,
+    val id: String = title,
+    val scope: String = ACHIEVEMENT_SCOPE_GENERAL,
+    val group: String = ACHIEVEMENT_SCOPE_GENERAL,
+    val progressValue: Int? = null,
+    val progressTarget: Int? = null,
+    val progressUnit: String = ""
 )
 
 fun calculateGamificationSummary(state: WatchState): GamificationSummary {
@@ -163,34 +171,159 @@ private fun buildFestivalAchievements(events: List<EventEntity>, dailyStats: Lis
     val completedByDay = completed.groupBy { dayKey(it.startTime) }
     val festivalDays = completedByDay.keys.size
     val totalSteps = completed.sumOf { it.stepDelta }
+    val totalDurationMinutes = completed.sumOf { it.durationSeconds } / 60
     val totalActiveCalories = completed.sumOf { it.activeCalories }
-    val hasRecoverySleep = completed.any { event ->
-        val recoveryDays = setOf(dayKey(event.startTime), nextDayKey(event.startTime))
-        dailyStats.any { stat -> (stat.sleepMinutes ?: 0) >= 6 * 60 && dayKey(stat.timestamp) in recoveryDays }
+    val totalHeartRateSamples = completed.sumOf { it.heartRateSamples }
+    val heartRateEventCount = completed.count { it.heartRateSamples > 0 }
+    val maxTempoRange = completed.maxOfOrNull { event ->
+        val minBpm = event.minBpm
+        val maxBpm = event.maxBpm
+        if (minBpm != null && maxBpm != null) maxBpm - minBpm else 0
+    } ?: 0
+    val maxSingleDurationMinutes = completed.maxOfOrNull { it.durationSeconds / 60 } ?: 0
+    val maxSetsInDay = completedByDay.values.maxOfOrNull { it.size } ?: 0
+    val firstFestivalDays = completedByDay.keys.sorted().take(4)
+    val completedDayRanks = firstFestivalDays.mapIndexed { index, day -> day to index + 1 }.toMap()
+    val recoveryDays = completed
+        .flatMap { listOf(dayKey(it.startTime), nextDayKey(it.startTime)) }
+        .toSet()
+    val sixHourRecoveryNights = dailyStats
+        .filter { (it.sleepMinutes ?: 0) >= 6 * 60 && dayKey(it.timestamp) in recoveryDays }
+        .map { dayKey(it.timestamp) }
+        .toSet()
+        .size
+    val hasSevenHourRecovery = dailyStats.any { (it.sleepMinutes ?: 0) >= 7 * 60 && dayKey(it.timestamp) in recoveryDays }
+
+    val coreAchievements = listOf(
+        festivalAchievement("core.wristband-on", "Wristband On", "Started a dancing event", dancingEvents.isNotEmpty(), "Core"),
+        festivalAchievement("core.first-set", "First Set", "Completed a 10-minute dancing event", maxSingleDurationMinutes >= 10, "Core", maxSingleDurationMinutes, 10, "min"),
+        festivalAchievement("core.main-stage", "Main Stage", "Completed a 60-minute dancing event", maxSingleDurationMinutes >= 60, "Core", maxSingleDurationMinutes, 60, "min"),
+        festivalAchievement("core.back-to-back", "Back-to-Back Sets", "Completed two dancing events in one day", maxSetsInDay >= 2, "Core", maxSetsInDay, 2, "sets"),
+        festivalAchievement("core.triple-day", "Triple Set Day", "Completed three dancing events in one day", maxSetsInDay >= 3, "Core", maxSetsInDay, 3, "sets"),
+        festivalAchievement("core.two-day", "Two-Day Groove", "Completed dancing events on 2 days", festivalDays >= 2, "Core", festivalDays, 2, "days"),
+        festivalAchievement("core.three-day", "Three-Day Groove", "Completed dancing events on 3 days", festivalDays >= 3, "Core", festivalDays, 3, "days"),
+        festivalAchievement("core.four-day", "Four-Day Pass", "Completed dancing events on 4 days", festivalDays >= 4, "Core", festivalDays, 4, "days"),
+        festivalAchievement("core.opening-day", "Opening Day", "Completed an event on festival day 1", completedDayRanks.containsValue(1), "Core"),
+        festivalAchievement("core.day-two", "Day Two Stamp", "Completed an event on festival day 2", completedDayRanks.containsValue(2), "Core", festivalDays, 2, "days"),
+        festivalAchievement("core.day-three", "Day Three Stamp", "Completed an event on festival day 3", completedDayRanks.containsValue(3), "Core", festivalDays, 3, "days"),
+        festivalAchievement("core.closing-day", "Closing Day Stamp", "Completed an event on festival day 4", completedDayRanks.containsValue(4), "Core", festivalDays, 4, "days"),
+        festivalAchievement("core.morning", "Morning Warmup", "Started a dancing event before noon", completed.any { localHour(it.startTime) in 5..11 }, "Core"),
+        festivalAchievement("core.afternoon", "Afternoon Set", "Started a dancing event after noon", completed.any { localHour(it.startTime) in 12..17 }, "Core"),
+        festivalAchievement("core.night", "Night Set", "Started a dancing event after 9 PM", completed.any { localHour(it.startTime) >= 21 }, "Core"),
+        festivalAchievement("core.midnight", "After Midnight", "Danced across midnight or started before 2 AM", completed.any { crossesMidnight(it) || localHour(it.startTime) in 0..1 }, "Core")
+    )
+
+    val dancefloorAchievements = DANCEFLOOR_THRESHOLDS.map { threshold ->
+        val label = "${threshold / 1_000}k Dancefloor"
+        festivalAchievement(
+            id = "dancefloor.$threshold",
+            title = label,
+            detail = "Recorded ${formatNumber(threshold)} event steps",
+            unlocked = totalSteps >= threshold,
+            group = "Dancefloor",
+            progressValue = totalSteps,
+            progressTarget = threshold,
+            progressUnit = "steps"
+        )
     }
 
-    return listOf(
-        Achievement("Wristband On", "Started a dancing event", dancingEvents.isNotEmpty()),
-        Achievement("First Set", "Completed a 10-minute dancing event", completed.any { it.durationSeconds >= 10 * 60 }),
-        Achievement("Main Stage", "Completed a 60-minute dancing event", completed.any { it.durationSeconds >= 60 * 60 }),
-        Achievement("Back-to-Back Sets", "Completed two dancing events in one day", completedByDay.values.any { it.size >= 2 }),
-        Achievement("Two-Day Groove", "Completed dancing events on 2 days", festivalDays >= 2),
-        Achievement("Four-Day Pass", "Completed dancing events on 4 days", festivalDays >= 4),
-        Achievement("5k Dancefloor", "Recorded 5,000 event steps", totalSteps >= 5_000),
-        Achievement("10k Dancefloor", "Recorded 10,000 event steps", totalSteps >= 10_000),
-        Achievement("Marathon Feet", "Recorded 20,000 event steps", totalSteps >= 20_000),
-        Achievement("Beat Keeper", "Captured heart-rate data during an event", dancingEvents.any { it.heartRateSamples > 0 }),
-        Achievement("Tempo Story", "Captured a 20 BPM range in one event", dancingEvents.any { event ->
-            val minBpm = event.minBpm
-            val maxBpm = event.maxBpm
-            minBpm != null && maxBpm != null && maxBpm - minBpm >= 20
-        }),
-        Achievement("Heat Wave", "Recorded 250 active kcal across events", totalActiveCalories >= 250),
-        Achievement("Data Collector", "Captured steps, calories, and heart-rate in one event", dancingEvents.any {
-            it.stepDelta > 0 && it.activeCalories > 0 && it.heartRateSamples > 0
-        }),
-        Achievement("Recovery Win", "Logged 6h sleep after a festival day", hasRecoverySleep)
+    val totalDurationAchievements = TOTAL_DURATION_MINUTE_THRESHOLDS.map { threshold ->
+        festivalAchievement(
+            id = "duration.total.$threshold",
+            title = "${durationTitle(threshold)} Groove",
+            detail = "Recorded ${durationDetail(threshold)} total dancing time",
+            unlocked = totalDurationMinutes >= threshold,
+            group = "Duration",
+            progressValue = totalDurationMinutes,
+            progressTarget = threshold,
+            progressUnit = "min"
+        )
+    }
+
+    val setCountAchievements = SET_COUNT_THRESHOLDS.map { threshold ->
+        festivalAchievement(
+            id = "sets.$threshold",
+            title = "$threshold Set Festival",
+            detail = "Completed $threshold dancing events",
+            unlocked = completed.size >= threshold,
+            group = "Sets",
+            progressValue = completed.size,
+            progressTarget = threshold,
+            progressUnit = "sets"
+        )
+    }
+
+    val singleDurationAchievements = SINGLE_SET_MINUTE_THRESHOLDS.map { threshold ->
+        festivalAchievement(
+            id = "duration.single.$threshold",
+            title = "${durationTitle(threshold)} Set",
+            detail = "Completed one ${durationDetail(threshold)} dancing event",
+            unlocked = maxSingleDurationMinutes >= threshold,
+            group = "Long Sets",
+            progressValue = maxSingleDurationMinutes,
+            progressTarget = threshold,
+            progressUnit = "min"
+        )
+    }
+
+    val energyAchievements = ENERGY_THRESHOLDS.map { threshold ->
+        festivalAchievement(
+            id = "energy.$threshold",
+            title = if (threshold == 250) "Heat Wave" else "$threshold kcal Heat",
+            detail = "Recorded $threshold active kcal across events",
+            unlocked = totalActiveCalories >= threshold,
+            group = "Energy",
+            progressValue = totalActiveCalories,
+            progressTarget = threshold,
+            progressUnit = "kcal"
+        )
+    }
+
+    val heartAchievements = listOf(
+        festivalAchievement("heart.beat-keeper", "Beat Keeper", "Captured heart-rate data during an event", heartRateEventCount >= 1, "Heart", heartRateEventCount, 1, "events"),
+        festivalAchievement("heart.two-events", "Two Heart Sets", "Captured heart-rate data in 2 events", heartRateEventCount >= 2, "Heart", heartRateEventCount, 2, "events"),
+        festivalAchievement("heart.four-events", "Four Heart Sets", "Captured heart-rate data in 4 events", heartRateEventCount >= 4, "Heart", heartRateEventCount, 4, "events"),
+        festivalAchievement("heart.eight-events", "Eight Heart Sets", "Captured heart-rate data in 8 events", heartRateEventCount >= 8, "Heart", heartRateEventCount, 8, "events"),
+        festivalAchievement("heart.samples.25", "25 Beat Samples", "Captured 25 heart-rate samples", totalHeartRateSamples >= 25, "Heart", totalHeartRateSamples, 25, "samples"),
+        festivalAchievement("heart.samples.50", "50 Beat Samples", "Captured 50 heart-rate samples", totalHeartRateSamples >= 50, "Heart", totalHeartRateSamples, 50, "samples"),
+        festivalAchievement("heart.samples.100", "100 Beat Samples", "Captured 100 heart-rate samples", totalHeartRateSamples >= 100, "Heart", totalHeartRateSamples, 100, "samples"),
+        festivalAchievement("heart.samples.250", "250 Beat Samples", "Captured 250 heart-rate samples", totalHeartRateSamples >= 250, "Heart", totalHeartRateSamples, 250, "samples"),
+        festivalAchievement("heart.samples.500", "500 Beat Samples", "Captured 500 heart-rate samples", totalHeartRateSamples >= 500, "Heart", totalHeartRateSamples, 500, "samples"),
+        festivalAchievement("heart.range.20", "Tempo Story", "Captured a 20 BPM range in one event", maxTempoRange >= 20, "Heart", maxTempoRange, 20, "BPM"),
+        festivalAchievement("heart.range.30", "Big Tempo Story", "Captured a 30 BPM range in one event", maxTempoRange >= 30, "Heart", maxTempoRange, 30, "BPM"),
+        festivalAchievement("heart.range.40", "Wild Tempo Story", "Captured a 40 BPM range in one event", maxTempoRange >= 40, "Heart", maxTempoRange, 40, "BPM")
     )
+
+    val dataAchievements = listOf(
+        festivalAchievement("data.steps", "Step Trace", "Captured event steps", completed.any { it.stepDelta > 0 }, "Data"),
+        festivalAchievement("data.activity", "Activity Trace", "Captured event activity", completed.any { it.activityDelta > 0 }, "Data"),
+        festivalAchievement("data.distance", "Distance Trace", "Captured event distance", completed.any { it.distanceDelta > 0 }, "Data"),
+        festivalAchievement("data.calories", "Calorie Trace", "Captured event calories", completed.any { it.activeCalories > 0 }, "Data"),
+        festivalAchievement("data.duo", "Sensor Duo", "Captured two metric types in one event", completed.any { metricCount(it) >= 2 }, "Data"),
+        festivalAchievement("data.trio", "Sensor Trio", "Captured three metric types in one event", completed.any { metricCount(it) >= 3 }, "Data"),
+        festivalAchievement("data.full", "Full Sensor Set", "Captured steps, distance, calories, and HR in one event", completed.any { metricCount(it) >= 4 }, "Data"),
+        festivalAchievement("data.collector", "Data Collector", "Captured steps, calories, and heart-rate in one event", completed.any {
+            it.stepDelta > 0 && it.activeCalories > 0 && it.heartRateSamples > 0
+        }, "Data")
+    )
+
+    val recoveryAchievements = listOf(
+        festivalAchievement("recovery.win", "Recovery Win", "Logged 6h sleep after a festival day", sixHourRecoveryNights >= 1, "Recovery", sixHourRecoveryNights, 1, "nights"),
+        festivalAchievement("recovery.seven-hour", "Seven-Hour Reset", "Logged 7h sleep after a festival day", hasSevenHourRecovery, "Recovery"),
+        festivalAchievement("recovery.two-nights", "Two Recovery Nights", "Logged 6h sleep after 2 festival days", sixHourRecoveryNights >= 2, "Recovery", sixHourRecoveryNights, 2, "nights"),
+        festivalAchievement("recovery.three-nights", "Three Recovery Nights", "Logged 6h sleep after 3 festival days", sixHourRecoveryNights >= 3, "Recovery", sixHourRecoveryNights, 3, "nights"),
+        festivalAchievement("recovery.four-nights", "Four Recovery Nights", "Logged 6h sleep after 4 festival days", sixHourRecoveryNights >= 4, "Recovery", sixHourRecoveryNights, 4, "nights")
+    )
+
+    return coreAchievements +
+        dancefloorAchievements +
+        totalDurationAchievements +
+        setCountAchievements +
+        singleDurationAchievements +
+        energyAchievements +
+        heartAchievements +
+        dataAchievements +
+        recoveryAchievements
 }
 
 private fun nextDayKey(timestamp: Long): String {
@@ -200,6 +333,67 @@ private fun nextDayKey(timestamp: Long): String {
     }
     return dayKey(calendar.timeInMillis)
 }
+
+private fun festivalAchievement(
+    id: String,
+    title: String,
+    detail: String,
+    unlocked: Boolean,
+    group: String,
+    progressValue: Int? = null,
+    progressTarget: Int? = null,
+    progressUnit: String = ""
+): Achievement = Achievement(
+    title = title,
+    detail = detail,
+    unlocked = unlocked,
+    id = "festival.$id",
+    scope = ACHIEVEMENT_SCOPE_FESTIVAL,
+    group = group,
+    progressValue = progressValue,
+    progressTarget = progressTarget,
+    progressUnit = progressUnit
+)
+
+private fun localHour(timestamp: Long): Int {
+    val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+    return calendar.get(Calendar.HOUR_OF_DAY)
+}
+
+private fun crossesMidnight(event: EventEntity): Boolean {
+    val endTime = event.endTime ?: return false
+    return dayKey(event.startTime) != dayKey(endTime)
+}
+
+private fun metricCount(event: EventEntity): Int = listOf(
+    event.stepDelta > 0,
+    event.activityDelta > 0,
+    event.distanceDelta > 0,
+    event.activeCalories > 0,
+    event.heartRateSamples > 0
+).count { it }
+
+private fun formatNumber(value: Int): String = "%,d".format(Locale.US, value)
+
+private fun durationTitle(minutes: Int): String {
+    if (minutes < 60) return "${minutes}m"
+    val hours = minutes / 60
+    val remainder = minutes % 60
+    return if (remainder == 0) "${hours}h" else "${hours}h${remainder}m"
+}
+
+private fun durationDetail(minutes: Int): String {
+    if (minutes < 60) return "$minutes-minute"
+    val hours = minutes / 60
+    val remainder = minutes % 60
+    return if (remainder == 0) "${hours}-hour" else "${hours}-hour ${remainder}-minute"
+}
+
+private val DANCEFLOOR_THRESHOLDS = (5_000..50_000 step 5_000).toList() + listOf(60_000, 70_000, 80_000, 90_000, 100_000)
+private val TOTAL_DURATION_MINUTE_THRESHOLDS = listOf(10, 30, 60, 90, 120, 180, 240, 300, 360, 480, 600, 720, 960, 1200, 1440)
+private val SET_COUNT_THRESHOLDS = listOf(2, 3, 4, 5, 7, 10, 15, 20, 30, 50)
+private val SINGLE_SET_MINUTE_THRESHOLDS = listOf(15, 30, 45, 90, 120, 180, 240, 360)
+private val ENERGY_THRESHOLDS = listOf(50, 100, 150, 250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000)
 
 private val DAY_FORMAT = ThreadLocal.withInitial {
     java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())

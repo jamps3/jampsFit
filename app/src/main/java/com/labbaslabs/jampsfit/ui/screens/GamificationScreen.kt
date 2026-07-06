@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.FestivalProgressCard
 import com.labbaslabs.jampsfit.ui.components.GamificationCard
@@ -20,6 +21,8 @@ import com.labbaslabs.jampsfit.ui.components.WorkoutSummaryCard
 
 @Composable
 fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
+    val viewModel = LocalMainViewModel.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -33,7 +36,13 @@ fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScr
             fontWeight = FontWeight.Bold
         )
         GamificationCard(state)
-        FestivalProgressCard(state)
+        FestivalProgressCard(
+            state = state,
+            onCreateFestival = { viewModel.createFestival() },
+            onSelectFestival = { viewModel.selectFestival(it) },
+            onRenameFestival = { id, name -> viewModel.updateFestivalName(id, name) },
+            onFestivalImageChange = { id, uri -> viewModel.updateFestivalImage(id, uri) }
+        )
         WorkoutSummaryCard(state)
     }
 }

@@ -13,6 +13,16 @@ import kotlin.math.max
 
 const val EVENT_TYPE_DANCING = "Dancing"
 const val DEFAULT_DANCING_EVENT_NAME = "Dancing Event"
+const val DEFAULT_FESTIVAL_NAME = "Life Festival"
+
+@Entity(tableName = "festivals")
+data class FestivalEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String = DEFAULT_FESTIVAL_NAME,
+    val imageUri: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
+)
 
 @Entity(
     tableName = "events",
@@ -23,6 +33,7 @@ const val DEFAULT_DANCING_EVENT_NAME = "Dancing Event"
 )
 data class EventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val festivalId: Long? = null,
     val type: String = EVENT_TYPE_DANCING,
     val name: String = DEFAULT_DANCING_EVENT_NAME,
     val startTime: Long = System.currentTimeMillis(),
@@ -52,6 +63,21 @@ data class EventEntity(
 @Dao
 interface EventDao {
     @Insert
+    suspend fun insertFestival(festival: FestivalEntity): Long
+
+    @Update
+    suspend fun updateFestival(festival: FestivalEntity)
+
+    @Query("SELECT * FROM festivals ORDER BY createdAt ASC")
+    fun observeFestivals(): Flow<List<FestivalEntity>>
+
+    @Query("SELECT * FROM festivals ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getNewestFestival(): FestivalEntity?
+
+    @Query("SELECT * FROM festivals WHERE id = :id LIMIT 1")
+    suspend fun getFestival(id: Long): FestivalEntity?
+
+    @Insert
     suspend fun insert(event: EventEntity): Long
 
     @Update
@@ -68,4 +94,7 @@ interface EventDao {
 
     @Query("SELECT * FROM events ORDER BY startTime DESC LIMIT 100")
     fun observeRecentEvents(): Flow<List<EventEntity>>
+
+    @Query("SELECT * FROM events WHERE festivalId = :festivalId ORDER BY startTime DESC LIMIT 100")
+    fun observeEventsForFestival(festivalId: Long): Flow<List<EventEntity>>
 }

@@ -104,9 +104,8 @@ class MainActivity : ComponentActivity() {
                                     TabSpec("Watch", Icons.Default.Watch),
                                     TabSpec("Eat", Icons.Default.Restaurant),
                                     TabSpec("Progress", Icons.Default.EmojiEvents),
-                                    TabSpec("Remote", Icons.Default.SettingsRemote),
                                     TabSpec("Charts", Icons.Default.BarChart),
-                                    TabSpec("Debug", Icons.Default.BugReport),
+                                    TabSpec("Remote", Icons.Default.SettingsRemote),
                                     TabSpec("Settings", Icons.Default.Settings),
                                 ),
                             )
@@ -117,10 +116,9 @@ class MainActivity : ComponentActivity() {
                                 0 -> HomeScreen(state)
                                 1 -> EatScreen(state)
                                 2 -> GamificationScreen(state)
-                                3 -> RemoteScreen(state)
-                                4 -> GraphsScreen(state)
-                                5 -> LogsScreen(state) { viewModel.clearUnknownPackets() }
-                                6 -> ControlsScreen(
+                                3 -> GraphsScreen(state)
+                                4 -> RemoteScreen(state)
+                                5 -> ControlsScreen(
                                     state = state,
                                     onScanClick = { viewModel.startScan() },
                                     onDisconnectClick = { viewModel.disconnect() },

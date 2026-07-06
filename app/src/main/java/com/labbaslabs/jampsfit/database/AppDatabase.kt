@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UnknownPacket::class,
         SeenNotification::class,
         EventEntity::class,
+        FestivalEntity::class,
         FoodEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -94,6 +95,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `festivals` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `imageUri` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("ALTER TABLE `events` ADD COLUMN `festivalId` INTEGER")
+                db.execSQL(
+                    """
+                    INSERT INTO `festivals` (`name`, `imageUri`, `createdAt`, `updatedAt`)
+                    SELECT 'Life Festival', NULL, COALESCE(MIN(`startTime`), strftime('%s','now') * 1000), COALESCE(MAX(`lastUpdatedTime`), strftime('%s','now') * 1000)
+                    FROM `events`
+                    """.trimIndent()
+                )
+                db.execSQL("UPDATE `events` SET `festivalId` = (SELECT `id` FROM `festivals` ORDER BY `createdAt` DESC LIMIT 1) WHERE `festivalId` IS NULL")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -101,7 +127,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "jampsfit_database"
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                 INSTANCE = instance
                 instance
