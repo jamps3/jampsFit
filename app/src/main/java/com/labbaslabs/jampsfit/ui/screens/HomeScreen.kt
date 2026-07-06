@@ -22,6 +22,7 @@ import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.R
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.DataCard
+import com.labbaslabs.jampsfit.ui.components.DancingEventControlCard
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 
@@ -66,6 +67,12 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        DancingEventControlCard(
+            state = state,
+            onStart = { viewModel.startDancingEvent() },
+            onStop = { viewModel.stopActiveEvent() }
+        )
 
         DataCard(
             label = "Battery",

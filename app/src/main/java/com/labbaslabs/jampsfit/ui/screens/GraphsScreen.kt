@@ -25,6 +25,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.food.calculateBasalCalories
+import com.labbaslabs.jampsfit.food.dayProgress
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import java.text.SimpleDateFormat
 import java.util.*
@@ -793,20 +795,6 @@ enum class CaloriePeriodMode {
     Month
 }
 
-fun calculateBasalCalories(state: WatchState): Int {
-    return calculateBasalCalories(
-        gender = state.profileGender,
-        heightCm = state.profileHeightCm,
-        weightKg = state.profileWeightKg,
-        ageYears = state.profileAgeYears
-    )
-}
-
-fun calculateBasalCalories(gender: String, heightCm: Int, weightKg: Float, ageYears: Int): Int {
-    val genderOffset = if (gender.equals("Female", ignoreCase = true)) -161.0 else 5.0
-    return (10.0 * weightKg + 6.25 * heightCm - 5.0 * ageYears + genderOffset).roundToInt()
-}
-
 private fun List<com.labbaslabs.jampsfit.database.HistoryPoint>.toTotalCalories(
     dailyBasalCalories: Int,
     periodMode: CaloriePeriodMode
@@ -820,16 +808,6 @@ private fun List<com.labbaslabs.jampsfit.database.HistoryPoint>.toTotalCalories(
         }
         com.labbaslabs.jampsfit.database.HistoryPoint(point.value + basal, point.timestamp)
     }
-}
-
-private fun dayProgress(timestamp: Long): Float {
-    val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
-    val hour = calendar.get(Calendar.HOUR_OF_DAY)
-    val minute = calendar.get(Calendar.MINUTE)
-    val second = calendar.get(Calendar.SECOND)
-    val millisecond = calendar.get(Calendar.MILLISECOND)
-    val elapsed = (((hour * 60L + minute) * 60L + second) * 1000L + millisecond).toFloat()
-    return (elapsed / (24f * 60f * 60f * 1000f)).coerceIn(0f, 1f)
 }
 
 private fun daysInMonth(timestamp: Long): Int {

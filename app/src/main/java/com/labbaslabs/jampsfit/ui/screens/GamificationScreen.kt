@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.ui.components.FestivalProgressCard
 import com.labbaslabs.jampsfit.ui.components.GamificationCard
 import com.labbaslabs.jampsfit.ui.components.WorkoutSummaryCard
 
@@ -32,6 +33,7 @@ fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScr
             fontWeight = FontWeight.Bold
         )
         GamificationCard(state)
+        FestivalProgressCard(state)
         WorkoutSummaryCard(state)
     }
 }

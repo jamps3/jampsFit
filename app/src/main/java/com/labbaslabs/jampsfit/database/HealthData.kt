@@ -40,6 +40,9 @@ interface HealthDao {
     @Query("SELECT * FROM health_data ORDER BY timestamp ASC")
     suspend fun getAllEntriesList(): List<HealthEntry>
 
+    @Query("SELECT * FROM health_data WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp ASC")
+    suspend fun getEntriesBetween(startTime: Long, endTime: Long): List<HealthEntry>
+
     @Query("SELECT battery as value, timestamp FROM health_data WHERE battery IS NOT NULL ORDER BY timestamp DESC LIMIT 100")
     fun getBatteryHistory(): Flow<List<HistoryPoint>>
 

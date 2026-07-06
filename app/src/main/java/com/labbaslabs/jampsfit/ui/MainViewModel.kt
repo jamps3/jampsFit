@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.labbaslabs.jampsfit.WatchManager
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.database.FoodEntity
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,8 @@ class MainViewModel : ViewModel() {
     fun querySleepBoundaries() = watchManager?.querySleepBoundaries()
     fun findWatch() = watchManager?.findWatch()
     fun syncTime() = watchManager?.syncTime()
+    fun startDancingEvent() = watchManager?.startDancingEvent()
+    fun stopActiveEvent() = watchManager?.stopActiveEvent()
     
     fun updateShutterAction(action: String) = watchManager?.updateShutterAction(action)
     fun updateMusicAction(action: String) = watchManager?.updateMusicAction(action)
@@ -61,6 +64,12 @@ class MainViewModel : ViewModel() {
     
     fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) = 
         watchManager?.updateProfile(gender, heightCm, weightKg, ageYears)
+    fun saveFood(food: FoodEntity) = watchManager?.saveFood(food)
+    fun deleteFood(id: Long) = watchManager?.deleteFood(id)
+    fun setFoodEnabled(id: Long, enabled: Boolean) = watchManager?.setFoodEnabled(id, enabled)
+    fun setFoodAvailableAmount(id: Long, amount: Float?) = watchManager?.setFoodAvailableAmount(id, amount)
+    fun setFoodOnShoppingList(id: Long, onShoppingList: Boolean) = watchManager?.setFoodOnShoppingList(id, onShoppingList)
+    fun markFoodBought(id: Long) = watchManager?.markFoodBought(id)
         
     fun updateVolumeSteps(steps: Int) = watchManager?.updateVolumeSteps(steps)
     fun updateBatteryThreshold(threshold: Int) = watchManager?.updateBatteryThreshold(threshold)

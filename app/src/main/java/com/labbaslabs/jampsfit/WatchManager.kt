@@ -10,8 +10,16 @@ import android.os.Build
 import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
+import com.labbaslabs.jampsfit.database.DEFAULT_DANCING_EVENT_NAME
+import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
+import com.labbaslabs.jampsfit.database.EventEntity
+import com.labbaslabs.jampsfit.database.FoodEntity
+import com.labbaslabs.jampsfit.database.FoodRoles
+import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
+import com.labbaslabs.jampsfit.database.defaultFoods
+import com.labbaslabs.jampsfit.events.summarizeEvent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +82,9 @@ data class WatchState(
     val dailyStats: List<HealthEntry> = emptyList(),
     val weeklyStats: List<HealthEntry> = emptyList(),
     val monthlyStats: List<HealthEntry> = emptyList(),
+    val activeEvent: EventEntity? = null,
+    val recentEvents: List<EventEntity> = emptyList(),
+    val foods: List<FoodEntity> = emptyList(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
@@ -125,6 +136,8 @@ data class WatchAlarm(
 class WatchManager(private val context: Context) {
     private val db = AppDatabase.getDatabase(context)
     private val healthDao = db.healthDao()
+    private val eventDao = db.eventDao()
+    private val foodDao = db.foodDao()
     private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -203,7 +216,10 @@ class WatchManager(private val context: Context) {
     }
 
     init {
+        seedDefaultFoods()
         observeHistory()
+        observeEvents()
+        observeFoods()
         cleanupSeenNotifications()
         checkFullScreenIntentPermission()
         updateDebugLog("WatchManager build: modular-decoder-v2")
@@ -333,6 +349,38 @@ class WatchManager(private val context: Context) {
         managerScope.launch { healthDao.getAllUnknownPackets().collect { h -> _state.update { it.copy(unknownMessages = h) } } }
     }
 
+    private fun observeEvents() {
+        managerScope.launch {
+            eventDao.observeActiveEvent().collect { event ->
+                _state.update { it.copy(activeEvent = event) }
+            }
+        }
+        managerScope.launch {
+            eventDao.observeRecentEvents().collect { events ->
+                _state.update { it.copy(recentEvents = events) }
+            }
+        }
+        managerScope.launch {
+            eventDao.getActiveEventOnce()?.let { refreshEventSummary(it, System.currentTimeMillis()) }
+        }
+    }
+
+    private fun seedDefaultFoods() {
+        managerScope.launch {
+            if (foodDao.countFoods() == 0) {
+                foodDao.insertAll(defaultFoods())
+            }
+        }
+    }
+
+    private fun observeFoods() {
+        managerScope.launch {
+            foodDao.observeFoods().collect { foods ->
+                _state.update { it.copy(foods = foods) }
+            }
+        }
+    }
+
     sealed class GattOperation {
         class WriteDescriptor(val descriptor: BluetoothGattDescriptor, val value: ByteArray) : GattOperation()
         class WriteCharacteristic(val charUuid: UUID?, val value: ByteArray) : GattOperation()
@@ -367,6 +415,43 @@ class WatchManager(private val context: Context) {
         }
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, packet))
         updateDebugLog("Syncing clock (Big Endian FEE2)...")
+    }
+
+    fun startDancingEvent() {
+        val snapshot = _state.value
+        managerScope.launch {
+            if (eventDao.getActiveEventOnce() != null) {
+                updateDebugLog("Dancing event already active")
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            val id = eventDao.insert(
+                EventEntity(
+                    type = EVENT_TYPE_DANCING,
+                    name = DEFAULT_DANCING_EVENT_NAME,
+                    startTime = now,
+                    startSteps = snapshot.steps,
+                    startActivityCount = snapshot.activityCount,
+                    startDistance = snapshot.distance,
+                    startCalories = snapshot.calories,
+                    lastUpdatedTime = now
+                )
+            )
+            eventDao.getEvent(id)?.let { refreshEventSummary(it, now) }
+            updateDebugLog("Dancing event started")
+        }
+    }
+
+    fun stopActiveEvent() {
+        managerScope.launch {
+            val active = eventDao.getActiveEventOnce() ?: run {
+                updateDebugLog("No active dancing event to stop")
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            refreshEventSummary(active.copy(endTime = now), now)
+            updateDebugLog("Dancing event stopped")
+        }
     }
 
     fun clearQueue() { synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") } }
@@ -508,6 +593,45 @@ class WatchManager(private val context: Context) {
     fun updateBorderThickness(t: Float) { prefs.edit { putFloat("borderThickness", t) }; _state.update { it.copy(borderThickness = t) } }
     fun updateBorderAlpha(a: Float) { prefs.edit { putFloat("borderAlpha", a) }; _state.update { it.copy(borderAlpha = a) } }
     fun updateProfile(g: String, h: Int, w: Float, a: Int) { prefs.edit { putString("profileGender", g); putInt("profileHeightCm", h); putFloat("profileWeightKg", w); putInt("profileAgeYears", a) }; _state.update { it.copy(profileGender = g, profileHeightCm = h, profileWeightKg = w, profileAgeYears = a) } }
+    fun saveFood(food: FoodEntity) {
+        managerScope.launch {
+            val sanitized = food.sanitized()
+            if (sanitized.id == 0L) foodDao.insert(sanitized) else foodDao.update(sanitized)
+        }
+    }
+    fun deleteFood(id: Long) { managerScope.launch { foodDao.deleteById(id) } }
+    fun setFoodEnabled(id: Long, enabled: Boolean) { managerScope.launch { foodDao.setEnabled(id, enabled) } }
+    fun setFoodAvailableAmount(id: Long, amount: Float?) { managerScope.launch { foodDao.setAvailableAmount(id, amount?.coerceIn(0f, 1_000f)) } }
+    fun setFoodOnShoppingList(id: Long, onShoppingList: Boolean) { managerScope.launch { foodDao.setOnShoppingList(id, onShoppingList) } }
+    fun markFoodBought(id: Long) {
+        managerScope.launch {
+            val food = foodDao.getFood(id) ?: return@launch
+            foodDao.setOnShoppingList(id, false)
+            if (food.source == FoodSources.HOME) {
+                val amount = ((food.availableAmount ?: 0f) + food.defaultAmount).coerceIn(0f, 1_000f)
+                foodDao.setAvailableAmount(food.id, amount)
+                foodDao.setEnabled(food.id, true)
+                return@launch
+            }
+
+            val homeFood = foodDao.getFood(FoodSources.HOME, food.role, food.name)
+            if (homeFood != null) {
+                val amount = ((homeFood.availableAmount ?: 0f) + food.defaultAmount).coerceIn(0f, 1_000f)
+                foodDao.update(homeFood.copy(enabled = true, availableAmount = amount))
+            } else {
+                foodDao.insert(
+                    food.copy(
+                        id = 0,
+                        source = FoodSources.HOME,
+                        enabled = true,
+                        availableAmount = food.defaultAmount,
+                        isCustom = true,
+                        onShoppingList = false
+                    ).sanitized()
+                )
+            }
+        }
+    }
     fun updateProtocol(h: String, u: String, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
     fun updateVolumeSteps(s: Int) { prefs.edit { putInt("volumeSteps", s) }; _state.update { it.copy(volumeSteps = s) } }
     fun toggleAutoSyncAlarm(e: Boolean) { prefs.edit { putBoolean("autoSyncAlarm", e) }; _state.update { it.copy(autoSyncAlarm = e) } }
@@ -516,6 +640,24 @@ class WatchManager(private val context: Context) {
     fun toggleMuteAlarmSyncNotification(e: Boolean) { prefs.edit { putBoolean("muteAlarmSyncNotification", e) }; _state.update { it.copy(muteAlarmSyncNotification = e) } }
     fun setFindingPhone(active: Boolean) { _state.update { it.copy(isFindingPhone = active) } }
     fun setServiceRunning(r: Boolean) { _state.update { it.copy(isServiceRunning = r) } }
+    private fun FoodEntity.sanitized(): FoodEntity {
+        val safeSource = source.takeIf { it in FoodSources.all } ?: FoodSources.HOME
+        val safeRole = role.takeIf { it in FoodRoles.all } ?: FoodRoles.CARB
+        return copy(
+            name = name.trim().ifBlank { "Food" }.take(48),
+            source = safeSource,
+            role = safeRole,
+            unitLabel = unitLabel.trim().ifBlank { "portion" }.take(16),
+            kcalPerUnit = kcalPerUnit.coerceIn(1, 5_000),
+            defaultAmount = defaultAmount.cleanAmount(fallback = 1f, min = 0.1f, max = 100f),
+            stepSize = stepSize.cleanAmount(fallback = 1f, min = 0.1f, max = 50f),
+            availableAmount = if (safeSource == FoodSources.HOME) availableAmount?.cleanAmount(fallback = 0f, min = 0f, max = 1_000f) else null,
+            onShoppingList = onShoppingList
+        )
+    }
+    private fun Float.cleanAmount(fallback: Float, min: Float, max: Float): Float {
+        return if (isFinite()) coerceIn(min, max) else fallback
+    }
     private fun updateDebugLog(msg: String) { Log.d(TAG, msg); val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); synchronized(logBuffer) { logBuffer.add("[$t] $msg"); while (logBuffer.size > 100) logBuffer.removeAt(0); _state.update { it.copy(debugLog = logBuffer.joinToString("\n")) } } }
     private fun enqueueOperation(op: GattOperation) { synchronized(operationQueue) { operationQueue.add(op); if (!isOperating) doNextOperation() } }
     private fun doNextOperation() {
@@ -650,7 +792,23 @@ class WatchManager(private val context: Context) {
         }
     }
     private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null) {
-        managerScope.launch { healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)) }
+        managerScope.launch {
+            healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes))
+            eventDao.getActiveEventOnce()?.let { refreshEventSummary(it, System.currentTimeMillis()) }
+        }
+    }
+
+    private suspend fun refreshEventSummary(event: EventEntity, endTime: Long) {
+        val summaryEnd = event.endTime ?: endTime
+        val entries = healthDao.getEntriesBetween(event.startTime, summaryEnd)
+        eventDao.update(
+            summarizeEvent(
+                event = event,
+                healthEntries = entries,
+                endTime = endTime,
+                weightKg = _state.value.profileWeightKg
+            )
+        )
     }
     private fun finishOperation() {
         synchronized(operationQueue) { isOperating = false }

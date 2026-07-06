@@ -71,6 +71,7 @@ Important capture correction: the Da Fit writes previously labeled as `6387` wer
 - **Communication**: Bluetooth Low Energy (BLE) / GATT
 - **Concurrency**: Kotlin Coroutines & Flow
 - **Build System**: Gradle (Version Catalog & KSP)
+- **Known Build Warning**: The Gradle 10 deprecation warning about project dependency notation is accepted for now and should be ignored until the build tooling is upgraded.
 
 ## 📋 Roadmap
 - [ ] **Gamification Expansion**: Extend the Progress-tab XP, streak, and achievement system with weekly challenges, quest cards, milestone timelines, and personal bests. See `docs/plans/GAMIFICATION-PLAN.md`.

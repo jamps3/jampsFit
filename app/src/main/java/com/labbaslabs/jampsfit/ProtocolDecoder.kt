@@ -187,7 +187,7 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
 
     private fun parseDeviceInfoPacket(b: ByteArray) {
         val infoType = b[5].toInt() and 0xFF
-        val text = String(b.copyOfRange(6, b.size)).trim { it <= ' ' }
+        val text = String(b.copyOfRange(6, b.size)).trim()
         if (infoType == 0x00) onResult(DecodedResult.DeviceInfo(text, null))
         else if (infoType == 0x01) onResult(DecodedResult.DeviceInfo(null, text))
     }

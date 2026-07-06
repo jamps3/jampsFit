@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
                                 onTabSelected = { currentTabIndex = it },
                                 tabs = listOf(
                                     TabSpec("Watch", Icons.Default.Watch),
+                                    TabSpec("Eat", Icons.Default.Restaurant),
                                     TabSpec("Progress", Icons.Default.EmojiEvents),
                                     TabSpec("Remote", Icons.Default.SettingsRemote),
                                     TabSpec("Charts", Icons.Default.BarChart),
@@ -114,11 +115,12 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.padding(innerPadding)) {
                             when (currentTabIndex) {
                                 0 -> HomeScreen(state)
-                                1 -> GamificationScreen(state)
-                                2 -> RemoteScreen(state)
-                                3 -> GraphsScreen(state)
-                                4 -> LogsScreen(state) { viewModel.clearUnknownPackets() }
-                                5 -> ControlsScreen(
+                                1 -> EatScreen(state)
+                                2 -> GamificationScreen(state)
+                                3 -> RemoteScreen(state)
+                                4 -> GraphsScreen(state)
+                                5 -> LogsScreen(state) { viewModel.clearUnknownPackets() }
+                                6 -> ControlsScreen(
                                     state = state,
                                     onScanClick = { viewModel.startScan() },
                                     onDisconnectClick = { viewModel.disconnect() },

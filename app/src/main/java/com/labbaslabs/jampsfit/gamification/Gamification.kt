@@ -1,6 +1,8 @@
 package com.labbaslabs.jampsfit.gamification
 
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
+import com.labbaslabs.jampsfit.database.EventEntity
 import com.labbaslabs.jampsfit.database.HealthEntry
 import java.util.Calendar
 import java.util.Date
@@ -150,10 +152,54 @@ private fun buildAchievements(
         Achievement("3-Day Streak", "Hit step goal 3 days in a row", streak >= 3),
         Achievement("7-Day Streak", "Hit step goal 7 days in a row", streak >= 7),
         Achievement("Personal Best Steps", "Logged a 15,000-step day", bestSteps >= 15_000)
-    )
+    ) + buildFestivalAchievements(state.recentEvents, state.dailyStats)
 }
 
 private fun dayKey(timestamp: Long): String = DAY_FORMAT.get()!!.format(Date(timestamp))
+
+private fun buildFestivalAchievements(events: List<EventEntity>, dailyStats: List<HealthEntry>): List<Achievement> {
+    val dancingEvents = events.filter { it.type == EVENT_TYPE_DANCING }
+    val completed = dancingEvents.filter { it.endTime != null }
+    val completedByDay = completed.groupBy { dayKey(it.startTime) }
+    val festivalDays = completedByDay.keys.size
+    val totalSteps = completed.sumOf { it.stepDelta }
+    val totalActiveCalories = completed.sumOf { it.activeCalories }
+    val hasRecoverySleep = completed.any { event ->
+        val recoveryDays = setOf(dayKey(event.startTime), nextDayKey(event.startTime))
+        dailyStats.any { stat -> (stat.sleepMinutes ?: 0) >= 6 * 60 && dayKey(stat.timestamp) in recoveryDays }
+    }
+
+    return listOf(
+        Achievement("Wristband On", "Started a dancing event", dancingEvents.isNotEmpty()),
+        Achievement("First Set", "Completed a 10-minute dancing event", completed.any { it.durationSeconds >= 10 * 60 }),
+        Achievement("Main Stage", "Completed a 60-minute dancing event", completed.any { it.durationSeconds >= 60 * 60 }),
+        Achievement("Back-to-Back Sets", "Completed two dancing events in one day", completedByDay.values.any { it.size >= 2 }),
+        Achievement("Two-Day Groove", "Completed dancing events on 2 days", festivalDays >= 2),
+        Achievement("Four-Day Pass", "Completed dancing events on 4 days", festivalDays >= 4),
+        Achievement("5k Dancefloor", "Recorded 5,000 event steps", totalSteps >= 5_000),
+        Achievement("10k Dancefloor", "Recorded 10,000 event steps", totalSteps >= 10_000),
+        Achievement("Marathon Feet", "Recorded 20,000 event steps", totalSteps >= 20_000),
+        Achievement("Beat Keeper", "Captured heart-rate data during an event", dancingEvents.any { it.heartRateSamples > 0 }),
+        Achievement("Tempo Story", "Captured a 20 BPM range in one event", dancingEvents.any { event ->
+            val minBpm = event.minBpm
+            val maxBpm = event.maxBpm
+            minBpm != null && maxBpm != null && maxBpm - minBpm >= 20
+        }),
+        Achievement("Heat Wave", "Recorded 250 active kcal across events", totalActiveCalories >= 250),
+        Achievement("Data Collector", "Captured steps, calories, and heart-rate in one event", dancingEvents.any {
+            it.stepDelta > 0 && it.activeCalories > 0 && it.heartRateSamples > 0
+        }),
+        Achievement("Recovery Win", "Logged 6h sleep after a festival day", hasRecoverySleep)
+    )
+}
+
+private fun nextDayKey(timestamp: Long): String {
+    val calendar = Calendar.getInstance().apply {
+        timeInMillis = timestamp
+        add(Calendar.DAY_OF_YEAR, 1)
+    }
+    return dayKey(calendar.timeInMillis)
+}
 
 private val DAY_FORMAT = ThreadLocal.withInitial {
     java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())

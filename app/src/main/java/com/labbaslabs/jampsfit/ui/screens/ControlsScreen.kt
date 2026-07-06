@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.MainActivity
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.food.calculateBasalCalories
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 
 @Composable
@@ -391,6 +392,8 @@ private fun AppSettingsControls(
             Text("Export Health Data (CSV)")
         }
     }
+
+    EatSettingsLauncher(state)
 
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
