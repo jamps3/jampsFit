@@ -94,6 +94,7 @@ data class WatchState(
     val eatShowFastFood: Boolean = false,
     val appliedMealCalories: Int = 0,
     val eatCaloriesIncremental: Boolean = false,
+    val shoppingListCheckedIds: Set<Long> = emptySet(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
@@ -203,7 +204,11 @@ class WatchManager(private val context: Context) {
         eatShowStore = prefs.getBoolean("eatShowStore", true),
         eatShowFastFood = prefs.getBoolean("eatShowFastFood", false),
         appliedMealCalories = initialAppliedMealCalories,
-        eatCaloriesIncremental = initialEatCaloriesIncremental
+        eatCaloriesIncremental = initialEatCaloriesIncremental,
+        shoppingListCheckedIds = prefs.getStringSet("shoppingListCheckedIds", emptySet())
+            ?.mapNotNull { it.toLongOrNull() }
+            ?.toSet()
+            ?: emptySet()
     ))
     val state = _state.asStateFlow()
 
@@ -716,6 +721,11 @@ class WatchManager(private val context: Context) {
             putString("appliedMealCaloriesDay", mealDayKey())
         }
         _state.update { it.copy(appliedMealCalories = 0) }
+    }
+    fun setShoppingListChecked(id: Long, checked: Boolean) {
+        val checkedIds = if (checked) _state.value.shoppingListCheckedIds + id else _state.value.shoppingListCheckedIds - id
+        prefs.edit { putStringSet("shoppingListCheckedIds", checkedIds.map { it.toString() }.toSet()) }
+        _state.update { it.copy(shoppingListCheckedIds = checkedIds) }
     }
     fun deleteFood(id: Long) { managerScope.launch { foodDao.deleteById(id) } }
     fun setFoodEnabled(id: Long, enabled: Boolean) { managerScope.launch { foodDao.setEnabled(id, enabled) } }

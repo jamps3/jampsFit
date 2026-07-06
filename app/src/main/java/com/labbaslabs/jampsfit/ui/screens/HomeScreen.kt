@@ -38,11 +38,23 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.jampsfit_logo),
-            contentDescription = "jampsFit Logo",
-            modifier = Modifier.height(60.dp).fillMaxWidth().padding(horizontal = 32.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.jampsfit_logo),
+                contentDescription = "jampsFit Logo",
+                modifier = Modifier.height(60.dp).weight(1f)
+            )
+            Text(
+                text = "2.0",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFFFFC107)
+            )
+        }
         
         Card(
             shape = RoundedCornerShape(32.dp),

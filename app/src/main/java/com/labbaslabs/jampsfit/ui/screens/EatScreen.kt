@@ -275,6 +275,8 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
 
         ShoppingListCard(
             foods = shoppingFoods,
+            checkedIds = state.shoppingListCheckedIds,
+            onCheckedChange = { food, checked -> viewModel.setShoppingListChecked(food.id, checked) },
             onRemove = { viewModel.setFoodOnShoppingList(it.id, false) }
         )
     }
@@ -391,6 +393,8 @@ private fun CategoryFilterCard(
 @Composable
 private fun ShoppingListCard(
     foods: List<FoodEntity>,
+    checkedIds: Set<Long>,
+    onCheckedChange: (FoodEntity, Boolean) -> Unit,
     onRemove: (FoodEntity) -> Unit
 ) {
     SleekCard(borderColor = Color(0xFF4CAF50)) {
@@ -410,7 +414,10 @@ private fun ShoppingListCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Checkbox(checked = false, onCheckedChange = {})
+                            Checkbox(
+                                checked = food.id in checkedIds,
+                                onCheckedChange = { onCheckedChange(food, it) }
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(food.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${food.defaultAmount.formatAmount()} ${food.unitLabel} • ${food.source}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
