@@ -293,6 +293,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
         )
 
         CurrentBurgerCard(targetCalories = targetCalories)
+        CurrentNuggetsCard(targetCalories = targetCalories)
     }
 
     if (confirmMealReset) {
@@ -656,6 +657,126 @@ private fun DrawScope.drawIngredientLayer(
         size = Size(width, height),
         cornerRadius = CornerRadius(radius, radius)
     )
+}
+
+@Composable
+private fun CurrentNuggetsCard(targetCalories: Int) {
+    val nuggets = remember(targetCalories) { NuggetsPlan.fromCalories(targetCalories) }
+    SleekCard(borderColor = Color(0xFFFFB300)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(Icons.Default.Fastfood, Color(0xFFFFB300))
+                Column {
+                    Text("Current Nuggets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${nuggets.displayCalories} kcal nuggets", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+            }
+            AssistChip(
+                onClick = {},
+                label = { Text("${nuggets.totalCount} nuggets", fontSize = 11.sp) }
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(230.dp)
+        ) {
+            drawNuggets(nuggets)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Uses regular chicken nuggets at about ${NuggetsPlan.KCAL_PER_NUGGET} kcal each; the tray scales toward 15,000 kcal.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+    }
+}
+
+private data class NuggetsPlan(
+    val displayCalories: Int,
+    val totalCount: Int,
+    val visibleCount: Int
+) {
+    companion object {
+        const val KCAL_PER_NUGGET = 45
+        private const val MAX_NUGGET_KCAL = 15_000
+        private const val MAX_VISIBLE_NUGGETS = 72
+
+        fun fromCalories(calories: Int): NuggetsPlan {
+            val displayCalories = calories.coerceIn(0, MAX_NUGGET_KCAL)
+            val totalCount = max(1, ceil(displayCalories / KCAL_PER_NUGGET.toFloat()).roundToInt())
+            val visibleCount = totalCount.coerceAtMost(MAX_VISIBLE_NUGGETS)
+            return NuggetsPlan(
+                displayCalories = displayCalories,
+                totalCount = totalCount,
+                visibleCount = visibleCount
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawNuggets(plan: NuggetsPlan) {
+    val trayPadding = 16.dp.toPx()
+    val trayLeft = trayPadding
+    val trayTop = 10.dp.toPx()
+    val trayWidth = size.width - trayPadding * 2f
+    val trayHeight = size.height - 20.dp.toPx()
+    drawRoundRect(
+        color = Color(0xFF3F2A1C).copy(alpha = 0.18f),
+        topLeft = Offset(trayLeft, trayTop),
+        size = Size(trayWidth, trayHeight),
+        cornerRadius = CornerRadius(22.dp.toPx(), 22.dp.toPx())
+    )
+
+    val columns = 8
+    val rows = ceil(plan.visibleCount / columns.toFloat()).roundToInt().coerceAtLeast(1)
+    val cellWidth = trayWidth / columns
+    val cellHeight = trayHeight / rows
+    val nuggetWidth = (cellWidth * 0.68f).coerceIn(18.dp.toPx(), 36.dp.toPx())
+    val nuggetHeight = (cellHeight * 0.54f).coerceIn(13.dp.toPx(), 28.dp.toPx())
+
+    repeat(plan.visibleCount) { index ->
+        val row = index / columns
+        val column = index % columns
+        val centerX = trayLeft + column * cellWidth + cellWidth / 2f
+        val centerY = trayTop + row * cellHeight + cellHeight / 2f
+        val wobbleX = ((index % 3) - 1) * 2.dp.toPx()
+        val wobbleY = if (index % 2 == 0) 1.5.dp.toPx() else -1.5.dp.toPx()
+        drawNugget(
+            center = Offset(centerX + wobbleX, centerY + wobbleY),
+            width = nuggetWidth,
+            height = nuggetHeight,
+            seed = index
+        )
+    }
+}
+
+private fun DrawScope.drawNugget(center: Offset, width: Float, height: Float, seed: Int) {
+    val topLeft = Offset(center.x - width / 2f, center.y - height / 2f)
+    drawRoundRect(
+        color = Color(0xFFD99A32),
+        topLeft = topLeft,
+        size = Size(width, height),
+        cornerRadius = CornerRadius(width * 0.42f, height * 0.5f)
+    )
+    drawRoundRect(
+        color = Color(0xFFF3C35A),
+        topLeft = Offset(topLeft.x + width * 0.15f, topLeft.y + height * 0.18f),
+        size = Size(width * 0.38f, height * 0.2f),
+        cornerRadius = CornerRadius(width * 0.16f, height * 0.1f)
+    )
+    if (seed % 4 == 0) {
+        drawCircle(
+            color = Color(0xFFB8741E).copy(alpha = 0.55f),
+            radius = height * 0.1f,
+            center = Offset(center.x + width * 0.2f, center.y + height * 0.12f)
+        )
+    }
 }
 
 @Composable
