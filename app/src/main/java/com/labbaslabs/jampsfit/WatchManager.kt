@@ -89,6 +89,11 @@ data class WatchState(
     val festivals: List<FestivalEntity> = emptyList(),
     val selectedFestivalId: Long? = null,
     val foods: List<FoodEntity> = emptyList(),
+    val eatShowHome: Boolean = true,
+    val eatShowStore: Boolean = true,
+    val eatShowFastFood: Boolean = false,
+    val appliedMealCalories: Int = 0,
+    val eatCaloriesIncremental: Boolean = false,
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
     val autoLockSecondsSetting: Int? = null,
@@ -144,6 +149,11 @@ class WatchManager(private val context: Context) {
     private val foodDao = db.foodDao()
     private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
+    private val initialMealDay = mealDayKey()
+    private val initialEatCaloriesIncremental = prefs.getBoolean("eatCaloriesIncremental", false)
+    private val initialAppliedMealCalories = prefs.getInt("appliedMealCalories", 0)
+        .takeIf { initialEatCaloriesIncremental || prefs.getString("appliedMealCaloriesDay", initialMealDay) == initialMealDay }
+        ?: 0
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val adapter: BluetoothAdapter? = bluetoothManager.adapter
     private val scanner get() = adapter?.bluetoothLeScanner
@@ -188,7 +198,12 @@ class WatchManager(private val context: Context) {
         quickViewStartHour = prefs.getInt("quickViewStartHour", 10),
         quickViewStartMinute = prefs.getInt("quickViewStartMinute", 0),
         quickViewEndHour = prefs.getInt("quickViewEndHour", 22),
-        quickViewEndMinute = prefs.getInt("quickViewEndMinute", 0)
+        quickViewEndMinute = prefs.getInt("quickViewEndMinute", 0),
+        eatShowHome = prefs.getBoolean("eatShowHome", true),
+        eatShowStore = prefs.getBoolean("eatShowStore", true),
+        eatShowFastFood = prefs.getBoolean("eatShowFastFood", false),
+        appliedMealCalories = initialAppliedMealCalories,
+        eatCaloriesIncremental = initialEatCaloriesIncremental
     ))
     val state = _state.asStateFlow()
 
@@ -672,6 +687,36 @@ class WatchManager(private val context: Context) {
             if (sanitized.id == 0L) foodDao.insert(sanitized) else foodDao.update(sanitized)
         }
     }
+    fun updateEatSourceFilters(showHome: Boolean, showStore: Boolean, showFastFood: Boolean) {
+        prefs.edit {
+            putBoolean("eatShowHome", showHome)
+            putBoolean("eatShowStore", showStore)
+            putBoolean("eatShowFastFood", showFastFood)
+        }
+        _state.update { it.copy(eatShowHome = showHome, eatShowStore = showStore, eatShowFastFood = showFastFood) }
+    }
+    fun applyMealCalories(calories: Int) {
+        val total = (_state.value.appliedMealCalories + calories.coerceAtLeast(0)).coerceIn(0, 100_000)
+        prefs.edit {
+            putInt("appliedMealCalories", total)
+            putString("appliedMealCaloriesDay", mealDayKey())
+        }
+        _state.update { it.copy(appliedMealCalories = total) }
+    }
+    fun updateEatCaloriesIncremental(enabled: Boolean) {
+        prefs.edit {
+            putBoolean("eatCaloriesIncremental", enabled)
+            putString("appliedMealCaloriesDay", mealDayKey())
+        }
+        _state.update { it.copy(eatCaloriesIncremental = enabled) }
+    }
+    fun resetAppliedMealCalories() {
+        prefs.edit {
+            putInt("appliedMealCalories", 0)
+            putString("appliedMealCaloriesDay", mealDayKey())
+        }
+        _state.update { it.copy(appliedMealCalories = 0) }
+    }
     fun deleteFood(id: Long) { managerScope.launch { foodDao.deleteById(id) } }
     fun setFoodEnabled(id: Long, enabled: Boolean) { managerScope.launch { foodDao.setEnabled(id, enabled) } }
     fun setFoodAvailableAmount(id: Long, amount: Float?) { managerScope.launch { foodDao.setAvailableAmount(id, amount?.coerceIn(0f, 1_000f)) } }
@@ -915,6 +960,10 @@ class WatchManager(private val context: Context) {
         }
     }
     private fun rememberRecentPayload(k: String, q: ArrayDeque<String>, s: MutableSet<String>): Boolean = synchronized(q) { if (!s.add(k)) true else { q.addLast(k); while (q.size > 32) s.remove(q.removeFirst()); false } }
+    private fun mealDayKey(): String {
+        val calendar = Calendar.getInstance()
+        return "${calendar.get(Calendar.YEAR)}-${calendar.get(Calendar.DAY_OF_YEAR)}"
+    }
     private fun nativePacket(cmd: Int, vararg p: Int): ByteArray = ByteArray(5 + p.size).apply { this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x20.toByte(); this[3] = size.toByte(); this[4] = cmd.toByte(); p.forEachIndexed { i, v -> this[5 + i] = (v and 0xFF).toByte() } }
     private fun sendFee2NativeRaw(b: ByteArray) = enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, b))
     fun sendLegacyShortNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true) }

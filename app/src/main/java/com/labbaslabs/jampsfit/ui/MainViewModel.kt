@@ -69,6 +69,11 @@ class MainViewModel : ViewModel() {
     fun updateProfile(gender: String, heightCm: Int, weightKg: Float, ageYears: Int) = 
         watchManager?.updateProfile(gender, heightCm, weightKg, ageYears)
     fun saveFood(food: FoodEntity) = watchManager?.saveFood(food)
+    fun updateEatSourceFilters(showHome: Boolean, showStore: Boolean, showFastFood: Boolean) =
+        watchManager?.updateEatSourceFilters(showHome, showStore, showFastFood)
+    fun applyMealCalories(calories: Int) = watchManager?.applyMealCalories(calories)
+    fun updateEatCaloriesIncremental(enabled: Boolean) = watchManager?.updateEatCaloriesIncremental(enabled)
+    fun resetAppliedMealCalories() = watchManager?.resetAppliedMealCalories()
     fun deleteFood(id: Long) = watchManager?.deleteFood(id)
     fun setFoodEnabled(id: Long, enabled: Boolean) = watchManager?.setFoodEnabled(id, enabled)
     fun setFoodAvailableAmount(id: Long, amount: Float?) = watchManager?.setFoodAvailableAmount(id, amount)

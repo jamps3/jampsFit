@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Home
@@ -26,7 +27,9 @@ import androidx.compose.material.icons.filled.RemoveShoppingCart
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -34,8 +37,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -75,19 +78,19 @@ import kotlin.math.roundToInt
 fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val viewModel = LocalMainViewModel.current
     var targetModeName by rememberSaveable { mutableStateOf(CalorieTargetMode.TotalSoFar.name) }
-    var showHome by rememberSaveable { mutableStateOf(true) }
-    var showStore by rememberSaveable { mutableStateOf(true) }
-    var showFastFood by rememberSaveable { mutableStateOf(false) }
     var lockedSuggestionId by rememberSaveable { mutableStateOf<String?>(null) }
     var lockedFoodId by rememberSaveable { mutableLongStateOf(0L) }
     var lockedAmount by rememberSaveable { mutableFloatStateOf(0f) }
+    var chosenMeal by remember { mutableStateOf<Map<Long, Float>>(emptyMap()) }
+    var confirmMealReset by remember { mutableStateOf(false) }
 
     val targetMode = CalorieTargetMode.valueOf(targetModeName)
-    val targetCalories = calculateEatCalorieTarget(state, targetMode)
+    val rawTargetCalories = calculateEatCalorieTarget(state, targetMode)
+    val targetCalories = (rawTargetCalories - state.appliedMealCalories).coerceAtLeast(0)
     val selectedSources = buildSet {
-        if (showHome) add(FoodSources.HOME)
-        if (showStore) add(FoodSources.STORE)
-        if (showFastFood) add(FoodSources.FAST_FOOD)
+        if (state.eatShowHome) add(FoodSources.HOME)
+        if (state.eatShowStore) add(FoodSources.STORE)
+        if (state.eatShowFastFood) add(FoodSources.FAST_FOOD)
     }
     val visibleFoods = remember(state.foods, selectedSources) { availableFoods(state.foods, selectedSources) }
     val suggestions = remember(state.foods, targetCalories, selectedSources) {
@@ -100,6 +103,13 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     val shoppingFoods = remember(state.foods) {
         state.foods.filter { it.onShoppingList }.sortedWith(compareBy<FoodEntity> { it.source }.thenBy { it.name })
     }
+    val chosenIngredients = remember(state.foods, chosenMeal) {
+        chosenMeal.mapNotNull { (foodId, amount) ->
+            state.foods.firstOrNull { it.id == foodId }?.let { food ->
+                MealIngredient(food = food, amount = amount)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -111,6 +121,8 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
         Text(text = "Eat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         SleekCard(borderColor = Color(0xFFFF9800)) {
+            Text("Calories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -120,37 +132,106 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                     IconBadge(Icons.Default.LocalFireDepartment, Color(0xFFFF9800))
                     Column {
                         Text("$targetCalories kcal", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-                        Text(if (targetMode == CalorieTargetMode.TotalSoFar) "Total so far" else "Active burned", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Text(
+                            if (state.appliedMealCalories > 0) {
+                                "${state.appliedMealCalories} kcal applied"
+                            } else if (targetMode == CalorieTargetMode.TotalSoFar) {
+                                "Total so far"
+                            } else {
+                                "Active burned"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Total", style = MaterialTheme.typography.labelMedium, color = if (targetMode == CalorieTargetMode.TotalSoFar) Color.White else Color.Gray)
-                    Switch(
-                        checked = targetMode == CalorieTargetMode.ActiveBurned,
-                        onCheckedChange = { active ->
-                            targetModeName = if (active) CalorieTargetMode.ActiveBurned.name else CalorieTargetMode.TotalSoFar.name
-                            lockedSuggestionId = null
-                        }
-                    )
-                    Text("Active", style = MaterialTheme.typography.labelMedium, color = if (targetMode == CalorieTargetMode.ActiveBurned) Color.White else Color.Gray)
-                }
             }
-
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SourceChip(FoodSources.HOME, Icons.Default.Home, showHome) { showHome = it; lockedSuggestionId = null }
-                SourceChip(FoodSources.STORE, Icons.Default.Store, showStore) { showStore = it; lockedSuggestionId = null }
-                SourceChip(FoodSources.FAST_FOOD, Icons.Default.Fastfood, showFastFood) { showFastFood = it; lockedSuggestionId = null }
+                FilterChip(
+                    selected = targetMode == CalorieTargetMode.TotalSoFar,
+                    onClick = {
+                        targetModeName = CalorieTargetMode.TotalSoFar.name
+                        lockedSuggestionId = null
+                    },
+                    label = { Text("Total") }
+                )
+                FilterChip(
+                    selected = targetMode == CalorieTargetMode.ActiveBurned,
+                    onClick = {
+                        targetModeName = CalorieTargetMode.ActiveBurned.name
+                        lockedSuggestionId = null
+                    },
+                    label = { Text("Active") }
+                )
+                AssistChip(
+                    onClick = {
+                        if (state.eatCaloriesIncremental) {
+                            confirmMealReset = true
+                        } else {
+                            viewModel.resetAppliedMealCalories()
+                        }
+                    },
+                    label = { Text("Reset meals") },
+                    enabled = state.appliedMealCalories > 0
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !state.eatCaloriesIncremental,
+                    onClick = { viewModel.updateEatCaloriesIncremental(false) },
+                    label = { Text("Clear at midnight") }
+                )
+                FilterChip(
+                    selected = state.eatCaloriesIncremental,
+                    onClick = { viewModel.updateEatCaloriesIncremental(true) },
+                    label = { Text("Count forever") }
+                )
             }
         }
 
-        ShoppingListCard(
-            foods = shoppingFoods,
-            onBought = { viewModel.markFoodBought(it.id) },
-            onRemove = { viewModel.setFoodOnShoppingList(it.id, false) }
+        ChosenMealCard(
+            ingredients = chosenIngredients,
+            targetCalories = targetCalories,
+            onAmountChange = { ingredient, amount ->
+                chosenMeal = chosenMeal + (ingredient.food.id to amount)
+            },
+            onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
+            onApply = { calories ->
+                viewModel.applyMealCalories(calories)
+                chosenMeal = emptyMap()
+                lockedSuggestionId = null
+                lockedFoodId = 0L
+                lockedAmount = 0f
+            },
+            onRemove = { food ->
+                chosenMeal = chosenMeal - food.id
+            }
+        )
+
+        CategoryFilterCard(
+            showHome = state.eatShowHome,
+            showStore = state.eatShowStore,
+            showFastFood = state.eatShowFastFood,
+            onShowHomeChange = {
+                viewModel.updateEatSourceFilters(it, state.eatShowStore, state.eatShowFastFood)
+                lockedSuggestionId = null
+            },
+            onShowStoreChange = {
+                viewModel.updateEatSourceFilters(state.eatShowHome, it, state.eatShowFastFood)
+                lockedSuggestionId = null
+            },
+            onShowFastFoodChange = {
+                viewModel.updateEatSourceFilters(state.eatShowHome, state.eatShowStore, it)
+                lockedSuggestionId = null
+            }
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -185,16 +266,131 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
 
         CanEatNowCard(
             foods = visibleFoods,
+            onAddToChosenMeal = { food ->
+                chosenMeal = chosenMeal + (food.id to food.defaultAmount)
+            },
             onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
             onShoppingListChange = { food, checked -> viewModel.setFoodOnShoppingList(food.id, checked) }
         )
+
+        ShoppingListCard(
+            foods = shoppingFoods,
+            onRemove = { viewModel.setFoodOnShoppingList(it.id, false) }
+        )
+    }
+
+    if (confirmMealReset) {
+        AlertDialog(
+            onDismissRequest = { confirmMealReset = false },
+            title = { Text("Reset counted calories?") },
+            text = { Text("This clears all applied Chosen Meal calories from the forever counter.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resetAppliedMealCalories()
+                        confirmMealReset = false
+                    }
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmMealReset = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ChosenMealCard(
+    ingredients: List<MealIngredient>,
+    targetCalories: Int,
+    onAmountChange: (MealIngredient, Float) -> Unit,
+    onKcalChange: (FoodEntity, Int) -> Unit,
+    onApply: (Int) -> Unit,
+    onRemove: (FoodEntity) -> Unit
+) {
+    val totalCalories = ingredients.sumOf { it.calories }
+    SleekCard(borderColor = Color(0xFFFFC107)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(Icons.Default.Restaurant, Color(0xFFFFC107))
+                Column {
+                    Text("Chosen Meal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("$totalCalories / $targetCalories kcal", style = MaterialTheme.typography.bodySmall, color = Color(0xFFFF9800))
+                }
+            }
+            AssistChip(
+                onClick = {},
+                label = {
+                    Text(
+                        calorieDeltaText(totalCalories - targetCalories),
+                        color = if (totalCalories <= targetCalories) Color(0xFF8BC34A) else Color(0xFFFFC107),
+                        fontSize = 11.sp
+                    )
+                }
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        if (ingredients.isEmpty()) {
+            Text("Add items from Can Eat Now", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ingredients.forEach { ingredient ->
+                    IngredientAmountRow(
+                        ingredient = ingredient,
+                        onAmountChange = { onAmountChange(ingredient, it) },
+                        onKcalChange = { onKcalChange(ingredient.food, it) },
+                        onAddToShoppingList = { onRemove(ingredient.food) },
+                        actionIcon = Icons.Default.RemoveShoppingCart,
+                        actionTint = Color.Gray,
+                        actionDescription = "Remove",
+                        alwaysShowAction = true
+                    )
+                }
+                Button(
+                    onClick = { onApply(totalCalories) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Apply Chosen Meal")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryFilterCard(
+    showHome: Boolean,
+    showStore: Boolean,
+    showFastFood: Boolean,
+    onShowHomeChange: (Boolean) -> Unit,
+    onShowStoreChange: (Boolean) -> Unit,
+    onShowFastFoodChange: (Boolean) -> Unit
+) {
+    SleekCard {
+        Text("Food Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SourceChip(FoodSources.HOME, Icons.Default.Home, showHome, onShowHomeChange)
+            SourceChip(FoodSources.STORE, Icons.Default.Store, showStore, onShowStoreChange)
+            SourceChip(FoodSources.FAST_FOOD, Icons.Default.Fastfood, showFastFood, onShowFastFoodChange)
+        }
     }
 }
 
 @Composable
 private fun ShoppingListCard(
     foods: List<FoodEntity>,
-    onBought: (FoodEntity) -> Unit,
     onRemove: (FoodEntity) -> Unit
 ) {
     SleekCard(borderColor = Color(0xFF4CAF50)) {
@@ -214,7 +410,7 @@ private fun ShoppingListCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Checkbox(checked = false, onCheckedChange = { if (it) onBought(food) })
+                            Checkbox(checked = false, onCheckedChange = {})
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(food.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${food.defaultAmount.formatAmount()} ${food.unitLabel} • ${food.source}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -280,7 +476,11 @@ private fun IngredientAmountRow(
     ingredient: MealIngredient,
     onAmountChange: (Float) -> Unit,
     onKcalChange: (Int) -> Unit,
-    onAddToShoppingList: () -> Unit
+    onAddToShoppingList: () -> Unit,
+    actionIcon: ImageVector = Icons.Default.AddShoppingCart,
+    actionTint: Color = Color(0xFF4CAF50),
+    actionDescription: String = "Add",
+    alwaysShowAction: Boolean = false
 ) {
     val food = ingredient.food
     val maxAmount = maxSliderAmount(food, ingredient.amount)
@@ -313,9 +513,9 @@ private fun IngredientAmountRow(
                 },
                 modifier = Modifier.widthIn(min = 72.dp, max = 86.dp)
             )
-            if (food.source != FoodSources.HOME) {
+            if (alwaysShowAction || food.source != FoodSources.HOME) {
                 IconButton(onClick = onAddToShoppingList, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Default.AddShoppingCart, contentDescription = "Add", tint = Color(0xFF4CAF50), modifier = Modifier.size(20.dp))
+                    Icon(actionIcon, contentDescription = actionDescription, tint = actionTint, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -331,6 +531,7 @@ private fun IngredientAmountRow(
 @Composable
 private fun CanEatNowCard(
     foods: List<FoodEntity>,
+    onAddToChosenMeal: (FoodEntity) -> Unit,
     onKcalChange: (FoodEntity, Int) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
@@ -347,6 +548,7 @@ private fun CanEatNowCard(
                 foods.take(12).forEach { food ->
                     FoodAvailabilityRow(
                         food = food,
+                        onAddToChosenMeal = { onAddToChosenMeal(food) },
                         onKcalChange = { onKcalChange(food, it) },
                         onShoppingListChange = onShoppingListChange
                     )
@@ -359,6 +561,7 @@ private fun CanEatNowCard(
 @Composable
 private fun FoodAvailabilityRow(
     food: FoodEntity,
+    onAddToChosenMeal: () -> Unit,
     onKcalChange: (Int) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
@@ -383,10 +586,20 @@ private fun FoodAvailabilityRow(
             },
             modifier = Modifier.widthIn(min = 72.dp, max = 86.dp)
         )
-        Checkbox(
-            checked = food.onShoppingList,
-            onCheckedChange = { onShoppingListChange(food, it) }
-        )
+        IconButton(onClick = onAddToChosenMeal, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Add, contentDescription = "Add to chosen meal", tint = Color(0xFFFFC107), modifier = Modifier.size(20.dp))
+        }
+        IconButton(
+            onClick = { onShoppingListChange(food, !food.onShoppingList) },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = if (food.onShoppingList) Icons.Default.RemoveShoppingCart else Icons.Default.AddShoppingCart,
+                contentDescription = if (food.onShoppingList) "Remove from shopping list" else "Add to shopping list",
+                tint = if (food.onShoppingList) Color(0xFF4CAF50) else Color.Gray,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
