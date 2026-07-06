@@ -195,6 +195,42 @@ fun defaultFoods(): List<FoodEntity> = listOf(
         stepSize = 0.5f
     ),
     FoodEntity(
+        name = "Cucumber",
+        source = FoodSources.STORE,
+        role = FoodRoles.VEGETABLE,
+        unitLabel = "piece",
+        kcalPerUnit = 30,
+        defaultAmount = 1f,
+        stepSize = 1f
+    ),
+    FoodEntity(
+        name = "Tomato",
+        source = FoodSources.STORE,
+        role = FoodRoles.VEGETABLE,
+        unitLabel = "piece",
+        kcalPerUnit = 20,
+        defaultAmount = 2f,
+        stepSize = 1f
+    ),
+    FoodEntity(
+        name = "Pickled cucumber",
+        source = FoodSources.STORE,
+        role = FoodRoles.VEGETABLE,
+        unitLabel = "jar",
+        kcalPerUnit = 80,
+        defaultAmount = 1f,
+        stepSize = 1f
+    ),
+    FoodEntity(
+        name = "Cheese",
+        source = FoodSources.STORE,
+        role = FoodRoles.PROTEIN,
+        unitLabel = "100 g",
+        kcalPerUnit = 360,
+        defaultAmount = 2f,
+        stepSize = 0.5f
+    ),
+    FoodEntity(
         name = "Nuts",
         source = FoodSources.STORE,
         role = FoodRoles.FAT,

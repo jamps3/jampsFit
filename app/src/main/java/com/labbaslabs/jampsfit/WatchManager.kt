@@ -413,8 +413,16 @@ class WatchManager(private val context: Context) {
 
     private fun seedDefaultFoods() {
         managerScope.launch {
+            val defaults = defaultFoods()
             if (foodDao.countFoods() == 0) {
-                foodDao.insertAll(defaultFoods())
+                foodDao.insertAll(defaults)
+                return@launch
+            }
+
+            defaults.forEach { food ->
+                if (foodDao.getFood(food.source, food.role, food.name) == null) {
+                    foodDao.insert(food)
+                }
             }
         }
     }

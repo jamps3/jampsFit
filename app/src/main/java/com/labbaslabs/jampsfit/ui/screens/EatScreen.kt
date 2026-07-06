@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RemoveShoppingCart
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -277,6 +278,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             foods = shoppingFoods,
             checkedIds = state.shoppingListCheckedIds,
             onCheckedChange = { food, checked -> viewModel.setShoppingListChecked(food.id, checked) },
+            onQuantityChange = { food, amount -> viewModel.saveFood(food.copy(defaultAmount = amount)) },
             onRemove = { viewModel.setFoodOnShoppingList(it.id, false) }
         )
     }
@@ -395,6 +397,7 @@ private fun ShoppingListCard(
     foods: List<FoodEntity>,
     checkedIds: Set<Long>,
     onCheckedChange: (FoodEntity, Boolean) -> Unit,
+    onQuantityChange: (FoodEntity, Float) -> Unit,
     onRemove: (FoodEntity) -> Unit
 ) {
     SleekCard(borderColor = Color(0xFF4CAF50)) {
@@ -408,6 +411,7 @@ private fun ShoppingListCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 foods.forEach { food ->
+                    var quantityText by remember(food.id, food.defaultAmount) { mutableStateOf(food.defaultAmount.formatAmount()) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -420,7 +424,40 @@ private fun ShoppingListCard(
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(food.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${food.defaultAmount.formatAmount()} ${food.unitLabel} • ${food.source}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Text("${food.source} • ${food.kcalPerUnit} kcal/${food.unitLabel}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    val next = ((quantityText.toFloatOrNull() ?: food.defaultAmount) - food.stepSize)
+                                        .coerceAtLeast(food.stepSize)
+                                    quantityText = next.formatAmount()
+                                    onQuantityChange(food, next)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease quantity", tint = Color.Gray)
+                            }
+                            QuantityField(
+                                value = quantityText,
+                                unitLabel = food.unitLabel,
+                                onValueChange = { next ->
+                                    quantityText = next
+                                    next.toFloatOrNull()?.takeIf { it > 0f }?.let { onQuantityChange(food, it) }
+                                },
+                                modifier = Modifier.widthIn(min = 76.dp, max = 92.dp)
+                            )
+                            IconButton(
+                                onClick = {
+                                    val next = ((quantityText.toFloatOrNull() ?: food.defaultAmount) + food.stepSize)
+                                        .coerceAtMost(100f)
+                                    quantityText = next.formatAmount()
+                                    onQuantityChange(food, next)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Increase quantity", tint = Color(0xFF4CAF50))
                             }
                         }
                         IconButton(onClick = { onRemove(food) }, modifier = Modifier.size(36.dp)) {
@@ -431,6 +468,23 @@ private fun ShoppingListCard(
             }
         }
     }
+}
+
+@Composable
+private fun QuantityField(
+    value: String,
+    unitLabel: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter { char -> char.isDigit() || char == '.' }.take(5)) },
+        label = { Text(unitLabel) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = modifier
+    )
 }
 
 @Composable
