@@ -76,6 +76,11 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 - `FEA1`: mirrored activity/health notify.
 - `6487`: native MoYoung notify.
 
+Decoder policy: jampsFit should decode, persist, and surface every watch value once the payload meaning is known. Packets should be filtered out of Unknown only when they are confirmed no-data/control chatter or already handled by a known channel. Recent examples:
+
+- `RX 2A37 raw=00 00 00`: standard heart-rate notification with flags `00` and BPM `00`; this is an idle/no-reading sample, not usable heart-rate data.
+- `RX FEE3 raw=FE EA 20 06 29 03`: short Series 20 `0x29` packet with one-byte payload `03`; currently treated as known control/ack-style chatter because it carries no mapped health/activity value.
+
 ### `FEE1` Live Activity Packet Breakdown
 
 | Offset | Size | Meaning | Notes |

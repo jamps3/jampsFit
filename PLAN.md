@@ -1,5 +1,7 @@
 # jampsFit Development Plan
 
+Living feature plans belong in `docs/plans/`. See `docs/plans/GAMIFICATION-PLAN.md` for the active gamification plan.
+
 ## Completed Features
 - [x] BLE Scanning and Connection for Kospet TANK M1.
 - [x] Real-time Health Data: Battery, Heart Rate, SpO2, Blood Pressure.
@@ -55,11 +57,13 @@
 - [x] Confirm Legacy Short and Legacy Call notification packet formats.
 - [x] Confirm short notification push with direct `0x41` through `FEE2`.
 - [x] Confirm direct `0x41` notification payloads through 80 text bytes.
+- [x] **Gamification V1**: Add Progress-tab daily goal progress, XP levels, step streaks, and deterministic achievements backed by local watch data.
 
 ## Planned Features
 - [x] **Decode Real Steps**: The 2026-05-22 15:51 Da Fit sync showed current watch-face steps are `total(59 00) + total(59 01)`. In that capture, `6492 + 837 = 7329`, matching the watch face and Da Fit weekly total. `FEE1` remains `activityCount`, not true steps.
 - [x] **Manual/Automatic Step Fetch**: Home exposes a Steps play button for the `59 00 + 59 01` fetch, and Controls > App can poll steps automatically at a selected interval.
 - [ ] **Stabilize Watch Send Path**: Continue re-verifying captured Da Fit `FE EA 20` commands on `FEE2`; Clock Sync, Find My Watch, and alarms are now stable enough to keep in the Controls tab.
+- [ ] **Gamification Expansion**: Continue weekly challenges, quest cards, milestone timeline, personal bests, and avatar ideas in `docs/plans/GAMIFICATION-PLAN.md`.
 - [ ] **Reconcile Captures With References**: Compare local phone captures against Gadgetbridge-MT863, Uwatch2 notes, and `_uwatch2ble.py`.
 - [ ] **Use Gadgetbridge Moyoung Notes**: Cross-check packet layout and command IDs against https://gadgetbridge.org/internals/specifics/moyoung-protocol/.
 - [ ] **Step Query Probes**: Continue validating step history and offsets. Current known results: `59 00 + 59 01` matches current steps; `59 02` is close to the Da Fit daily-screen value but not exact in the 15:51 capture; `59 03`, `33 01`, and `33 02` remain history/page candidates; `33 00` does nothing.

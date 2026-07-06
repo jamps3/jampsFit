@@ -63,4 +63,24 @@ class ProtocolDecoderTest {
 
         assertTrue(results.isEmpty())
     }
+
+    @Test
+    fun ignoresIdleHeartRateZeros() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(ProtocolDecoder.UUID_HEART_RATE, byteArrayOf(0x00, 0x00, 0x00))
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun ignoresFee3CommandAckWithoutPayload() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(ProtocolDecoder.UUID_FEE3, byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x06, 0x29, 0x03))
+
+        assertTrue(results.isEmpty())
+    }
 }

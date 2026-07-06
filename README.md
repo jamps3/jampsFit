@@ -8,6 +8,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 
 ### 📊 Real-Time Health & Activity
 - **Live Dashboard**: Monitor Battery plus live watch activity count, distance, and calories at a glance.
+- **Gamified Progress**: Track daily goal progress, XP levels, step streaks, and local achievements in a dedicated Progress tab.
 - **Step Fetching**: Fetch current watch-face steps manually from the Home tab or automatically at a configurable interval.
 - **Sleep Tracking**: Fetch and display accurate watch sleep ranges, preserving hidden boundary markers that Da Fit may merge.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
@@ -37,6 +38,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Autostart on Boot**: Optionally starts the connection service as soon as your phone finishes booting.
 - **Smart Notification Mirroring**: Push phone notifications (calls, SMS, and app alerts) directly to the watch using the high-performance direct `0x41` protocol path. Includes automatic app discovery and package-name filtering.
 - **Full History**: All health metrics and captured unknown packets are automatically saved to a local Room database with non-destructive migrations, ensuring graphs and logs survive app restarts.
+- **Decode-First Packet Policy**: Known watch values are decoded into the app; only confirmed no-data/control chatter is filtered from Unknown captures.
 
 ## 🎨 Design
 - **OLED-Dark UI**: Material 3 design pinned to true black backgrounds and surfaces for watch-companion use in low light.
@@ -70,6 +72,7 @@ Important capture correction: the Da Fit writes previously labeled as `6387` wer
 - **Build System**: Gradle (Version Catalog & KSP)
 
 ## 📋 Roadmap
+- [ ] **Gamification Expansion**: Extend the Progress-tab XP, streak, and achievement system with weekly challenges, quest cards, milestone timelines, and personal bests. See `docs/plans/GAMIFICATION-PLAN.md`.
 - [ ] **Regular HR Measurements**: Add scheduled heart-rate measurement capture and history sync.
 - [ ] **Additional Vitals**: Investigate regular blood pressure and SpO2 measurement support once the watch protocol behavior is verified.
 - [ ] **Sleep Merge Refinement**: Keep the existing accurate sleep decoding while improving how multiple sleep ranges are merged within the same day.
