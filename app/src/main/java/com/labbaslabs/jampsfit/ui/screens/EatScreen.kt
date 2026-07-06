@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +51,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +79,7 @@ import com.labbaslabs.jampsfit.ui.components.SleekCard
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
@@ -285,6 +291,8 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             onQuantityChange = { food, amount -> viewModel.saveFood(food.copy(defaultAmount = amount)) },
             onRemove = { viewModel.setFoodOnShoppingList(it.id, false) }
         )
+
+        CurrentBurgerCard(targetCalories = targetCalories)
     }
 
     if (confirmMealReset) {
@@ -356,28 +364,34 @@ private fun ChosenMealCard(
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
-        if (ingredients.isEmpty()) {
-            Text("Add items from Can Eat Now", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ingredients.forEach { ingredient ->
-                    IngredientAmountRow(
-                        ingredient = ingredient,
-                        onAmountChange = { onAmountChange(ingredient, it) },
-                        onKcalChange = { onKcalChange(ingredient.food, it) },
-                        onAddToShoppingList = { onRemove(ingredient.food) },
-                        actionIcon = Icons.Default.RemoveShoppingCart,
-                        actionTint = Color.Gray,
-                        actionDescription = "Remove",
-                        alwaysShowAction = true
-                    )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.height(210.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (ingredients.isEmpty()) {
+                    Text("Add items from Can Eat Now", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                } else {
+                    ingredients.forEach { ingredient ->
+                        IngredientAmountRow(
+                            ingredient = ingredient,
+                            onAmountChange = { onAmountChange(ingredient, it) },
+                            onKcalChange = { onKcalChange(ingredient.food, it) },
+                            onAddToShoppingList = { onRemove(ingredient.food) },
+                            actionIcon = Icons.Default.RemoveShoppingCart,
+                            actionTint = Color.Gray,
+                            actionDescription = "Remove",
+                            alwaysShowAction = true
+                        )
+                    }
                 }
-                Button(
-                    onClick = { onApply(totalCalories) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Apply Chosen Meal")
-                }
+            }
+            Button(
+                onClick = { onApply(totalCalories) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = ingredients.isNotEmpty()
+            ) {
+                Text("Apply Chosen Meal")
             }
         }
     }
@@ -498,6 +512,149 @@ private fun QuantityField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier
+    )
+}
+
+@Composable
+private fun CurrentBurgerCard(targetCalories: Int) {
+    val burger = remember(targetCalories) { BurgerPlan.fromCalories(targetCalories) }
+    SleekCard(borderColor = Color(0xFFFF7043)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(Icons.Default.Fastfood, Color(0xFFFF7043))
+                Column {
+                    Text("Current Burger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${burger.displayCalories} kcal burger", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+            }
+            AssistChip(
+                onClick = {},
+                label = { Text("${burger.patties} patties", fontSize = 11.sp) }
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+        ) {
+            drawBurger(burger)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Top and bottom buns stay constant; patties, cheese, sauce, and salad scale toward 15,000 kcal.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+    }
+}
+
+private data class BurgerPlan(
+    val displayCalories: Int,
+    val patties: Int,
+    val cheeseSlices: Int,
+    val sauceLayers: Int,
+    val saladLayers: Int
+) {
+    companion object {
+        private const val MAX_BURGER_KCAL = 15_000
+
+        fun fromCalories(calories: Int): BurgerPlan {
+            val displayCalories = calories.coerceIn(0, MAX_BURGER_KCAL)
+            val ratio = displayCalories / MAX_BURGER_KCAL.toFloat()
+            val patties = max(1, (1 + ratio * 11f).roundToInt())
+            return BurgerPlan(
+                displayCalories = displayCalories,
+                patties = patties,
+                cheeseSlices = max(1, (patties * 0.75f).roundToInt()),
+                sauceLayers = max(1, (patties * 0.45f).roundToInt()),
+                saladLayers = max(1, (patties * 0.35f).roundToInt())
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawBurger(plan: BurgerPlan) {
+    val centerX = size.width / 2f
+    val maxWidth = size.width * 0.82f
+    val minWidth = size.width * 0.48f
+    val scale = (plan.displayCalories / 15_000f).coerceIn(0f, 1f)
+    val burgerWidth = minWidth + (maxWidth - minWidth) * scale
+    val left = centerX - burgerWidth / 2f
+    val layerGap = 2.dp.toPx()
+    val topBunHeight = 34.dp.toPx()
+    val bottomBunHeight = 24.dp.toPx()
+    val pattyHeight = 11.dp.toPx()
+    val cheeseHeight = 5.dp.toPx()
+    val sauceHeight = 4.dp.toPx()
+    val saladHeight = 5.dp.toPx()
+    val ingredientHeight = plan.patties * pattyHeight +
+        plan.cheeseSlices * cheeseHeight +
+        plan.sauceLayers * sauceHeight +
+        plan.saladLayers * saladHeight +
+        (plan.patties + plan.cheeseSlices + plan.sauceLayers + plan.saladLayers) * layerGap
+    val burgerHeight = topBunHeight + ingredientHeight + bottomBunHeight
+    var y = ((size.height - burgerHeight) / 2f).coerceAtLeast(8.dp.toPx())
+
+    drawRoundRect(
+        color = Color(0xFFE7A84F),
+        topLeft = Offset(left, y),
+        size = Size(burgerWidth, topBunHeight),
+        cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+    )
+    drawRoundRect(
+        color = Color(0xFFF8D37B),
+        topLeft = Offset(left + burgerWidth * 0.08f, y + topBunHeight * 0.46f),
+        size = Size(burgerWidth * 0.84f, topBunHeight * 0.18f),
+        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+    )
+    y += topBunHeight + layerGap
+
+    repeat(plan.patties) { index ->
+        if (index < plan.saladLayers) {
+            drawIngredientLayer(left, y, burgerWidth, saladHeight, Color(0xFF6CBF3F), 0.92f, 10.dp.toPx())
+            y += saladHeight + layerGap
+        }
+        if (index < plan.sauceLayers) {
+            drawIngredientLayer(left, y, burgerWidth, sauceHeight, Color(0xFFD84315), 0.86f, 8.dp.toPx())
+            y += sauceHeight + layerGap
+        }
+        if (index < plan.cheeseSlices) {
+            drawIngredientLayer(left, y, burgerWidth, cheeseHeight, Color(0xFFFFD54F), 0.96f, 4.dp.toPx())
+            y += cheeseHeight + layerGap
+        }
+        drawIngredientLayer(left, y, burgerWidth, pattyHeight, Color(0xFF6D3B22), 0.9f, 12.dp.toPx())
+        y += pattyHeight + layerGap
+    }
+
+    drawRoundRect(
+        color = Color(0xFFD9943D),
+        topLeft = Offset(left + burgerWidth * 0.04f, y),
+        size = Size(burgerWidth * 0.92f, bottomBunHeight),
+        cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
+    )
+}
+
+private fun DrawScope.drawIngredientLayer(
+    burgerLeft: Float,
+    y: Float,
+    burgerWidth: Float,
+    height: Float,
+    color: Color,
+    widthFactor: Float,
+    radius: Float
+) {
+    val width = burgerWidth * widthFactor
+    val left = burgerLeft + (burgerWidth - width) / 2f
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(left, y),
+        size = Size(width, height),
+        cornerRadius = CornerRadius(radius, radius)
     )
 }
 
