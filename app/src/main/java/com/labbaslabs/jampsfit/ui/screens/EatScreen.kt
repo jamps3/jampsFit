@@ -61,6 +61,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.FoodEntity
+import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.food.CalorieTargetMode
 import com.labbaslabs.jampsfit.food.MealIngredient
@@ -84,6 +85,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var lockedAmount by rememberSaveable { mutableFloatStateOf(0f) }
     var chosenMeal by remember { mutableStateOf<Map<Long, Float>>(emptyMap()) }
     var confirmMealReset by remember { mutableStateOf(false) }
+    var addingFood by remember { mutableStateOf(false) }
 
     val targetMode = CalorieTargetMode.valueOf(targetModeName)
     val rawTargetCalories = calculateEatCalorieTarget(state, targetMode)
@@ -267,10 +269,12 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
 
         CanEatNowCard(
             foods = visibleFoods,
+            onAddFood = { addingFood = true },
             onAddToChosenMeal = { food ->
                 chosenMeal = chosenMeal + (food.id to food.defaultAmount)
             },
             onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
+            onAmountChange = { food, amount -> viewModel.saveFood(food.copy(defaultAmount = amount)) },
             onShoppingListChange = { food, checked -> viewModel.setFoodOnShoppingList(food.id, checked) }
         )
 
@@ -302,6 +306,16 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                 TextButton(onClick = { confirmMealReset = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    if (addingFood) {
+        QuickAddFoodDialog(
+            onDismiss = { addingFood = false },
+            onSave = { food ->
+                viewModel.saveFood(food)
+                addingFood = false
             }
         )
     }
@@ -592,14 +606,25 @@ private fun IngredientAmountRow(
 @Composable
 private fun CanEatNowCard(
     foods: List<FoodEntity>,
+    onAddFood: () -> Unit,
     onAddToChosenMeal: (FoodEntity) -> Unit,
     onKcalChange: (FoodEntity, Int) -> Unit,
+    onAmountChange: (FoodEntity, Float) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
     SleekCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconBadge(Icons.Default.Restaurant, Color(0xFF03A9F4))
-            Text("Can Eat Now", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(Icons.Default.Restaurant, Color(0xFF03A9F4))
+                Text("Can Eat Now", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = onAddFood, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "Add food", tint = Color(0xFF03A9F4))
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
         if (foods.isEmpty()) {
@@ -611,6 +636,7 @@ private fun CanEatNowCard(
                         food = food,
                         onAddToChosenMeal = { onAddToChosenMeal(food) },
                         onKcalChange = { onKcalChange(food, it) },
+                        onAmountChange = { onAmountChange(food, it) },
                         onShoppingListChange = onShoppingListChange
                     )
                 }
@@ -624,9 +650,13 @@ private fun FoodAvailabilityRow(
     food: FoodEntity,
     onAddToChosenMeal: () -> Unit,
     onKcalChange: (Int) -> Unit,
+    onAmountChange: (Float) -> Unit,
     onShoppingListChange: (FoodEntity, Boolean) -> Unit
 ) {
     var kcalText by remember(food.id, food.kcalPerUnit) { mutableStateOf(food.kcalPerUnit.toString()) }
+    var gramsText by remember(food.id, food.defaultAmount, food.unitLabel) {
+        mutableStateOf(food.defaultAmount.toDisplayGrams(food.unitLabel).toString())
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -647,6 +677,18 @@ private fun FoodAvailabilityRow(
             },
             modifier = Modifier.widthIn(min = 72.dp, max = 86.dp)
         )
+        if (food.role == FoodRoles.VEGETABLE) {
+            GramField(
+                value = gramsText,
+                onValueChange = { next ->
+                    gramsText = next
+                    next.toIntOrNull()?.takeIf { it > 0 }?.let { grams ->
+                        onAmountChange(grams.toDefaultAmount(food.unitLabel))
+                    }
+                },
+                modifier = Modifier.widthIn(min = 74.dp, max = 88.dp)
+            )
+        }
         IconButton(onClick = onAddToChosenMeal, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Add, contentDescription = "Add to chosen meal", tint = Color(0xFFFFC107), modifier = Modifier.size(20.dp))
         }
@@ -676,6 +718,130 @@ private fun KcalField(
         label = { Text("kcal") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun GramField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter { char -> char.isDigit() }.take(4)) },
+        label = { Text("g") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun QuickAddFoodDialog(
+    onDismiss: () -> Unit,
+    onSave: (FoodEntity) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf(FoodSources.STORE) }
+    var role by remember { mutableStateOf(FoodRoles.VEGETABLE) }
+    var unitLabel by remember { mutableStateOf("100 g") }
+    var kcalText by remember { mutableStateOf("30") }
+    var amountText by remember { mutableStateOf("200") }
+    var stepText by remember { mutableStateOf("50") }
+    var onShoppingList by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Food") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SourceChip(FoodSources.HOME, Icons.Default.Home, source == FoodSources.HOME) { source = FoodSources.HOME }
+                    SourceChip(FoodSources.STORE, Icons.Default.Store, source == FoodSources.STORE) { source = FoodSources.STORE }
+                    SourceChip(FoodSources.FAST_FOOD, Icons.Default.Fastfood, source == FoodSources.FAST_FOOD) { source = FoodSources.FAST_FOOD }
+                }
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FoodRoles.all.forEach { option ->
+                        FilterChip(selected = role == option, onClick = { role = option }, label = { Text(option, fontSize = 12.sp) })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = unitLabel,
+                        onValueChange = { unitLabel = it },
+                        label = { Text("Unit") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    KcalField(
+                        value = kcalText,
+                        onValueChange = { kcalText = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = if (unitLabel.isGramUnit()) "Default g" else "Default",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DecimalField(
+                        value = stepText,
+                        onValueChange = { stepText = it },
+                        label = if (unitLabel.isGramUnit()) "Step g" else "Step",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Shopping list", style = MaterialTheme.typography.bodyMedium)
+                    Checkbox(checked = onShoppingList, onCheckedChange = { onShoppingList = it })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val unit = unitLabel.ifBlank { if (role == FoodRoles.VEGETABLE) "100 g" else "portion" }
+                    val defaultAmount = (amountText.toFloatOrNull() ?: 1f).fromDisplayAmount(unit)
+                    onSave(
+                        FoodEntity(
+                            name = name,
+                            source = source,
+                            role = role,
+                            unitLabel = unit,
+                            kcalPerUnit = kcalText.toIntOrNull() ?: 100,
+                            defaultAmount = defaultAmount,
+                            stepSize = (stepText.toFloatOrNull() ?: 1f).fromDisplayAmount(unit),
+                            availableAmount = if (source == FoodSources.HOME) defaultAmount else null,
+                            isCustom = true,
+                            onShoppingList = onShoppingList
+                        )
+                    )
+                },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun DecimalField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { next -> onValueChange(next.filter { it.isDigit() || it == '.' }) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier
     )
 }
@@ -714,12 +880,28 @@ private fun sourceColor(source: String): Color = when (source) {
 }
 
 private fun foodAvailabilityText(food: FoodEntity): String {
-    val amount = if (food.source == FoodSources.HOME) {
+    val amount = if (food.unitLabel.isGramUnit()) {
+        "${food.defaultAmount.toDisplayGrams(food.unitLabel)} g"
+    } else if (food.source == FoodSources.HOME) {
         food.availableAmount?.let { "${it.formatAmount()} ${food.unitLabel}" } ?: "Available"
     } else {
         food.source
     }
     return "$amount • ${food.kcalPerUnit} kcal/${food.unitLabel}"
+}
+
+private fun String.isGramUnit(): Boolean = trim().equals("100 g", ignoreCase = true)
+
+private fun Float.fromDisplayAmount(unitLabel: String): Float {
+    return if (unitLabel.isGramUnit()) this / 100f else this
+}
+
+private fun Int.toDefaultAmount(unitLabel: String): Float {
+    return if (unitLabel.isGramUnit()) this / 100f else toFloat()
+}
+
+private fun Float.toDisplayGrams(unitLabel: String): Int {
+    return if (unitLabel.isGramUnit()) (this * 100f).roundToInt() else roundToInt()
 }
 
 private fun calorieDeltaText(delta: Int): String = when {

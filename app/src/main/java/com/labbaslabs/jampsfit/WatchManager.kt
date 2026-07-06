@@ -420,8 +420,11 @@ class WatchManager(private val context: Context) {
             }
 
             defaults.forEach { food ->
-                if (foodDao.getFood(food.source, food.role, food.name) == null) {
+                val existing = foodDao.getFood(food.source, food.role, food.name)
+                if (existing == null) {
                     foodDao.insert(food)
+                } else if (!existing.isCustom && existing != food.copy(id = existing.id)) {
+                    foodDao.update(food.copy(id = existing.id))
                 }
             }
         }

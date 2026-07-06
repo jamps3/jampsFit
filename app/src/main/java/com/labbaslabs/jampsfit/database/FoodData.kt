@@ -198,28 +198,28 @@ fun defaultFoods(): List<FoodEntity> = listOf(
         name = "Cucumber",
         source = FoodSources.STORE,
         role = FoodRoles.VEGETABLE,
-        unitLabel = "piece",
-        kcalPerUnit = 30,
-        defaultAmount = 1f,
-        stepSize = 1f
+        unitLabel = "100 g",
+        kcalPerUnit = 15,
+        defaultAmount = 2f,
+        stepSize = 0.5f
     ),
     FoodEntity(
         name = "Tomato",
         source = FoodSources.STORE,
         role = FoodRoles.VEGETABLE,
-        unitLabel = "piece",
-        kcalPerUnit = 20,
+        unitLabel = "100 g",
+        kcalPerUnit = 18,
         defaultAmount = 2f,
-        stepSize = 1f
+        stepSize = 0.5f
     ),
     FoodEntity(
         name = "Pickled cucumber",
         source = FoodSources.STORE,
         role = FoodRoles.VEGETABLE,
-        unitLabel = "jar",
-        kcalPerUnit = 80,
-        defaultAmount = 1f,
-        stepSize = 1f
+        unitLabel = "100 g",
+        kcalPerUnit = 12,
+        defaultAmount = 2f,
+        stepSize = 0.5f
     ),
     FoodEntity(
         name = "Cheese",
@@ -227,6 +227,33 @@ fun defaultFoods(): List<FoodEntity> = listOf(
         role = FoodRoles.PROTEIN,
         unitLabel = "100 g",
         kcalPerUnit = 360,
+        defaultAmount = 2f,
+        stepSize = 0.5f
+    ),
+    FoodEntity(
+        name = "KeVi",
+        source = FoodSources.STORE,
+        role = FoodRoles.PROTEIN,
+        unitLabel = "100 g",
+        kcalPerUnit = 60,
+        defaultAmount = 2f,
+        stepSize = 0.5f
+    ),
+    FoodEntity(
+        name = "Yogurt",
+        source = FoodSources.STORE,
+        role = FoodRoles.PROTEIN,
+        unitLabel = "100 g",
+        kcalPerUnit = 65,
+        defaultAmount = 2f,
+        stepSize = 0.5f
+    ),
+    FoodEntity(
+        name = "Turkish Yogurt",
+        source = FoodSources.STORE,
+        role = FoodRoles.PROTEIN,
+        unitLabel = "100 g",
+        kcalPerUnit = 130,
         defaultAmount = 2f,
         stepSize = 0.5f
     ),
