@@ -79,7 +79,10 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 Decoder policy: jampsFit should decode, persist, and surface every watch value once the payload meaning is known. Packets should be filtered out of Unknown only when they are confirmed no-data/control chatter or already handled by a known channel. Recent examples:
 
 - `RX 2A37 raw=00 00 00`: standard heart-rate notification with flags `00` and BPM `00`; this is an idle/no-reading sample, not usable heart-rate data.
+- `RX 2A37 raw=00 5E 00`: standard heart-rate notification with flags `00` and BPM `0x5E = 94`; the 2026-07 Dancing exercise capture confirms watch workouts stream usable BPM values through `2A37`.
 - `RX FEE3 raw=FE EA 20 06 29 03`: short Series 20 `0x29` packet with one-byte payload `03`; currently treated as known control/ack-style chatter because it carries no mapped health/activity value.
+
+Workout note: the attached Dancing exercise capture lasted 3m48s, burned 15 kcal, and showed 94 average BPM on-watch. The unknown log only contained the `2A37` heart-rate stream, so jampsFit can already decode and persist the BPM samples. No duration, sport type, or calorie summary packet was present in that log; workout summaries remain a future sync target unless another characteristic emits those fields.
 
 ### `FEE1` Live Activity Packet Breakdown
 

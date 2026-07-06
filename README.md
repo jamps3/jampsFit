@@ -39,6 +39,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Smart Notification Mirroring**: Push phone notifications (calls, SMS, and app alerts) directly to the watch using the high-performance direct `0x41` protocol path. Includes automatic app discovery and package-name filtering.
 - **Full History**: All health metrics and captured unknown packets are automatically saved to a local Room database with non-destructive migrations, ensuring graphs and logs survive app restarts.
 - **Decode-First Packet Policy**: Known watch values are decoded into the app; only confirmed no-data/control chatter is filtered from Unknown captures.
+- **Workout Heart-Rate Capture**: Watch exercise sessions stream live BPM through the standard heart-rate characteristic, so those samples are decoded and persisted even before full workout-summary sync exists.
 
 ## 🎨 Design
 - **OLED-Dark UI**: Material 3 design pinned to true black backgrounds and surfaces for watch-companion use in low light.

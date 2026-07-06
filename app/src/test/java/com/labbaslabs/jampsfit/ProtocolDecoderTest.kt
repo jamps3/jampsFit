@@ -75,6 +75,16 @@ class ProtocolDecoderTest {
     }
 
     @Test
+    fun decodesExerciseHeartRateStream() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(ProtocolDecoder.UUID_HEART_RATE, byteArrayOf(0x00, 0x5E, 0x00))
+
+        assertEquals(ProtocolDecoder.DecodedResult.HeartRate(94), results.single())
+    }
+
+    @Test
     fun ignoresFee3CommandAckWithoutPayload() {
         val results = mutableListOf<ProtocolDecoder.DecodedResult>()
         val decoder = ProtocolDecoder(results::add)

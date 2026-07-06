@@ -600,8 +600,7 @@ class WatchManager(private val context: Context) {
     }
     private fun isKnownNonUnknownPacket(uuid: UUID, data: ByteArray): Boolean {
         if (uuid == BATTERY_CHAR || uuid == FEE3_NOTIFY || uuid == FEE1_CHAR || uuid == FEA1_CHAR) return true
-        // Some Moyoung sessions emit repeated standard HR notifications with a zero reading while idle.
-        if (uuid == ProtocolDecoder.UUID_HEART_RATE && data.contentEquals(byteArrayOf(0x00, 0x00, 0x00))) return true
+        if (uuid == ProtocolDecoder.UUID_HEART_RATE) return true
         return false
     }
     private fun addUnknownMessage(msg: String) { val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); managerScope.launch { healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = "[$t] $msg")) } }
