@@ -17,6 +17,23 @@ const val DEFAULT_DANCING_EVENT_NAME = "Dancing Event"
 const val DEFAULT_WATCH_EXERCISE_NAME = "Watch Exercise"
 const val DEFAULT_FESTIVAL_NAME = "Life Festival"
 
+@Entity(
+    tableName = "candies",
+    indices = [
+        Index(value = ["festivalId"]),
+        Index(value = ["startTime"])
+    ]
+)
+data class CandyEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val festivalId: Long? = null,
+    val name: String = "Candy",
+    val startTime: Long = System.currentTimeMillis(),
+    val endTime: Long = startTime,
+    val size: Int = 0,
+    val createdAt: Long = startTime
+)
+
 @Entity(tableName = "festivals")
 data class FestivalEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -126,4 +143,13 @@ interface EventDao {
 
     @Query("DELETE FROM events WHERE id = :eventId")
     suspend fun deleteEvent(eventId: Long)
+
+    @Insert
+    suspend fun insertCandy(candy: CandyEntity): Long
+
+    @Query("SELECT * FROM candies ORDER BY startTime DESC LIMIT 200")
+    fun observeCandies(): Flow<List<CandyEntity>>
+
+    @Query("DELETE FROM candies WHERE id = :id")
+    suspend fun deleteCandy(id: Long)
 }

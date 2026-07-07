@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.content.edit
 import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
+import com.labbaslabs.jampsfit.database.CandyEntity
 import com.labbaslabs.jampsfit.database.DEFAULT_DANCING_EVENT_NAME
 import com.labbaslabs.jampsfit.database.DEFAULT_FESTIVAL_NAME
 import com.labbaslabs.jampsfit.database.DEFAULT_WATCH_EXERCISE_NAME
@@ -90,6 +91,7 @@ data class WatchState(
     val monthlyStats: List<HealthEntry> = emptyList(),
     val activeEvent: EventEntity? = null,
     val recentEvents: List<EventEntity> = emptyList(),
+    val candies: List<CandyEntity> = emptyList(),
     val festivals: List<FestivalEntity> = emptyList(),
     val selectedFestivalId: Long? = null,
     val foods: List<FoodEntity> = emptyList(),
@@ -398,6 +400,11 @@ class WatchManager(private val context: Context) {
             }
         }
         managerScope.launch {
+            eventDao.observeCandies().collect { candies ->
+                _state.update { it.copy(candies = candies) }
+            }
+        }
+        managerScope.launch {
             eventDao.observeFestivals().collect { festivals ->
                 _state.update { state ->
                     state.copy(
@@ -600,6 +607,33 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             eventDao.deleteEvent(eventId)
             updateDebugLog("Event $eventId deleted")
+        }
+    }
+
+    fun addCandy(name: String, size: Int, hours: Int) {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            eventDao.insertCandy(
+                CandyEntity(
+                    festivalId = festivalId,
+                    name = name.trim().ifBlank { "Candy" }.take(32),
+                    startTime = now,
+                    endTime = now + hours.coerceIn(0, 99) * 60L * 60L * 1000L,
+                    size = size.coerceIn(0, 9_999),
+                    createdAt = now
+                )
+            )
+            updateDebugLog("Candy recorded: ${name.trim().ifBlank { "Candy" }}")
+        }
+    }
+
+    fun deleteCandy(id: Long) {
+        managerScope.launch {
+            eventDao.deleteCandy(id)
+            updateDebugLog("Candy $id deleted")
         }
     }
 
