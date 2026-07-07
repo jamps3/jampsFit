@@ -736,7 +736,7 @@ private fun CurrentBurgerCard(
         BurgerIngredientList(burger)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Top and bottom buns stay constant; patties, cheese, sauce, and salad scale toward 15,000 kcal.",
+            "Ingredients are calculated to match the current kcal target.",
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )
@@ -779,32 +779,61 @@ private data class BurgerPlan(
     val cheeseSlices: Int,
     val sauceLayers: Int,
     val saladLayers: Int,
-    val centerBuns: Int
+    val tomatoLayers: Int,
+    val onionLayers: Int,
+    val pickleLayers: Int,
+    val centerBuns: Int,
+    val extraSauceCalories: Int
 ) {
     val ingredients: List<BurgerIngredient>
-        get() = listOf(
-            BurgerIngredient("Top + bottom buns", 220),
-            BurgerIngredient("$centerBuns center buns", centerBuns * 110),
-            BurgerIngredient("$patties meat patties", patties * 250),
-            BurgerIngredient("$cheeseSlices cheese slices", cheeseSlices * 70),
-            BurgerIngredient("$sauceLayers sauce layers", sauceLayers * 40),
-            BurgerIngredient("$saladLayers salad/tomato layers", saladLayers * 15)
-        )
+        get() = buildList {
+            add(BurgerIngredient("Top + bottom buns", BASE_BUN_KCAL))
+            add(BurgerIngredient("$centerBuns center buns", centerBuns * CENTER_BUN_KCAL))
+            add(BurgerIngredient("$patties meat patties", patties * PATTY_KCAL))
+            add(BurgerIngredient("$cheeseSlices cheese slices", cheeseSlices * CHEESE_KCAL))
+            add(BurgerIngredient("${sauceLayers + if (extraSauceCalories > 0) 1 else 0} sauce layers", sauceLayers * SAUCE_KCAL + extraSauceCalories))
+            add(BurgerIngredient("$saladLayers salad layers", saladLayers * SALAD_KCAL))
+            add(BurgerIngredient("$tomatoLayers tomato layers", tomatoLayers * TOMATO_KCAL))
+            add(BurgerIngredient("$onionLayers onion layers", onionLayers * ONION_KCAL))
+            add(BurgerIngredient("$pickleLayers pickled cucumber layers", pickleLayers * PICKLE_KCAL))
+        }
 
     companion object {
         private const val MAX_BURGER_KCAL = 15_000
+        private const val BASE_BUN_KCAL = 220
+        private const val CENTER_BUN_KCAL = 110
+        private const val PATTY_KCAL = 250
+        private const val CHEESE_KCAL = 70
+        private const val SAUCE_KCAL = 40
+        private const val SALAD_KCAL = 8
+        private const val TOMATO_KCAL = 7
+        private const val ONION_KCAL = 6
+        private const val PICKLE_KCAL = 6
 
         fun fromCalories(calories: Int, centerBuns: Int): BurgerPlan {
             val displayCalories = calories.coerceIn(0, MAX_BURGER_KCAL)
-            val ratio = displayCalories / MAX_BURGER_KCAL.toFloat()
-            val patties = max(1, (1 + ratio * 11f).roundToInt())
+            val safeCenterBuns = centerBuns.coerceIn(0, 12)
+            val fixedCalories = BASE_BUN_KCAL + safeCenterBuns * CENTER_BUN_KCAL
+            var remaining = (displayCalories - fixedCalories).coerceAtLeast(0)
+            val patties = max(1, remaining / PATTY_KCAL)
+            remaining = (remaining - patties * PATTY_KCAL).coerceAtLeast(0)
+            val cheeseSlices = remaining / CHEESE_KCAL
+            remaining -= cheeseSlices * CHEESE_KCAL
+            val sauceLayers = remaining / SAUCE_KCAL
+            remaining -= sauceLayers * SAUCE_KCAL
+            val vegetableCycles = remaining / (SALAD_KCAL + TOMATO_KCAL + ONION_KCAL + PICKLE_KCAL)
+            remaining -= vegetableCycles * (SALAD_KCAL + TOMATO_KCAL + ONION_KCAL + PICKLE_KCAL)
             return BurgerPlan(
                 displayCalories = displayCalories,
                 patties = patties,
-                cheeseSlices = max(1, (patties * 0.75f).roundToInt()),
-                sauceLayers = max(1, (patties * 0.45f).roundToInt()),
-                saladLayers = max(1, (patties * 0.35f).roundToInt()),
-                centerBuns = centerBuns.coerceIn(0, 12)
+                cheeseSlices = cheeseSlices,
+                sauceLayers = sauceLayers,
+                saladLayers = vegetableCycles,
+                tomatoLayers = vegetableCycles,
+                onionLayers = vegetableCycles,
+                pickleLayers = vegetableCycles,
+                centerBuns = safeCenterBuns,
+                extraSauceCalories = remaining
             )
         }
     }
@@ -823,14 +852,23 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
     val pattyHeight = 11.dp.toPx()
     val cheeseHeight = 5.dp.toPx()
     val sauceHeight = 4.dp.toPx()
-    val saladHeight = 5.dp.toPx()
+    val veggieHeight = 4.dp.toPx()
     val centerBunHeight = 12.dp.toPx()
+    val visibleSauceLayers = plan.sauceLayers + if (plan.extraSauceCalories > 0) 1 else 0
+    val visibleLayerCount = plan.patties +
+        plan.cheeseSlices +
+        visibleSauceLayers +
+        plan.saladLayers +
+        plan.tomatoLayers +
+        plan.onionLayers +
+        plan.pickleLayers +
+        plan.centerBuns
     val ingredientHeight = plan.patties * pattyHeight +
         plan.cheeseSlices * cheeseHeight +
-        plan.sauceLayers * sauceHeight +
-        plan.saladLayers * saladHeight +
+        visibleSauceLayers * sauceHeight +
+        (plan.saladLayers + plan.tomatoLayers + plan.onionLayers + plan.pickleLayers) * veggieHeight +
         plan.centerBuns * centerBunHeight +
-        (plan.patties + plan.cheeseSlices + plan.sauceLayers + plan.saladLayers + plan.centerBuns) * layerGap
+        visibleLayerCount * layerGap
     val burgerHeight = topBunHeight + ingredientHeight + bottomBunHeight
     var y = ((size.height - burgerHeight) / 2f).coerceAtLeast(8.dp.toPx())
 
@@ -850,8 +888,20 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
 
     repeat(plan.patties) { index ->
         if (index < plan.saladLayers) {
-            drawIngredientLayer(left, y, burgerWidth, saladHeight, Color(0xFF6CBF3F), 0.92f, 10.dp.toPx())
-            y += saladHeight + layerGap
+            drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFF6CBF3F), 0.92f, 10.dp.toPx())
+            y += veggieHeight + layerGap
+        }
+        if (index < plan.tomatoLayers) {
+            drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFFE53935), 0.88f, 8.dp.toPx())
+            y += veggieHeight + layerGap
+        }
+        if (index < plan.onionLayers) {
+            drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFFE1BEE7), 0.82f, 8.dp.toPx())
+            y += veggieHeight + layerGap
+        }
+        if (index < plan.pickleLayers) {
+            drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFF8BC34A), 0.78f, 8.dp.toPx())
+            y += veggieHeight + layerGap
         }
         if (index < plan.sauceLayers) {
             drawIngredientLayer(left, y, burgerWidth, sauceHeight, Color(0xFFD84315), 0.86f, 8.dp.toPx())
@@ -867,6 +917,10 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
             drawIngredientLayer(left, y, burgerWidth, centerBunHeight, Color(0xFFE0A24B), 0.88f, 10.dp.toPx())
             y += centerBunHeight + layerGap
         }
+    }
+    if (plan.extraSauceCalories > 0) {
+        drawIngredientLayer(left, y, burgerWidth, sauceHeight, Color(0xFFFF7043), 0.8f, 8.dp.toPx())
+        y += sauceHeight + layerGap
     }
 
     drawRoundRect(
