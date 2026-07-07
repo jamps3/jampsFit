@@ -23,6 +23,7 @@ import com.labbaslabs.jampsfit.R
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.DataCard
 import com.labbaslabs.jampsfit.ui.components.DancingEventControlCard
+import com.labbaslabs.jampsfit.ui.components.CurrentWatchExerciseCard
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 
@@ -85,6 +86,8 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             onStart = { viewModel.startDancingEvent() },
             onStop = { viewModel.stopActiveEvent() }
         )
+
+        CurrentWatchExerciseCard(state)
 
         DataCard(
             label = "Battery",

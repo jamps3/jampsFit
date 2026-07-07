@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Image
@@ -168,7 +169,9 @@ fun FestivalProgressCard(
     onCreateFestival: () -> Unit,
     onSelectFestival: (Long) -> Unit,
     onRenameFestival: (Long, String) -> Unit,
-    onFestivalImageChange: (Long, String?) -> Unit
+    onFestivalImageChange: (Long, String?) -> Unit,
+    onAttachEventToFestival: (Long) -> Unit,
+    onDeleteEvent: (Long) -> Unit
 ) {
     val selectedFestival = state.selectedFestival()
     val selectedFestivalId = selectedFestival?.id
@@ -187,6 +190,16 @@ fun FestivalProgressCard(
     val recentCompleted = festivalEvents
         .filter { it.type == EVENT_TYPE_DANCING && it.endTime != null }
         .take(3)
+    val attachableEvents = remember(state.recentEvents, selectedFestivalId) {
+        state.recentEvents
+            .filter { event ->
+                event.type == EVENT_TYPE_DANCING &&
+                    event.endTime != null &&
+                    selectedFestivalId != null &&
+                    event.festivalId != selectedFestivalId
+            }
+            .take(3)
+    }
     val selectedIndex = state.festivals.indexOfFirst { it.id == selectedFestivalId }.takeIf { it >= 0 } ?: 0
     var editingName by remember(selectedFestivalId) { mutableStateOf(false) }
     var draftName by remember(selectedFestival?.name) { mutableStateOf(selectedFestival?.name ?: "Festival Progress") }
@@ -262,7 +275,22 @@ fun FestivalProgressCard(
             Text("No completed dancing events", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                recentCompleted.forEach { EventSummaryRow(it) }
+                recentCompleted.forEach { event ->
+                    EventSummaryRow(event = event, onDelete = { onDeleteEvent(event.id) })
+                }
+            }
+        }
+
+        if (attachableEvents.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Attach to Festival", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                attachableEvents.forEach { event ->
+                    AttachableEventRow(
+                        event = event,
+                        onAttach = { onAttachEventToFestival(event.id) }
+                    )
+                }
             }
         }
 
@@ -422,18 +450,68 @@ private fun EventStats(event: EventEntity, now: Long) {
 }
 
 @Composable
-private fun EventSummaryRow(event: EventEntity) {
+private fun EventSummaryRow(event: EventEntity, onDelete: () -> Unit) {
+    var confirmDelete by remember(event.id) { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.06f)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(event.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Text(event.durationLabel(event.endTime ?: event.lastUpdatedTime), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
             Text("${event.stepDelta} steps  ${event.activeCalories} kcal", style = MaterialTheme.typography.labelMedium, color = Color.LightGray)
+            IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete event", tint = Color.Gray, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete dancing event?") },
+            text = { Text("This removes the event from the current festival. The raw watch health history stays untouched.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun AttachableEventRow(event: EventEntity, onAttach: () -> Unit) {
+    Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.06f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(event.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    "${event.durationLabel(event.endTime ?: event.lastUpdatedTime)}  ${event.stepDelta} steps  ${event.activeCalories} kcal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+            OutlinedButton(onClick = onAttach) {
+                Text("Attach")
+            }
         }
     }
 }

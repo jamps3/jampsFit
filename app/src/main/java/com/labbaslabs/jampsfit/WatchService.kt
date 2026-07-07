@@ -91,15 +91,20 @@ class WatchService : Service() {
     private var activeRingtone: Ringtone? = null
     private var findPhoneJob: Job? = null
     private var alarmVibrationJob: Job? = null
+    private var watchMissingJob: Job? = null
+    private var watchMissingNotified = false
 
     companion object {
         private const val CHANNEL_ID = "WatchServiceChannel"
         private const val FIND_PHONE_CHANNEL_ID = "FindPhoneChannel"
+        private const val WATCH_MISSING_CHANNEL_ID = "WatchMissingChannel"
         private const val NOTIFICATION_ID = 1
         private const val LOW_BATTERY_NOTIFICATION_ID = 2
         private const val DISCONNECT_NOTIFICATION_ID = 3
         private const val CONNECTED_NOTIFICATION_ID = 4
         private const val FIND_PHONE_NOTIFICATION_ID = 6
+        private const val WATCH_MISSING_NOTIFICATION_ID = 7
+        private const val WATCH_MISSING_DELAY_MS = 60L * 60L * 1000L
     }
 
     override fun onCreate() {
@@ -118,6 +123,7 @@ class WatchService : Service() {
 
         watchManager.state.onEach { state ->
             updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
+            handleWatchMissingReminder(state.isConnected)
             
             // Connection alert logic
             if (state.isConnected != lastConnectionState) {
@@ -153,6 +159,26 @@ class WatchService : Service() {
 
             handleFindPhoneState(state.isFindingPhone)
         }.launchIn(serviceScope)
+    }
+
+    private fun handleWatchMissingReminder(isConnected: Boolean) {
+        if (isConnected) {
+            watchMissingJob?.cancel()
+            watchMissingJob = null
+            watchMissingNotified = false
+            cancelWatchMissingNotification()
+            return
+        }
+
+        if (watchMissingJob != null || watchMissingNotified) return
+        watchMissingJob = serviceScope.launch {
+            delay(WATCH_MISSING_DELAY_MS)
+            watchMissingJob = null
+            if (!watchManager.state.value.isConnected) {
+                sendWatchMissingNotification()
+                watchMissingNotified = true
+            }
+        }
     }
 
     private fun handleFindPhoneState(active: Boolean) {
@@ -372,6 +398,19 @@ class WatchService : Service() {
         manager.notify(DISCONNECT_NOTIFICATION_ID, notification)
     }
 
+    private fun sendWatchMissingNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        val notification = NotificationCompat.Builder(this, WATCH_MISSING_CHANNEL_ID)
+            .setContentTitle("Watch not seen for 1 hour")
+            .setContentText("Check Bluetooth and recharge the watch if needed.")
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(WATCH_MISSING_NOTIFICATION_ID, notification)
+    }
+
     fun sendConnectedNotification() {
         val manager = getSystemService(NotificationManager::class.java)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -387,6 +426,11 @@ class WatchService : Service() {
     private fun cancelDisconnectNotification() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.cancel(DISCONNECT_NOTIFICATION_ID)
+    }
+
+    private fun cancelWatchMissingNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.cancel(WATCH_MISSING_NOTIFICATION_ID)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -446,9 +490,20 @@ class WatchService : Service() {
             setSound(null, null) // Sound is handled by RingtoneManager in the service
         }
 
+        val watchMissingChannel = NotificationChannel(
+            WATCH_MISSING_CHANNEL_ID,
+            "Watch Missing Reminders",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Silent reminders when the watch has not been seen for an hour"
+            enableVibration(false)
+            setSound(null, null)
+        }
+
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(serviceChannel)
         manager.createNotificationChannel(findPhoneChannel)
+        manager.createNotificationChannel(watchMissingChannel)
     }
 
     private fun updateNotification(status: String) {
@@ -458,6 +513,7 @@ class WatchService : Service() {
 
     override fun onDestroy() {
         watchManager.setServiceRunning(false)
+        watchMissingJob?.cancel()
         serviceScope.cancel()
         unregisterReceiver(notificationReceiver)
         watchManager.close()

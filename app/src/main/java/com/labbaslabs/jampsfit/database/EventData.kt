@@ -89,6 +89,9 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC LIMIT 1")
     suspend fun getActiveEventOnce(): EventEntity?
 
+    @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC")
+    suspend fun getActiveEventsOnce(): List<EventEntity>
+
     @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC LIMIT 1")
     fun observeActiveEvent(): Flow<EventEntity?>
 
@@ -97,4 +100,10 @@ interface EventDao {
 
     @Query("SELECT * FROM events WHERE festivalId = :festivalId ORDER BY startTime DESC LIMIT 100")
     fun observeEventsForFestival(festivalId: Long): Flow<List<EventEntity>>
+
+    @Query("UPDATE events SET festivalId = :festivalId, lastUpdatedTime = :updatedAt WHERE id = :eventId")
+    suspend fun attachEventToFestival(eventId: Long, festivalId: Long, updatedAt: Long)
+
+    @Query("DELETE FROM events WHERE id = :eventId")
+    suspend fun deleteEvent(eventId: Long)
 }

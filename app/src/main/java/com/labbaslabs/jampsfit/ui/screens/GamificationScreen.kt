@@ -41,7 +41,9 @@ fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScr
             onCreateFestival = { viewModel.createFestival() },
             onSelectFestival = { viewModel.selectFestival(it) },
             onRenameFestival = { id, name -> viewModel.updateFestivalName(id, name) },
-            onFestivalImageChange = { id, uri -> viewModel.updateFestivalImage(id, uri) }
+            onFestivalImageChange = { id, uri -> viewModel.updateFestivalImage(id, uri) },
+            onAttachEventToFestival = { viewModel.attachEventToSelectedFestival(it) },
+            onDeleteEvent = { viewModel.deleteEvent(it) }
         )
         WorkoutSummaryCard(state)
     }

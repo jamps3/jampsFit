@@ -37,6 +37,8 @@ class MainViewModel : ViewModel() {
     fun selectFestival(id: Long) = watchManager?.selectFestival(id)
     fun updateFestivalName(id: Long, name: String) = watchManager?.updateFestivalName(id, name)
     fun updateFestivalImage(id: Long, imageUri: String?) = watchManager?.updateFestivalImage(id, imageUri)
+    fun attachEventToSelectedFestival(eventId: Long) = watchManager?.attachEventToSelectedFestival(eventId)
+    fun deleteEvent(eventId: Long) = watchManager?.deleteEvent(eventId)
     
     fun updateShutterAction(action: String) = watchManager?.updateShutterAction(action)
     fun updateMusicAction(action: String) = watchManager?.updateMusicAction(action)

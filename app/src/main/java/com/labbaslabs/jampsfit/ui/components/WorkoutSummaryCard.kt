@@ -72,6 +72,52 @@ fun WorkoutSummaryCard(state: WatchState) {
 }
 
 @Composable
+fun CurrentWatchExerciseCard(state: WatchState) {
+    val workout = remember(state.heartRateHistory, state.profileWeightKg) { inferLatestWorkout(state) }
+    val activeWorkout = workout?.takeIf { state.isConnected && System.currentTimeMillis() - it.endTime <= 90_000L }
+
+    SleekCard(borderColor = Color(0xFFFF9800)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFF9800).copy(alpha = 0.14f)) {
+                    Icon(
+                        Icons.Default.Whatshot,
+                        contentDescription = null,
+                        tint = Color(0xFFFF9800),
+                        modifier = Modifier.padding(8.dp).size(26.dp)
+                    )
+                }
+                Column {
+                    Text("Current Watch Exercise", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (activeWorkout == null) "Waiting for active heart-rate stream" else "Recording from watch HR",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (activeWorkout == null) Color.Gray else Color(0xFFFF9800)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        if (activeWorkout == null) {
+            Text("Start an exercise on the watch to see live duration, BPM, and estimated calories here.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        } else {
+            WorkoutStats(activeWorkout)
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "${activeWorkout.sampleCount} live BPM samples. Watch exercise packets will be saved to festival events once decoded.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
 private fun WorkoutStats(workout: InferredWorkout) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

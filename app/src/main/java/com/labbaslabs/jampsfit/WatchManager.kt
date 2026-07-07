@@ -55,7 +55,7 @@ data class WatchState(
     val autoConnect: Boolean = false,
     val autoFetchSteps: Boolean = false,
     val autoFetchBattery: Boolean = false,
-    val autoFetchSleep: Boolean = false,
+    val autoFetchSleep: Boolean = true,
     val stepFetchIntervalMinutes: Int = 60,
     val autoHeartRateIntervalMinutes: Int = 0,
     val batteryThreshold: Int = 15,
@@ -164,7 +164,7 @@ class WatchManager(private val context: Context) {
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
         autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
-        autoFetchSleep = prefs.getBoolean("autoFetchSleep", false),
+        autoFetchSleep = prefs.getBoolean("autoFetchSleep", true),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         autoHeartRateIntervalMinutes = prefs.getInt("autoHeartRateIntervalMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
@@ -225,6 +225,7 @@ class WatchManager(private val context: Context) {
     private var operationWatchdogJob: Job? = null
     private var autoStepFetchJob: Job? = null
     private var autoSyncTimeJob: Job? = null
+    private var autoSleepFetchJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
     private val recentActivityPayloadSet = mutableSetOf<String>()
@@ -491,7 +492,9 @@ class WatchManager(private val context: Context) {
                 return@launch
             }
             val now = System.currentTimeMillis()
-            val festivalId = eventDao.getNewestFestival()?.id
+            val selectedFestivalId = _state.value.selectedFestivalId
+            val festivalId = selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
                 ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
             val id = eventDao.insert(
                 EventEntity(
@@ -548,13 +551,36 @@ class WatchManager(private val context: Context) {
 
     fun stopActiveEvent() {
         managerScope.launch {
-            val active = eventDao.getActiveEventOnce() ?: run {
+            val activeEvents = eventDao.getActiveEventsOnce()
+            val active = activeEvents.firstOrNull() ?: run {
                 updateDebugLog("No active dancing event to stop")
                 return@launch
             }
             val now = System.currentTimeMillis()
+            _state.update { it.copy(activeEvent = null) }
             refreshEventSummary(active.copy(endTime = now), now)
-            updateDebugLog("Dancing event stopped")
+            activeEvents.drop(1).forEach { event ->
+                refreshEventSummary(event.copy(endTime = now), now)
+            }
+            updateDebugLog("Dancing event stopped id=${active.id}")
+        }
+    }
+
+    fun attachEventToSelectedFestival(eventId: Long) {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            eventDao.attachEventToFestival(eventId, festivalId, now)
+            updateDebugLog("Event $eventId attached to festival $festivalId")
+        }
+    }
+
+    fun deleteEvent(eventId: Long) {
+        managerScope.launch {
+            eventDao.deleteEvent(eventId)
+            updateDebugLog("Event $eventId deleted")
         }
     }
 
@@ -568,6 +594,7 @@ class WatchManager(private val context: Context) {
         operationWatchdogJob?.cancel()
         autoStepFetchJob?.cancel()
         autoSyncTimeJob?.cancel()
+        autoSleepFetchJob?.cancel()
         synchronized(operationQueue) {
             operationQueue.clear()
             isOperating = false
@@ -632,6 +659,17 @@ class WatchManager(private val context: Context) {
         autoSyncTimeJob = managerScope.launch { val interval = _state.value.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L; while (isActive) { syncTime(); delay(interval) } }
     }
 
+    private fun restartAutoSleepFetch() {
+        autoSleepFetchJob?.cancel()
+        if (!_state.value.autoFetchSleep || !_state.value.isConnected) return
+        autoSleepFetchJob = managerScope.launch {
+            while (isActive) {
+                querySleepBoundaries()
+                delay(30 * 60_000L)
+            }
+        }
+    }
+
     fun setWeatherCity(city: String) {
         val safeCity = city.trim().ifBlank { "London" }.take(12)
         managerScope.launch {
@@ -684,7 +722,7 @@ class WatchManager(private val context: Context) {
     fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
     fun toggleAutoFetchSteps(e: Boolean) { prefs.edit { putBoolean("autoFetchSteps", e) }; _state.update { it.copy(autoFetchSteps = e) }; restartAutoStepFetch() }
     fun toggleAutoFetchBattery(e: Boolean) { prefs.edit { putBoolean("autoFetchBattery", e) }; _state.update { it.copy(autoFetchBattery = e) } }
-    fun toggleAutoFetchSleep(e: Boolean) { prefs.edit { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) } }
+    fun toggleAutoFetchSleep(e: Boolean) { prefs.edit { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) }; restartAutoSleepFetch() }
     fun updateStepFetchInterval(m: Int) { prefs.edit { putInt("stepFetchIntervalMinutes", m) }; _state.update { it.copy(stepFetchIntervalMinutes = m) }; restartAutoStepFetch() }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
@@ -848,6 +886,7 @@ class WatchManager(private val context: Context) {
         userRequestedDisconnect = true
         reconnectJob?.cancel()
         connectWatchdogJob?.cancel()
+        autoSleepFetchJob?.cancel()
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
@@ -871,7 +910,7 @@ class WatchManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
             if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected") }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -881,7 +920,7 @@ class WatchManager(private val context: Context) {
                     c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { enqueueOperation(GattOperation.WriteDescriptor(it, if ((c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) }
                 }
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
-            } }; restartAutoStepFetch(); restartAutoSyncTime()
+            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch()
         }
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { finishOperation() }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { finishOperation() }
