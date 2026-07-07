@@ -242,7 +242,9 @@ private fun MetricGaugeGrid(metrics: List<GaugeMetric>, onMetricClick: (GaugeMet
 
 @Composable
 private fun GaugeMetricCard(metric: GaugeMetric, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val progress = ((metric.value ?: 0).toFloat() / metric.reference.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val ratio = (metric.value ?: 0).toFloat() / metric.reference.coerceAtLeast(1)
+    val progress = ratio.coerceIn(0f, 1f)
+    val overflowProgress = (ratio - 1f).coerceIn(0f, 1f)
     Card(
         modifier = modifier.height(168.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
@@ -272,6 +274,15 @@ private fun GaugeMetricCard(metric: GaugeMetric, onClick: () -> Unit, modifier: 
                     strokeWidth = 8.dp,
                     trackColor = Color.Transparent
                 )
+                if (overflowProgress > 0f) {
+                    CircularProgressIndicator(
+                        progress = { overflowProgress },
+                        modifier = Modifier.fillMaxSize().padding(6.dp),
+                        color = Color(0xFF9C27B0),
+                        strokeWidth = 5.dp,
+                        trackColor = Color.Transparent
+                    )
+                }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("${metric.reference}${metric.unit}", style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1)
                     Text(
