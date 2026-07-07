@@ -2,6 +2,7 @@ package com.labbaslabs.jampsfit.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -551,6 +552,7 @@ private fun formatDuration(durationMs: Long): String {
 
 @Composable
 private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> Unit) {
+    var selectedMeal by remember { mutableStateOf<MealEntity?>(null) }
     SleekCard(borderColor = Color(0xFF03A9F4)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             IconBadge(Icons.Default.Restaurant, Color(0xFF03A9F4))
@@ -565,17 +567,24 @@ private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> 
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 meals.forEach { meal ->
-                    MealTimelineRow(meal = meal, onDelete = { onDelete(meal) })
+                    MealTimelineRow(
+                        meal = meal,
+                        onClick = { selectedMeal = meal },
+                        onDelete = { onDelete(meal) }
+                    )
                 }
             }
         }
     }
+    selectedMeal?.let { meal ->
+        MealDetailsDialog(meal = meal, onDismiss = { selectedMeal = null })
+    }
 }
 
 @Composable
-private fun MealTimelineRow(meal: MealEntity, onDelete: () -> Unit) {
+private fun MealTimelineRow(meal: MealEntity, onClick: () -> Unit, onDelete: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -591,6 +600,34 @@ private fun MealTimelineRow(meal: MealEntity, onDelete: () -> Unit) {
             Icon(Icons.Default.Remove, contentDescription = "Delete meal", tint = Color.Gray)
         }
     }
+}
+
+@Composable
+private fun MealDetailsDialog(meal: MealEntity, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(meal.name) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${meal.type} • ${formatMealTime(meal.createdAt)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text("${meal.calories} kcal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF03A9F4))
+                if (meal.details.isNotBlank()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        meal.details.lines().filter { it.isNotBlank() }.forEach { line ->
+                            Text(line, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                } else {
+                    Text("No details saved", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
@@ -789,15 +826,26 @@ private fun CurrentBurgerCard(
     onSave: (BurgerPlan) -> Unit
 ) {
     val burger = remember(targetCalories, centerBuns, patties) { BurgerPlan.fromCalories(targetCalories, centerBuns, patties) }
+    val calorieDelta = burger.totalCalories - targetCalories
     SleekCard(borderColor = Color(0xFFFF7043)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 IconBadge(Icons.Default.Fastfood, Color(0xFFFF7043))
                 Column {
                     Text("Current Burger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${burger.displayCalories} kcal burger", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text("${burger.totalCalories} kcal customized burger", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             }
+            AssistChip(
+                onClick = {},
+                label = {
+                    Text(
+                        "${burger.totalCalories} / $targetCalories kcal • ${calorieDeltaText(calorieDelta)}",
+                        color = if (calorieDelta <= 0) Color(0xFF8BC34A) else Color(0xFFFFC107),
+                        fontSize = 11.sp
+                    )
+                }
+            )
             BurgerCountControl(
                 label = "Patties",
                 value = burger.patties,
@@ -830,7 +878,7 @@ private fun CurrentBurgerCard(
         BurgerIngredientList(burger)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Ingredients are calculated to match the current kcal target.",
+            "Ingredients are balanced against the current kcal target; manual patties can move the total over or under.",
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )
