@@ -554,7 +554,7 @@ class WatchManager(private val context: Context) {
             val count = _state.value.festivals.size + 1
             val id = eventDao.insertFestival(
                 FestivalEntity(
-                    name = "Life Festival $count",
+                    name = "Event $count",
                     createdAt = now,
                     updatedAt = now
                 )

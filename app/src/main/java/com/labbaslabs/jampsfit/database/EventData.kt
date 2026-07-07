@@ -13,9 +13,9 @@ import kotlin.math.max
 
 const val EVENT_TYPE_DANCING = "Dancing"
 const val EVENT_TYPE_WATCH_EXERCISE = "Watch Exercise"
-const val DEFAULT_DANCING_EVENT_NAME = "Dancing Event"
+const val DEFAULT_DANCING_EVENT_NAME = "Event"
 const val DEFAULT_WATCH_EXERCISE_NAME = "Watch Exercise"
-const val DEFAULT_FESTIVAL_NAME = "Life Festival"
+const val DEFAULT_FESTIVAL_NAME = "Event"
 
 @Entity(
     tableName = "candies",

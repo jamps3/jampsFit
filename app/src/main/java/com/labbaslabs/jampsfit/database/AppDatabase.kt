@@ -114,7 +114,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     """
                     INSERT INTO `festivals` (`name`, `imageUri`, `createdAt`, `updatedAt`)
-                    SELECT 'Life Festival', NULL, COALESCE(MIN(`startTime`), strftime('%s','now') * 1000), COALESCE(MAX(`lastUpdatedTime`), strftime('%s','now') * 1000)
+                    SELECT 'Event', NULL, COALESCE(MIN(`startTime`), strftime('%s','now') * 1000), COALESCE(MAX(`lastUpdatedTime`), strftime('%s','now') * 1000)
                     FROM `events`
                     """.trimIndent()
                 )
