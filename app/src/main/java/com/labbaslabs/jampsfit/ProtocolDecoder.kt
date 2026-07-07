@@ -23,6 +23,16 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         data class RemoteEvent(val event: String) : DecodedResult()
         data class AutoHeartRate(val minutes: Int) : DecodedResult()
         data class PowerSave(val enabled: Boolean) : DecodedResult()
+        data class WatchExerciseSummary(
+            val sportType: Int,
+            val durationSeconds: Int,
+            val calories: Int,
+            val averageBpm: Int?,
+            val minBpm: Int?,
+            val maxBpm: Int?,
+            val steps: Int,
+            val distance: Int
+        ) : DecodedResult()
         object ShutterEvent : DecodedResult()
     }
 
@@ -58,6 +68,7 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             0x26 -> parseStepGoalResponse(data)
             0x32 -> if (data.size >= 8) parseSleepBoundaryPacket(data)
             0x33 -> if (data.size >= 15) parseDailyTotalsPacket(data)
+            0x34 -> if (data.size >= 19) parseWatchExerciseSummaryPacket(data)
             0x59 -> if (data.size >= 54) parseHourlyActivityPacket(data)
             0x5A -> parseDeviceInfoPacket(data)
             0x8D -> data.getOrNull(5)?.toInt()?.and(0xFF)?.let { onResult(DecodedResult.AutoLock(it)) }
@@ -170,6 +181,32 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         val distance = readUInt24LE(b, 9)
         val calories = readUInt24LE(b, 12)
         onResult(DecodedResult.DailyTotals(steps, distance, calories))
+    }
+
+    private fun parseWatchExerciseSummaryPacket(b: ByteArray) {
+        val sportType = b[5].toInt() and 0xFF
+        val durationSeconds = readUInt16LE(b, 6)
+        val calories = readUInt16LE(b, 8)
+        val averageBpm = b[10].toInt() and 0xFF
+        val minBpm = b[11].toInt() and 0xFF
+        val maxBpm = b[12].toInt() and 0xFF
+        val steps = readUInt24LE(b, 13)
+        val distance = readUInt24LE(b, 16)
+        if (durationSeconds !in 30..86_400) return
+        if (calories !in 0..10_000) return
+        if (distance !in 0..300_000) return
+        onResult(
+            DecodedResult.WatchExerciseSummary(
+                sportType = sportType,
+                durationSeconds = durationSeconds,
+                calories = calories,
+                averageBpm = averageBpm.takeIf { it in 30..220 },
+                minBpm = minBpm.takeIf { it in 30..220 },
+                maxBpm = maxBpm.takeIf { it in 30..220 },
+                steps = steps,
+                distance = distance
+            )
+        )
     }
 
     private fun parseHourlyActivityPacket(b: ByteArray) {

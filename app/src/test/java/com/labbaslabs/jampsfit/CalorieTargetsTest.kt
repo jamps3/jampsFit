@@ -48,6 +48,17 @@ class CalorieTargetsTest {
     }
 
     @Test
+    fun calorieBaselineResetsActiveCalories() {
+        val target = calculateEatCalorieTarget(
+            state = WatchState(calories = 900, calorieBaseline = 350),
+            mode = CalorieTargetMode.ActiveBurned,
+            nowMillis = localTodayAt(hour = 12)
+        )
+
+        assertEquals(550, target)
+    }
+
+    @Test
     fun basalCaloriesUseProfileInputs() {
         assertEquals(1_680, calculateBasalCalories("Male", 168, 83f, 41))
         assertEquals(1_514, calculateBasalCalories("Female", 168, 83f, 41))

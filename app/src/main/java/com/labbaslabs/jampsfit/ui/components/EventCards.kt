@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -172,6 +173,7 @@ fun FestivalProgressCard(
     onRenameFestival: (Long, String) -> Unit,
     onFestivalImageChange: (Long, String?) -> Unit,
     onAttachEventToFestival: (Long) -> Unit,
+    onMoveEventToFestival: (Long, Long) -> Unit,
     onDeleteEvent: (Long) -> Unit
 ) {
     val selectedFestival = state.selectedFestival()
@@ -288,7 +290,13 @@ fun FestivalProgressCard(
                     }
                 }
                 recentCompleted.forEach { event ->
-                    EventSummaryRow(event = event, onDelete = { onDeleteEvent(event.id) })
+                    EventSummaryRow(
+                        event = event,
+                        festivals = state.festivals,
+                        currentFestivalId = selectedFestivalId,
+                        onMoveToFestival = { festivalId -> onMoveEventToFestival(event.id, festivalId) },
+                        onDelete = { onDeleteEvent(event.id) }
+                    )
                 }
             }
         }
@@ -462,11 +470,19 @@ private fun EventStats(event: EventEntity, now: Long) {
 }
 
 @Composable
-private fun EventSummaryRow(event: EventEntity, onDelete: () -> Unit) {
+private fun EventSummaryRow(
+    event: EventEntity,
+    festivals: List<FestivalEntity>,
+    currentFestivalId: Long?,
+    onMoveToFestival: (Long) -> Unit,
+    onDelete: () -> Unit
+) {
     var confirmDelete by remember(event.id) { mutableStateOf(false) }
+    var showDetails by remember(event.id) { mutableStateOf(false) }
+    var choosingFestival by remember(event.id) { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.06f)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            modifier = Modifier.fillMaxWidth().clickable { showDetails = true }.padding(10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -479,10 +495,65 @@ private fun EventSummaryRow(event: EventEntity, onDelete: () -> Unit) {
                 )
             }
             Text("${event.stepDelta} steps  ${event.activeCalories} kcal", style = MaterialTheme.typography.labelMedium, color = Color.LightGray)
+            IconButton(onClick = { choosingFestival = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = "Move event", tint = Color.Gray, modifier = Modifier.size(18.dp))
+            }
             IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete event", tint = Color.Gray, modifier = Modifier.size(18.dp))
             }
         }
+    }
+
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text(event.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Type: ${event.type}")
+                    Text("Duration: ${event.durationLabel(event.endTime ?: event.lastUpdatedTime)}")
+                    Text("Steps: ${event.stepDelta}")
+                    Text("Distance: ${event.distanceDelta} m")
+                    Text("Calories: ${event.activeCalories}")
+                    Text("BPM: ${event.averageBpm ?: "--"} (${event.minBpm ?: "--"}-${event.maxBpm ?: "--"})")
+                    Text("Samples: ${event.heartRateSamples}")
+                    Text("Quality: ${event.qualityLabel()}")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDetails = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    if (choosingFestival) {
+        AlertDialog(
+            onDismissRequest = { choosingFestival = false },
+            title = { Text("Move to festival") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    festivals.forEach { festival ->
+                        OutlinedButton(
+                            onClick = {
+                                choosingFestival = false
+                                onMoveToFestival(festival.id)
+                            },
+                            enabled = festival.id != currentFestivalId,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(festival.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { choosingFestival = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (confirmDelete) {

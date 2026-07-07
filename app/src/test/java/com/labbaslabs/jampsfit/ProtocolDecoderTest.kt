@@ -93,4 +93,37 @@ class ProtocolDecoderTest {
 
         assertTrue(results.isEmpty())
     }
+
+    @Test
+    fun decodesWatchExerciseSummaryPacket() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(
+            ProtocolDecoder.UUID_FEE3,
+            byteArrayOf(
+                0xFE.toByte(), 0xEA.toByte(), 0x20, 0x13, 0x34,
+                0x02,
+                0xE4.toByte(), 0x00,
+                0x0F, 0x00,
+                0x5E, 0x50, 0x70,
+                0xD2.toByte(), 0x04, 0x00,
+                0xF4.toByte(), 0x01, 0x00
+            )
+        )
+
+        assertEquals(
+            ProtocolDecoder.DecodedResult.WatchExerciseSummary(
+                sportType = 2,
+                durationSeconds = 228,
+                calories = 15,
+                averageBpm = 94,
+                minBpm = 80,
+                maxBpm = 112,
+                steps = 1234,
+                distance = 500
+            ),
+            results.single()
+        )
+    }
 }

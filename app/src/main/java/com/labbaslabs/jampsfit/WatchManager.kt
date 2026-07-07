@@ -339,6 +339,10 @@ class WatchManager(private val context: Context) {
             is ProtocolDecoder.DecodedResult.PowerSave -> {
                 updateDebugLog("Power save: ${if (result.enabled) "enabled" else "disabled"}")
             }
+            is ProtocolDecoder.DecodedResult.WatchExerciseSummary -> {
+                persistWatchExerciseSummary(result)
+                updateDebugLog("Watch exercise: type=${result.sportType} duration=${result.durationSeconds}s kcal=${result.calories}")
+            }
             is ProtocolDecoder.DecodedResult.ShutterEvent -> {
                 _state.update { it.copy(lastRemoteEvent = "Shutter") }
                 updateDebugLog("Remote event: Shutter")
@@ -584,6 +588,14 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    fun attachEventToFestival(eventId: Long, festivalId: Long) {
+        managerScope.launch {
+            if (eventDao.getFestival(festivalId) == null) return@launch
+            eventDao.attachEventToFestival(eventId, festivalId, System.currentTimeMillis())
+            updateDebugLog("Event $eventId moved to festival $festivalId")
+        }
+    }
+
     fun deleteEvent(eventId: Long) {
         managerScope.launch {
             eventDao.deleteEvent(eventId)
@@ -613,6 +625,35 @@ class WatchManager(private val context: Context) {
                 minBpm = workout.minBpm,
                 maxBpm = workout.maxBpm,
                 estimatedWorkoutCalories = workout.estimatedCalories,
+                lastUpdatedTime = now
+            )
+            if (existing == null) eventDao.insert(event) else eventDao.update(event)
+        }
+    }
+
+    private fun persistWatchExerciseSummary(summary: ProtocolDecoder.DecodedResult.WatchExerciseSummary) {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            val startTime = now - summary.durationSeconds * 1000L
+            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val existing = eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, startTime, 30_000L)
+            val event = EventEntity(
+                id = existing?.id ?: 0L,
+                festivalId = existing?.festivalId ?: festivalId,
+                type = EVENT_TYPE_WATCH_EXERCISE,
+                name = "$DEFAULT_WATCH_EXERCISE_NAME ${summary.sportType}",
+                startTime = startTime,
+                endTime = now,
+                durationSeconds = summary.durationSeconds,
+                stepDelta = summary.steps,
+                distanceDelta = summary.distance,
+                calorieDelta = summary.calories,
+                heartRateSamples = if (summary.averageBpm != null) 1 else 0,
+                averageBpm = summary.averageBpm,
+                minBpm = summary.minBpm,
+                maxBpm = summary.maxBpm,
                 lastUpdatedTime = now
             )
             if (existing == null) eventDao.insert(event) else eventDao.update(event)
