@@ -78,6 +78,9 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         if (state.deviceName != null) {
             Text(text = state.deviceName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
         }
+        state.lastWatchSeenTime?.let {
+            Text(text = "Last seen ${relativeTimeLabel(it)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -215,7 +218,8 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
 
         
         DataCard(label = "Distance", value = state.distance?.let { "$it m" } ?: "--", icon = Icons.Default.Straighten, color = Color(0xFF2196F3))
-        DataCard(label = "Calories", value = state.calories?.let { "$it kcal" } ?: "--", icon = Icons.Default.LocalFireDepartment, color = Color(0xFFFF9800))
+        val adjustedCalories = state.calories?.let { (it - state.calorieBaseline).coerceAtLeast(0) }
+        DataCard(label = "Calories", value = adjustedCalories?.let { "$it kcal" } ?: "--", icon = Icons.Default.LocalFireDepartment, color = Color(0xFFFF9800))
     }
 }
 
@@ -227,6 +231,15 @@ private fun buildSleepSummary(state: WatchState): String {
 
 private fun formatSleepTime(minutes: Int): String {
     return "%02d:%02d".format((minutes / 60) % 24, minutes % 60)
+}
+
+private fun relativeTimeLabel(timestamp: Long): String {
+    val seconds = ((System.currentTimeMillis() - timestamp) / 1000L).coerceAtLeast(0)
+    return when {
+        seconds < 60 -> "just now"
+        seconds < 3600 -> "${seconds / 60}m ago"
+        else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m ago"
+    }
 }
 
 @Composable

@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlin.math.max
 
 const val EVENT_TYPE_DANCING = "Dancing"
+const val EVENT_TYPE_WATCH_EXERCISE = "Watch Exercise"
 const val DEFAULT_DANCING_EVENT_NAME = "Dancing Event"
+const val DEFAULT_WATCH_EXERCISE_NAME = "Watch Exercise"
 const val DEFAULT_FESTIVAL_NAME = "Life Festival"
 
 @Entity(tableName = "festivals")
@@ -100,6 +102,9 @@ interface EventDao {
 
     @Query("SELECT * FROM events WHERE festivalId = :festivalId ORDER BY startTime DESC LIMIT 100")
     fun observeEventsForFestival(festivalId: Long): Flow<List<EventEntity>>
+
+    @Query("SELECT * FROM events WHERE type = :type AND startTime BETWEEN :startTime - :toleranceMs AND :startTime + :toleranceMs LIMIT 1")
+    suspend fun findEventNearStart(type: String, startTime: Long, toleranceMs: Long): EventEntity?
 
     @Query("UPDATE events SET festivalId = :festivalId, lastUpdatedTime = :updatedAt WHERE id = :eventId")
     suspend fun attachEventToFestival(eventId: Long, festivalId: Long, updatedAt: Long)

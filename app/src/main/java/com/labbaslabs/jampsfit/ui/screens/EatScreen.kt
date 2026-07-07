@@ -91,6 +91,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var lockedAmount by rememberSaveable { mutableFloatStateOf(0f) }
     var chosenMeal by remember { mutableStateOf<Map<Long, Float>>(emptyMap()) }
     var confirmMealReset by remember { mutableStateOf(false) }
+    var confirmCalorieReset by remember { mutableStateOf(false) }
     var addingFood by remember { mutableStateOf(false) }
 
     val targetMode = CalorieTargetMode.valueOf(targetModeName)
@@ -186,6 +187,11 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                     },
                     label = { Text("Reset meals") },
                     enabled = state.appliedMealCalories > 0
+                )
+                AssistChip(
+                    onClick = { confirmCalorieReset = true },
+                    label = { Text("Reset current") },
+                    enabled = (state.calories ?: 0) > state.calorieBaseline
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -313,6 +319,29 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             },
             dismissButton = {
                 TextButton(onClick = { confirmMealReset = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (confirmCalorieReset) {
+        AlertDialog(
+            onDismissRequest = { confirmCalorieReset = false },
+            title = { Text("Reset current calories?") },
+            text = { Text("This keeps watch history intact and starts app calorie counting from the current watch value.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resetCalorieBaseline()
+                        confirmCalorieReset = false
+                    }
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmCalorieReset = false }) {
                     Text("Cancel")
                 }
             }

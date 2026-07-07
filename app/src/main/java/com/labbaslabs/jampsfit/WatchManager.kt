@@ -12,7 +12,9 @@ import android.util.Log
 import com.labbaslabs.jampsfit.database.AppDatabase
 import com.labbaslabs.jampsfit.database.DEFAULT_DANCING_EVENT_NAME
 import com.labbaslabs.jampsfit.database.DEFAULT_FESTIVAL_NAME
+import com.labbaslabs.jampsfit.database.DEFAULT_WATCH_EXERCISE_NAME
 import com.labbaslabs.jampsfit.database.EVENT_TYPE_DANCING
+import com.labbaslabs.jampsfit.database.EVENT_TYPE_WATCH_EXERCISE
 import com.labbaslabs.jampsfit.database.EventEntity
 import com.labbaslabs.jampsfit.database.FestivalEntity
 import com.labbaslabs.jampsfit.database.FoodEntity
@@ -22,6 +24,7 @@ import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.database.defaultFoods
 import com.labbaslabs.jampsfit.events.summarizeEvent
+import com.labbaslabs.jampsfit.workout.inferLatestWorkout
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +43,7 @@ data class WatchState(
     val calories: Int? = null,
     val isConnected: Boolean = false,
     val deviceName: String? = null,
+    val lastWatchSeenTime: Long? = null,
     val firmwareVersion: String? = null,
     val watchFaceId: Int? = null,
     val connectionStatus: String = "Disconnected",
@@ -94,6 +98,7 @@ data class WatchState(
     val eatShowFastFood: Boolean = false,
     val appliedMealCalories: Int = 0,
     val eatCaloriesIncremental: Boolean = false,
+    val calorieBaseline: Int = 0,
     val shoppingListCheckedIds: Set<Long> = emptySet(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
@@ -205,6 +210,7 @@ class WatchManager(private val context: Context) {
         eatShowFastFood = prefs.getBoolean("eatShowFastFood", false),
         appliedMealCalories = initialAppliedMealCalories,
         eatCaloriesIncremental = initialEatCaloriesIncremental,
+        calorieBaseline = prefs.getInt("calorieBaseline", 0),
         shoppingListCheckedIds = prefs.getStringSet("shoppingListCheckedIds", emptySet())
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
@@ -254,33 +260,34 @@ class WatchManager(private val context: Context) {
     private fun handleDecodedResult(result: ProtocolDecoder.DecodedResult) {
         when (result) {
             is ProtocolDecoder.DecodedResult.Battery -> {
-                _state.update { it.copy(battery = result.level) }
+                _state.update { it.copy(battery = result.level, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(battery = result.level)
                 updateDebugLog("Battery: ${result.level}%")
             }
             is ProtocolDecoder.DecodedResult.HeartRate -> {
-                _state.update { it.copy(heartRate = result.bpm) }
+                _state.update { it.copy(heartRate = result.bpm, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(heartRate = result.bpm)
+                persistWatchExerciseFromHeartRate()
                 updateDebugLog("Heart Rate: ${result.bpm} bpm")
             }
             is ProtocolDecoder.DecodedResult.SpO2 -> {
-                _state.update { it.copy(spo2 = result.percent) }
+                _state.update { it.copy(spo2 = result.percent, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(spo2 = result.percent)
                 updateDebugLog("SpO2: ${result.percent}%")
             }
             is ProtocolDecoder.DecodedResult.BloodPressure -> {
-                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic) }
+                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(systolic = result.systolic, diastolic = result.diastolic)
                 updateDebugLog("BP: ${result.systolic}/${result.diastolic}")
             }
             is ProtocolDecoder.DecodedResult.Activity -> {
                 if (rememberRecentPayload(result.seq.toString(), recentActivityPayloads, recentActivityPayloadSet)) return
-                _state.update { it.copy(activityCount = result.activityCount, distance = result.distance, calories = result.calories) }
+                _state.update { it.copy(activityCount = result.activityCount, distance = result.distance, calories = result.calories, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(activityCount = result.activityCount, distance = result.distance, calories = result.calories)
                 updateDebugLog("Activity: seq=${result.seq} count=${result.activityCount} dist=${result.distance}m cal=${result.calories}")
             }
             is ProtocolDecoder.DecodedResult.DailyTotals -> {
-                _state.update { it.copy(steps = result.steps, distance = result.distance, calories = result.calories) }
+                _state.update { it.copy(steps = result.steps, distance = result.distance, calories = result.calories, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(steps = result.steps, distance = result.distance, calories = result.calories)
                 updateDebugLog("Daily Totals: steps=${result.steps} dist=${result.distance}m cal=${result.calories}")
             }
@@ -584,6 +591,34 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun persistWatchExerciseFromHeartRate() {
+        managerScope.launch {
+            val workout = inferLatestWorkout(_state.value) ?: return@launch
+            val now = System.currentTimeMillis()
+            if (now - workout.endTime > 2 * 60_000L) return@launch
+            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val existing = eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, 15_000L)
+            val event = EventEntity(
+                id = existing?.id ?: 0L,
+                festivalId = existing?.festivalId ?: festivalId,
+                type = EVENT_TYPE_WATCH_EXERCISE,
+                name = DEFAULT_WATCH_EXERCISE_NAME,
+                startTime = workout.startTime,
+                endTime = workout.endTime,
+                durationSeconds = workout.durationSeconds,
+                heartRateSamples = workout.sampleCount,
+                averageBpm = workout.averageBpm,
+                minBpm = workout.minBpm,
+                maxBpm = workout.maxBpm,
+                estimatedWorkoutCalories = workout.estimatedCalories,
+                lastUpdatedTime = now
+            )
+            if (existing == null) eventDao.insert(event) else eventDao.update(event)
+        }
+    }
+
     fun clearQueue() { synchronized(operationQueue) { operationQueue.clear(); isOperating = false; updateDebugLog("Queue cleared.") } }
 
     fun close() {
@@ -771,6 +806,11 @@ class WatchManager(private val context: Context) {
         }
         _state.update { it.copy(appliedMealCalories = 0) }
     }
+    fun resetCalorieBaseline() {
+        val baseline = _state.value.calories ?: _state.value.caloriesHistory.maxOfOrNull { it.value } ?: 0
+        prefs.edit { putInt("calorieBaseline", baseline) }
+        _state.update { it.copy(calorieBaseline = baseline) }
+    }
     fun setShoppingListChecked(id: Long, checked: Boolean) {
         val checkedIds = if (checked) _state.value.shoppingListCheckedIds + id else _state.value.shoppingListCheckedIds - id
         prefs.edit { putStringSet("shoppingListCheckedIds", checkedIds.map { it.toString() }.toSet()) }
@@ -909,7 +949,7 @@ class WatchManager(private val context: Context) {
     }
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
-            if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected") }; gatt.discoverServices() }
+            if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
             else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }

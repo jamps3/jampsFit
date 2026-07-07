@@ -76,6 +76,7 @@ class MainViewModel : ViewModel() {
     fun applyMealCalories(calories: Int) = watchManager?.applyMealCalories(calories)
     fun updateEatCaloriesIncremental(enabled: Boolean) = watchManager?.updateEatCaloriesIncremental(enabled)
     fun resetAppliedMealCalories() = watchManager?.resetAppliedMealCalories()
+    fun resetCalorieBaseline() = watchManager?.resetCalorieBaseline()
     fun setShoppingListChecked(id: Long, checked: Boolean) = watchManager?.setShoppingListChecked(id, checked)
     fun deleteFood(id: Long) = watchManager?.deleteFood(id)
     fun setFoodEnabled(id: Long, enabled: Boolean) = watchManager?.setFoodEnabled(id, enabled)

@@ -32,7 +32,8 @@ fun calculateEatCalorieTarget(
     mode: CalorieTargetMode,
     nowMillis: Long = System.currentTimeMillis()
 ): Int {
-    val activeCalories = state.calories ?: state.caloriesHistory.maxOfOrNull { it.value } ?: 0
+    val rawActiveCalories = state.calories ?: state.caloriesHistory.maxOfOrNull { it.value } ?: 0
+    val activeCalories = (rawActiveCalories - state.calorieBaseline).coerceAtLeast(0)
     return when (mode) {
         CalorieTargetMode.ActiveBurned -> activeCalories
         CalorieTargetMode.TotalSoFar -> activeCalories + calculateBasalCaloriesSoFar(

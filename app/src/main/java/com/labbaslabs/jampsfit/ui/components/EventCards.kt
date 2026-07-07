@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -188,8 +189,8 @@ fun FestivalProgressCard(
         .take(3)
     val groupedAchievements = festivalAchievements.groupBy { it.group }
     val recentCompleted = festivalEvents
-        .filter { it.type == EVENT_TYPE_DANCING && it.endTime != null }
-        .take(3)
+        .filter { it.endTime != null }
+        .take(8)
     val attachableEvents = remember(state.recentEvents, selectedFestivalId) {
         state.recentEvents
             .filter { event ->
@@ -272,9 +273,20 @@ fun FestivalProgressCard(
 
         Spacer(modifier = Modifier.height(14.dp))
         if (recentCompleted.isEmpty()) {
-            Text("No completed dancing events", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text("No completed festival events", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Festival Timeline", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { shareFestivalSummary(context, selectedFestival, festivalEvents) }) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text("Share")
+                    }
+                }
                 recentCompleted.forEach { event ->
                     EventSummaryRow(event = event, onDelete = { onDeleteEvent(event.id) })
                 }
@@ -460,7 +472,11 @@ private fun EventSummaryRow(event: EventEntity, onDelete: () -> Unit) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(event.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                Text(event.durationLabel(event.endTime ?: event.lastUpdatedTime), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Text(
+                    "${event.type} • ${event.durationLabel(event.endTime ?: event.lastUpdatedTime)} • ${event.qualityLabel()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
             Text("${event.stepDelta} steps  ${event.activeCalories} kcal", style = MaterialTheme.typography.labelMedium, color = Color.LightGray)
             IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(36.dp)) {
@@ -491,6 +507,16 @@ private fun EventSummaryRow(event: EventEntity, onDelete: () -> Unit) {
             }
         )
     }
+}
+
+private fun EventEntity.qualityLabel(): String {
+    val metrics = buildList {
+        if (stepDelta > 0) add("steps")
+        if (activeCalories > 0) add("kcal")
+        if (heartRateSamples > 0) add("HR")
+        if (distanceDelta > 0) add("distance")
+    }
+    return if (metrics.isEmpty()) "metadata only" else metrics.joinToString("+")
 }
 
 @Composable
@@ -592,4 +618,24 @@ private fun EventEntity.durationLabel(now: Long): String {
 
 private fun WatchState.selectedFestival(): FestivalEntity? {
     return festivals.firstOrNull { it.id == selectedFestivalId } ?: festivals.maxByOrNull { it.createdAt }
+}
+
+private fun shareFestivalSummary(context: android.content.Context, festival: FestivalEntity?, events: List<EventEntity>) {
+    val completed = events.filter { it.endTime != null }
+    val text = buildString {
+        appendLine(festival?.name ?: "Festival Summary")
+        appendLine("${completed.size} events")
+        appendLine("${completed.sumOf { it.stepDelta }} steps")
+        appendLine("${completed.sumOf { it.activeCalories }} kcal")
+        appendLine()
+        completed.take(20).forEach { event ->
+            appendLine("${event.type}: ${event.durationLabel(event.endTime ?: event.lastUpdatedTime)}, ${event.stepDelta} steps, ${event.activeCalories} kcal, ${event.qualityLabel()}")
+        }
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, festival?.name ?: "Festival Summary")
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share festival summary"))
 }
