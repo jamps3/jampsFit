@@ -42,6 +42,9 @@ class MainViewModel : ViewModel() {
     fun deleteEvent(eventId: Long) = watchManager?.deleteEvent(eventId)
     fun addCandy(name: String, size: Int, hours: Int) = watchManager?.addCandy(name, size, hours)
     fun deleteCandy(id: Long) = watchManager?.deleteCandy(id)
+    fun addMeal(name: String, type: String, calories: Int, details: String) =
+        watchManager?.addMeal(name, type, calories, details)
+    fun deleteMeal(id: Long) = watchManager?.deleteMeal(id)
     
     fun updateShutterAction(action: String) = watchManager?.updateShutterAction(action)
     fun updateMusicAction(action: String) = watchManager?.updateMusicAction(action)

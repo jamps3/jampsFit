@@ -34,6 +34,23 @@ data class CandyEntity(
     val createdAt: Long = startTime
 )
 
+@Entity(
+    tableName = "meals",
+    indices = [
+        Index(value = ["festivalId"]),
+        Index(value = ["createdAt"])
+    ]
+)
+data class MealEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val festivalId: Long? = null,
+    val name: String = "Meal",
+    val type: String = "Meal",
+    val calories: Int = 0,
+    val details: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "festivals")
 data class FestivalEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -152,4 +169,13 @@ interface EventDao {
 
     @Query("DELETE FROM candies WHERE id = :id")
     suspend fun deleteCandy(id: Long)
+
+    @Insert
+    suspend fun insertMeal(meal: MealEntity): Long
+
+    @Query("SELECT * FROM meals ORDER BY createdAt DESC LIMIT 200")
+    fun observeMeals(): Flow<List<MealEntity>>
+
+    @Query("DELETE FROM meals WHERE id = :id")
+    suspend fun deleteMeal(id: Long)
 }

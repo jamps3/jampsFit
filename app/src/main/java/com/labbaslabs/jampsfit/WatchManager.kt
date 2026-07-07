@@ -23,6 +23,7 @@ import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
+import com.labbaslabs.jampsfit.database.MealEntity
 import com.labbaslabs.jampsfit.database.defaultFoods
 import com.labbaslabs.jampsfit.events.summarizeEvent
 import com.labbaslabs.jampsfit.workout.inferLatestWorkout
@@ -92,6 +93,7 @@ data class WatchState(
     val activeEvent: EventEntity? = null,
     val recentEvents: List<EventEntity> = emptyList(),
     val candies: List<CandyEntity> = emptyList(),
+    val meals: List<MealEntity> = emptyList(),
     val festivals: List<FestivalEntity> = emptyList(),
     val selectedFestivalId: Long? = null,
     val foods: List<FoodEntity> = emptyList(),
@@ -414,6 +416,11 @@ class WatchManager(private val context: Context) {
             }
         }
         managerScope.launch {
+            eventDao.observeMeals().collect { meals ->
+                _state.update { it.copy(meals = meals) }
+            }
+        }
+        managerScope.launch {
             eventDao.observeFestivals().collect { festivals ->
                 _state.update { state ->
                     state.copy(
@@ -643,6 +650,33 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             eventDao.deleteCandy(id)
             updateDebugLog("Candy $id deleted")
+        }
+    }
+
+    fun addMeal(name: String, type: String, calories: Int, details: String) {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+                ?: eventDao.getNewestFestival()?.id
+                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            eventDao.insertMeal(
+                MealEntity(
+                    festivalId = festivalId,
+                    name = name.trim().ifBlank { "Meal" }.take(48),
+                    type = type.trim().ifBlank { "Meal" }.take(24),
+                    calories = calories.coerceIn(0, 100_000),
+                    details = details.trim().take(1_000),
+                    createdAt = now
+                )
+            )
+            updateDebugLog("Meal saved: ${name.trim().ifBlank { "Meal" }}")
+        }
+    }
+
+    fun deleteMeal(id: Long) {
+        managerScope.launch {
+            eventDao.deleteMeal(id)
+            updateDebugLog("Meal $id deleted")
         }
     }
 

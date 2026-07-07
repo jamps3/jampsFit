@@ -42,6 +42,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -70,6 +71,7 @@ import com.labbaslabs.jampsfit.database.CandyEntity
 import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
+import com.labbaslabs.jampsfit.database.MealEntity
 import com.labbaslabs.jampsfit.food.CalorieTargetMode
 import com.labbaslabs.jampsfit.food.MealIngredient
 import com.labbaslabs.jampsfit.food.MealSuggestion
@@ -78,6 +80,7 @@ import com.labbaslabs.jampsfit.food.calculateEatCalorieTarget
 import com.labbaslabs.jampsfit.food.generateMealSuggestions
 import com.labbaslabs.jampsfit.food.recalculateMealWithLockedIngredient
 import com.labbaslabs.jampsfit.ui.components.SleekCard
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -132,6 +135,9 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     val selectedFestivalId = state.selectedFestivalId ?: state.festivals.maxByOrNull { it.createdAt }?.id
     val festivalCandies = remember(state.candies, selectedFestivalId) {
         state.candies.filter { candy -> selectedFestivalId == null || candy.festivalId == selectedFestivalId }
+    }
+    val festivalMeals = remember(state.meals, selectedFestivalId) {
+        state.meals.filter { meal -> selectedFestivalId == null || meal.festivalId == selectedFestivalId }
     }
 
     Column(
@@ -255,6 +261,14 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             },
             onKcalChange = { food, kcal -> viewModel.saveFood(food.copy(kcalPerUnit = kcal)) },
             onApply = { calories ->
+                viewModel.addMeal(
+                    name = "Chosen Meal",
+                    type = "Chosen Meal",
+                    calories = calories,
+                    details = chosenIngredients.joinToString("\n") { ingredient ->
+                        "${ingredient.food.name}: ${ingredient.amount.formatAmount()} ${ingredient.food.unitLabel}, ${ingredient.calories} kcal"
+                    }
+                )
                 viewModel.applyMealCalories(calories)
                 chosenMeal = emptyMap()
                 lockedSuggestionId = null
@@ -338,9 +352,18 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             centerBuns = burgerCenterBuns,
             patties = burgerPatties,
             onCenterBunsChange = { burgerCenterBuns = it.coerceIn(0, 12) },
-            onPattiesChange = { burgerPatties = it.coerceIn(0, 40) }
+            onPattiesChange = { burgerPatties = it.coerceIn(0, 40) },
+            onSave = { burger ->
+                viewModel.addMeal(
+                    name = "Current Burger",
+                    type = "Burger",
+                    calories = burger.totalCalories,
+                    details = burger.ingredients.joinToString("\n") { "${it.name}: ${it.calories} kcal" }
+                )
+            }
         )
         CurrentNuggetsCard(targetCalories = targetCalories)
+        MealTimelineCard(meals = festivalMeals, onDelete = { viewModel.deleteMeal(it.id) })
     }
 
     if (confirmMealReset) {
@@ -472,6 +495,14 @@ private fun CandiesCard(
 
 @Composable
 private fun CandyEntryRow(candy: CandyEntity, onDelete: () -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(candy.id, candy.endTime) {
+        while (now < candy.endTime) {
+            delay(1_000L)
+            now = System.currentTimeMillis()
+        }
+    }
+    val remaining = (candy.endTime - now).coerceAtLeast(0L)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -483,6 +514,11 @@ private fun CandyEntryRow(candy: CandyEntity, onDelete: () -> Unit) {
                 "${formatCandyTime(candy.startTime)} - ${formatCandyTime(candy.endTime)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
+            )
+            Text(
+                "Remaining ${formatDuration(remaining)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (remaining > 0L) Color(0xFF8BC34A) else Color.Gray
             )
         }
         Text(
@@ -499,6 +535,62 @@ private fun CandyEntryRow(candy: CandyEntity, onDelete: () -> Unit) {
 
 private fun formatCandyTime(timestamp: Long): String {
     return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+}
+
+private fun formatMealTime(timestamp: Long): String {
+    return SimpleDateFormat("MMM d HH:mm", Locale.getDefault()).format(Date(timestamp))
+}
+
+private fun formatDuration(durationMs: Long): String {
+    val totalSeconds = durationMs / 1000L
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return "%02d:%02d:%02d".format(hours, minutes, seconds)
+}
+
+@Composable
+private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> Unit) {
+    SleekCard(borderColor = Color(0xFF03A9F4)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            IconBadge(Icons.Default.Restaurant, Color(0xFF03A9F4))
+            Column {
+                Text("Meal Timeline", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Saved meals attached to this festival", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        if (meals.isEmpty()) {
+            Text("No saved meals yet", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                meals.forEach { meal ->
+                    MealTimelineRow(meal = meal, onDelete = { onDelete(meal) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MealTimelineRow(meal: MealEntity, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(meal.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${meal.type} • ${formatMealTime(meal.createdAt)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            if (meal.details.isNotBlank()) {
+                Text(meal.details.lineSequence().take(2).joinToString(" / "), style = MaterialTheme.typography.labelSmall, color = Color.LightGray, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Text("${meal.calories} kcal", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF03A9F4))
+        IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+            Icon(Icons.Default.Remove, contentDescription = "Delete meal", tint = Color.Gray)
+        }
+    }
 }
 
 @Composable
@@ -693,7 +785,8 @@ private fun CurrentBurgerCard(
     centerBuns: Int,
     patties: Int?,
     onCenterBunsChange: (Int) -> Unit,
-    onPattiesChange: (Int) -> Unit
+    onPattiesChange: (Int) -> Unit,
+    onSave: (BurgerPlan) -> Unit
 ) {
     val burger = remember(targetCalories, centerBuns, patties) { BurgerPlan.fromCalories(targetCalories, centerBuns, patties) }
     SleekCard(borderColor = Color(0xFFFF7043)) {
@@ -721,6 +814,9 @@ private fun CurrentBurgerCard(
                 canDecrease = centerBuns > 0,
                 canIncrease = centerBuns < 12
             )
+            Button(onClick = { onSave(burger) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Save Burger")
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
         Canvas(
@@ -810,6 +906,8 @@ private data class BurgerPlan(
     val centerBuns: Int,
     val extraSauceCalories: Int
 ) {
+    val totalCalories: Int get() = ingredients.sumOf { it.calories }
+
     val ingredients: List<BurgerIngredient>
         get() = buildList {
             add(BurgerIngredient("Top + bottom buns", BASE_BUN_KCAL))

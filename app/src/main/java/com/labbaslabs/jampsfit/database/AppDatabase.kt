@@ -13,11 +13,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UnknownPacket::class,
         SeenNotification::class,
         CandyEntity::class,
+        MealEntity::class,
         EventEntity::class,
         FestivalEntity::class,
         FoodEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -141,6 +142,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `meals` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `festivalId` INTEGER,
+                        `name` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `calories` INTEGER NOT NULL,
+                        `details` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_meals_festivalId` ON `meals` (`festivalId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_meals_createdAt` ON `meals` (`createdAt`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -148,7 +169,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "jampsfit_database"
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .build()
                 INSTANCE = instance
                 instance
