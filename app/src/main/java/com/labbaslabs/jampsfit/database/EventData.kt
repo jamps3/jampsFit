@@ -88,14 +88,14 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE id = :id LIMIT 1")
     suspend fun getEvent(id: Long): EventEntity?
 
-    @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC LIMIT 1")
-    suspend fun getActiveEventOnce(): EventEntity?
+    @Query("SELECT * FROM events WHERE type = :type AND endTime IS NULL ORDER BY startTime DESC LIMIT 1")
+    suspend fun getActiveEventOnce(type: String = EVENT_TYPE_DANCING): EventEntity?
 
-    @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC")
-    suspend fun getActiveEventsOnce(): List<EventEntity>
+    @Query("SELECT * FROM events WHERE type = :type AND endTime IS NULL ORDER BY startTime DESC")
+    suspend fun getActiveEventsOnce(type: String = EVENT_TYPE_DANCING): List<EventEntity>
 
-    @Query("SELECT * FROM events WHERE endTime IS NULL ORDER BY startTime DESC LIMIT 1")
-    fun observeActiveEvent(): Flow<EventEntity?>
+    @Query("SELECT * FROM events WHERE type = :type AND endTime IS NULL ORDER BY startTime DESC LIMIT 1")
+    fun observeActiveEvent(type: String = EVENT_TYPE_DANCING): Flow<EventEntity?>
 
     @Query("SELECT * FROM events ORDER BY startTime DESC LIMIT 100")
     fun observeRecentEvents(): Flow<List<EventEntity>>
@@ -105,6 +105,21 @@ interface EventDao {
 
     @Query("SELECT * FROM events WHERE type = :type AND startTime BETWEEN :startTime - :toleranceMs AND :startTime + :toleranceMs LIMIT 1")
     suspend fun findEventNearStart(type: String, startTime: Long, toleranceMs: Long): EventEntity?
+
+    @Query("SELECT * FROM events WHERE type = :type AND endTime IS NULL ORDER BY startTime DESC LIMIT 1")
+    suspend fun findOpenEventByType(type: String): EventEntity?
+
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE type = :type
+        AND startTime <= :endTime + :toleranceMs
+        AND COALESCE(endTime, lastUpdatedTime, startTime) >= :startTime - :toleranceMs
+        ORDER BY startTime DESC
+        LIMIT 1
+        """
+    )
+    suspend fun findEventOverlapping(type: String, startTime: Long, endTime: Long, toleranceMs: Long): EventEntity?
 
     @Query("UPDATE events SET festivalId = :festivalId, lastUpdatedTime = :updatedAt WHERE id = :eventId")
     suspend fun attachEventToFestival(eventId: Long, festivalId: Long, updatedAt: Long)

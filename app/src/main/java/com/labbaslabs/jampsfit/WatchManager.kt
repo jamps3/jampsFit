@@ -611,20 +611,28 @@ class WatchManager(private val context: Context) {
             val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
                 ?: eventDao.getNewestFestival()?.id
                 ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
-            val existing = eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, 15_000L)
+            val existing = eventDao.findOpenEventByType(EVENT_TYPE_WATCH_EXERCISE)
+                ?: eventDao.findEventOverlapping(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, workout.endTime, 2 * 60_000L)
+                ?: eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, 15_000L)
+            val startTime = existing?.startTime?.let { minOf(it, workout.startTime) } ?: workout.startTime
+            val endTime = if (now - workout.endTime <= 90_000L) null else workout.endTime
+            val durationSeconds = maxOf(
+                existing?.durationSeconds ?: 0,
+                ((workout.endTime - startTime) / 1000L).toInt().coerceAtLeast(workout.durationSeconds)
+            )
             val event = EventEntity(
                 id = existing?.id ?: 0L,
                 festivalId = existing?.festivalId ?: festivalId,
                 type = EVENT_TYPE_WATCH_EXERCISE,
                 name = DEFAULT_WATCH_EXERCISE_NAME,
-                startTime = workout.startTime,
-                endTime = workout.endTime,
-                durationSeconds = workout.durationSeconds,
-                heartRateSamples = workout.sampleCount,
+                startTime = startTime,
+                endTime = endTime,
+                durationSeconds = durationSeconds,
+                heartRateSamples = maxOf(existing?.heartRateSamples ?: 0, workout.sampleCount),
                 averageBpm = workout.averageBpm,
-                minBpm = workout.minBpm,
-                maxBpm = workout.maxBpm,
-                estimatedWorkoutCalories = workout.estimatedCalories,
+                minBpm = minOf(existing?.minBpm ?: workout.minBpm, workout.minBpm),
+                maxBpm = maxOf(existing?.maxBpm ?: workout.maxBpm, workout.maxBpm),
+                estimatedWorkoutCalories = maxOf(existing?.estimatedWorkoutCalories ?: 0, workout.estimatedCalories),
                 lastUpdatedTime = now
             )
             if (existing == null) eventDao.insert(event) else eventDao.update(event)
@@ -638,22 +646,26 @@ class WatchManager(private val context: Context) {
             val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
                 ?: eventDao.getNewestFestival()?.id
                 ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
-            val existing = eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, startTime, 30_000L)
+            val existing = eventDao.findOpenEventByType(EVENT_TYPE_WATCH_EXERCISE)
+                ?: eventDao.findEventOverlapping(EVENT_TYPE_WATCH_EXERCISE, startTime, now, 2 * 60_000L)
+                ?: eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, startTime, 30_000L)
+            val eventStartTime = existing?.startTime?.let { minOf(it, startTime) } ?: startTime
             val event = EventEntity(
                 id = existing?.id ?: 0L,
                 festivalId = existing?.festivalId ?: festivalId,
                 type = EVENT_TYPE_WATCH_EXERCISE,
                 name = "$DEFAULT_WATCH_EXERCISE_NAME ${summary.sportType}",
-                startTime = startTime,
+                startTime = eventStartTime,
                 endTime = now,
-                durationSeconds = summary.durationSeconds,
+                durationSeconds = maxOf(summary.durationSeconds, ((now - eventStartTime) / 1000L).toInt()),
                 stepDelta = summary.steps,
                 distanceDelta = summary.distance,
                 calorieDelta = summary.calories,
-                heartRateSamples = if (summary.averageBpm != null) 1 else 0,
-                averageBpm = summary.averageBpm,
-                minBpm = summary.minBpm,
-                maxBpm = summary.maxBpm,
+                heartRateSamples = maxOf(existing?.heartRateSamples ?: 0, if (summary.averageBpm != null) 1 else 0),
+                averageBpm = summary.averageBpm ?: existing?.averageBpm,
+                minBpm = listOfNotNull(existing?.minBpm, summary.minBpm).minOrNull(),
+                maxBpm = listOfNotNull(existing?.maxBpm, summary.maxBpm).maxOrNull(),
+                estimatedWorkoutCalories = existing?.estimatedWorkoutCalories ?: 0,
                 lastUpdatedTime = now
             )
             if (existing == null) eventDao.insert(event) else eventDao.update(event)
