@@ -575,6 +575,8 @@ private fun CurrentBurgerCard(targetCalories: Int) {
             drawBurger(burger)
         }
         Spacer(modifier = Modifier.height(8.dp))
+        BurgerIngredientList(burger)
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             "Top and bottom buns stay constant; patties, cheese, sauce, and salad scale toward 15,000 kcal.",
             style = MaterialTheme.typography.labelSmall,
@@ -583,6 +585,36 @@ private fun CurrentBurgerCard(targetCalories: Int) {
     }
 }
 
+@Composable
+private fun BurgerIngredientList(burger: BurgerPlan) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        burger.ingredients.forEach { ingredient ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    ingredient.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.LightGray
+                )
+                Text(
+                    "${ingredient.calories} kcal",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFFB74D)
+                )
+            }
+        }
+    }
+}
+
+private data class BurgerIngredient(
+    val name: String,
+    val calories: Int
+)
+
 private data class BurgerPlan(
     val displayCalories: Int,
     val patties: Int,
@@ -590,6 +622,15 @@ private data class BurgerPlan(
     val sauceLayers: Int,
     val saladLayers: Int
 ) {
+    val ingredients: List<BurgerIngredient>
+        get() = listOf(
+            BurgerIngredient("Top + bottom buns", 220),
+            BurgerIngredient("$patties meat patties", patties * 250),
+            BurgerIngredient("$cheeseSlices cheese slices", cheeseSlices * 70),
+            BurgerIngredient("$sauceLayers sauce layers", sauceLayers * 40),
+            BurgerIngredient("$saladLayers salad/tomato layers", saladLayers * 15)
+        )
+
     companion object {
         private const val MAX_BURGER_KCAL = 15_000
 

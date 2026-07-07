@@ -15,8 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.R
@@ -92,26 +94,47 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
 
         CurrentWatchExerciseCard(state)
 
-        DataCard(
-            label = "Battery",
-            value = state.battery?.let { "$it%" } ?: "--",
-            supportingText = state.batteryEstimation,
-            icon = Icons.Default.BatteryChargingFull,
-            color = Color(0xFF4CAF50)
-        )
-        DataCard(label = "Activity Count", value = state.activityCount?.toString() ?: "--", icon = Icons.AutoMirrored.Filled.DirectionsWalk, color = Color(0xFFFFC107))
-        DataCard(
-            label = "Steps",
-            value = state.steps?.toString() ?: "--",
-            icon = Icons.Default.Timeline,
-            color = Color(0xFF8BC34A),
-            action = {
-                MeasurementButton(
-                    isActive = false,
-                    enabled = state.isConnected,
-                    onClick = { viewModel.queryCurrentSteps() }
-                )
-            }
+        val adjustedCalories = state.calories?.let { (it - state.calorieBaseline).coerceAtLeast(0) }
+        MetricGaugeGrid(
+            metrics = listOf(
+                GaugeMetric("Battery", state.battery, "%", 100, Icons.Default.BatteryChargingFull, Color(0xFF4CAF50), state.batteryEstimation),
+                GaugeMetric("Activity", state.activityCount, "", 100, Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFFFFC107)),
+                GaugeMetric("Steps", state.steps, "", 10_000, Icons.Default.Timeline, Color(0xFF8BC34A), action = {
+                    MeasurementButton(isActive = false, enabled = state.isConnected, onClick = { viewModel.queryCurrentSteps() })
+                }),
+                GaugeMetric("Heart Rate", state.heartRate, " bpm", 75, Icons.Default.Favorite, Color(0xFFE91E63), action = {
+                    MeasurementButton(
+                        isActive = state.activeMeasurement == "Heart Rate",
+                        enabled = state.isConnected,
+                        onClick = {
+                            if (state.activeMeasurement == "Heart Rate") viewModel.stopMeasurement()
+                            else viewModel.startMeasurement("Heart Rate")
+                        }
+                    )
+                }),
+                GaugeMetric("SpO2", state.spo2, "%", 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), action = {
+                    MeasurementButton(
+                        isActive = state.activeMeasurement == "SpO2",
+                        enabled = state.isConnected,
+                        onClick = {
+                            if (state.activeMeasurement == "SpO2") viewModel.stopMeasurement()
+                            else viewModel.startMeasurement("SpO2")
+                        }
+                    )
+                }),
+                GaugeMetric("Blood Pressure", state.systolic, state.diastolic?.let { "/$it" } ?: "", 120, Icons.Default.Speed, Color(0xFFFF5722), action = {
+                    MeasurementButton(
+                        isActive = state.activeMeasurement == "Blood Pressure",
+                        enabled = state.isConnected,
+                        onClick = {
+                            if (state.activeMeasurement == "Blood Pressure") viewModel.stopMeasurement()
+                            else viewModel.startMeasurement("Blood Pressure")
+                        }
+                    )
+                }),
+                GaugeMetric("Distance", state.distance, " m", 5_000, Icons.Default.Straighten, Color(0xFF2196F3)),
+                GaugeMetric("Calories", adjustedCalories, " kcal", 500, Icons.Default.LocalFireDepartment, Color(0xFFFF9800))
+            )
         )
         
         val total = state.sleepMinutes ?: 0
@@ -165,61 +188,85 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             }
         }
 
-        DataCard(
-            label = "Heart Rate",
-            value = state.heartRate?.let { "$it bpm" } ?: "--",
-            icon = Icons.Default.Favorite,
-            color = Color(0xFFE91E63),
-            action = {
-                MeasurementButton(
-                    isActive = state.activeMeasurement == "Heart Rate",
-                    enabled = state.isConnected,
-                    onClick = {
-                        if (state.activeMeasurement == "Heart Rate") viewModel.stopMeasurement()
-                        else viewModel.startMeasurement("Heart Rate")
-                    }
-                )
-            }
-        )
-        
-        DataCard(
-            label = "SpO2",
-            value = state.spo2?.let { "$it%" } ?: "--",
-            icon = Icons.Default.Bloodtype,
-            color = Color(0xFF00BCD4),
-            action = {
-                MeasurementButton(
-                    isActive = state.activeMeasurement == "SpO2",
-                    enabled = state.isConnected,
-                    onClick = {
-                        if (state.activeMeasurement == "SpO2") viewModel.stopMeasurement()
-                        else viewModel.startMeasurement("SpO2")
-                    }
-                )
-            }
-        )
-        
-        DataCard(
-            label = "Blood Pressure",
-            value = if (state.systolic != null && state.diastolic != null) "${state.systolic}/${state.diastolic}" else "--",
-            icon = Icons.Default.Speed,
-            color = Color(0xFFFF5722),
-            action = {
-                MeasurementButton(
-                    isActive = state.activeMeasurement == "Blood Pressure",
-                    enabled = state.isConnected,
-                    onClick = {
-                        if (state.activeMeasurement == "Blood Pressure") viewModel.stopMeasurement()
-                        else viewModel.startMeasurement("Blood Pressure")
-                    }
-                )
-            }
-        )
+    }
+}
 
-        
-        DataCard(label = "Distance", value = state.distance?.let { "$it m" } ?: "--", icon = Icons.Default.Straighten, color = Color(0xFF2196F3))
-        val adjustedCalories = state.calories?.let { (it - state.calorieBaseline).coerceAtLeast(0) }
-        DataCard(label = "Calories", value = adjustedCalories?.let { "$it kcal" } ?: "--", icon = Icons.Default.LocalFireDepartment, color = Color(0xFFFF9800))
+private data class GaugeMetric(
+    val label: String,
+    val value: Int?,
+    val unit: String,
+    val reference: Int,
+    val icon: ImageVector,
+    val color: Color,
+    val supportingText: String? = null,
+    val action: @Composable (() -> Unit)? = null
+)
+
+@Composable
+private fun MetricGaugeGrid(metrics: List<GaugeMetric>) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        metrics.chunked(2).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { metric ->
+                    GaugeMetricCard(metric = metric, modifier = Modifier.weight(1f))
+                }
+                if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun GaugeMetricCard(metric: GaugeMetric, modifier: Modifier = Modifier) {
+    val progress = ((metric.value ?: 0).toFloat() / metric.reference.coerceAtLeast(1)).coerceIn(0f, 1f)
+    Card(
+        modifier = modifier.height(168.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.06f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Icon(metric.icon, contentDescription = null, tint = metric.color, modifier = Modifier.size(18.dp))
+                metric.action?.invoke()
+            }
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(92.dp)) {
+                CircularProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.fillMaxSize(),
+                    color = metric.color.copy(alpha = 0.18f),
+                    strokeWidth = 8.dp,
+                    trackColor = Color.Transparent
+                )
+                CircularProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxSize(),
+                    color = metric.color,
+                    strokeWidth = 8.dp,
+                    trackColor = Color.Transparent
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${metric.reference}${metric.unit}", style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1)
+                    Text(
+                        metric.value?.let { "$it${metric.unit}" } ?: "--",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = metric.color,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(metric.label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
+                metric.supportingText?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1, textAlign = TextAlign.Center)
+                }
+            }
+        }
     }
 }
 
