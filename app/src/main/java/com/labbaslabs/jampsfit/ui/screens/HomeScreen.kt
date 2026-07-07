@@ -3,14 +3,22 @@ package com.labbaslabs.jampsfit.ui.screens
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.labbaslabs.jampsfit.LocalMainViewModel
@@ -32,6 +41,15 @@ import androidx.compose.foundation.border
 @Composable
 fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val viewModel = LocalMainViewModel.current
+    var batteryReference by rememberSaveable { mutableStateOf("100") }
+    var activityReference by rememberSaveable { mutableStateOf("100") }
+    var stepsReference by rememberSaveable { mutableStateOf("10000") }
+    var heartRateReference by rememberSaveable { mutableStateOf("75") }
+    var spo2Reference by rememberSaveable { mutableStateOf("98") }
+    var bloodPressureReference by rememberSaveable { mutableStateOf("120") }
+    var distanceReference by rememberSaveable { mutableStateOf("5000") }
+    var caloriesReference by rememberSaveable { mutableStateOf("500") }
+    var selectedGauge by remember { mutableStateOf<GaugeMetric?>(null) }
 
     Column(
         modifier = Modifier
@@ -97,12 +115,12 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         val adjustedCalories = state.calories?.let { (it - state.calorieBaseline).coerceAtLeast(0) }
         MetricGaugeGrid(
             metrics = listOf(
-                GaugeMetric("Battery", state.battery, "%", 100, Icons.Default.BatteryChargingFull, Color(0xFF4CAF50), state.batteryEstimation),
-                GaugeMetric("Activity", state.activityCount, "", 100, Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFFFFC107)),
-                GaugeMetric("Steps", state.steps, "", 10_000, Icons.Default.Timeline, Color(0xFF8BC34A), action = {
+                GaugeMetric("Battery", state.battery, "%", gaugeReference(batteryReference, 100), 100, Icons.Default.BatteryChargingFull, Color(0xFF4CAF50), state.batteryEstimation, onReferenceChange = { batteryReference = it.toString() }),
+                GaugeMetric("Activity", state.activityCount, "", gaugeReference(activityReference, 100), 100, Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFFFFC107), onReferenceChange = { activityReference = it.toString() }),
+                GaugeMetric("Steps", state.steps, "", gaugeReference(stepsReference, 10_000), 10_000, Icons.Default.Timeline, Color(0xFF8BC34A), onReferenceChange = { stepsReference = it.toString() }, action = {
                     MeasurementButton(isActive = false, enabled = state.isConnected, onClick = { viewModel.queryCurrentSteps() })
                 }),
-                GaugeMetric("Heart Rate", state.heartRate, " bpm", 75, Icons.Default.Favorite, Color(0xFFE91E63), action = {
+                GaugeMetric("Heart Rate", state.heartRate, " bpm", gaugeReference(heartRateReference, 75), 75, Icons.Default.Favorite, Color(0xFFE91E63), onReferenceChange = { heartRateReference = it.toString() }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "Heart Rate",
                         enabled = state.isConnected,
@@ -112,7 +130,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("SpO2", state.spo2, "%", 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), action = {
+                GaugeMetric("SpO2", state.spo2, "%", gaugeReference(spo2Reference, 98), 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), onReferenceChange = { spo2Reference = it.toString() }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "SpO2",
                         enabled = state.isConnected,
@@ -122,7 +140,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("Blood Pressure", state.systolic, state.diastolic?.let { "/$it" } ?: "", 120, Icons.Default.Speed, Color(0xFFFF5722), action = {
+                GaugeMetric("Blood Pressure", state.systolic, state.diastolic?.let { "/$it" } ?: "", gaugeReference(bloodPressureReference, 120), 120, Icons.Default.Speed, Color(0xFFFF5722), onReferenceChange = { bloodPressureReference = it.toString() }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "Blood Pressure",
                         enabled = state.isConnected,
@@ -132,9 +150,10 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("Distance", state.distance, " m", 5_000, Icons.Default.Straighten, Color(0xFF2196F3)),
-                GaugeMetric("Calories", adjustedCalories, " kcal", 500, Icons.Default.LocalFireDepartment, Color(0xFFFF9800))
-            )
+                GaugeMetric("Distance", state.distance, " m", gaugeReference(distanceReference, 5_000), 5_000, Icons.Default.Straighten, Color(0xFF2196F3), onReferenceChange = { distanceReference = it.toString() }),
+                GaugeMetric("Calories", adjustedCalories, " kcal", gaugeReference(caloriesReference, 500), 500, Icons.Default.LocalFireDepartment, Color(0xFFFF9800), onReferenceChange = { caloriesReference = it.toString() })
+            ),
+            onMetricClick = { selectedGauge = it }
         )
         
         val total = state.sleepMinutes ?: 0
@@ -189,6 +208,9 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         }
 
     }
+    selectedGauge?.let { metric ->
+        GaugeSettingsDialog(metric = metric, onDismiss = { selectedGauge = null })
+    }
 }
 
 private data class GaugeMetric(
@@ -196,19 +218,21 @@ private data class GaugeMetric(
     val value: Int?,
     val unit: String,
     val reference: Int,
+    val defaultReference: Int,
     val icon: ImageVector,
     val color: Color,
     val supportingText: String? = null,
+    val onReferenceChange: (Int) -> Unit = {},
     val action: @Composable (() -> Unit)? = null
 )
 
 @Composable
-private fun MetricGaugeGrid(metrics: List<GaugeMetric>) {
+private fun MetricGaugeGrid(metrics: List<GaugeMetric>, onMetricClick: (GaugeMetric) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         metrics.chunked(2).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { metric ->
-                    GaugeMetricCard(metric = metric, modifier = Modifier.weight(1f))
+                    GaugeMetricCard(metric = metric, onClick = { onMetricClick(metric) }, modifier = Modifier.weight(1f))
                 }
                 if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
@@ -217,10 +241,10 @@ private fun MetricGaugeGrid(metrics: List<GaugeMetric>) {
 }
 
 @Composable
-private fun GaugeMetricCard(metric: GaugeMetric, modifier: Modifier = Modifier) {
+private fun GaugeMetricCard(metric: GaugeMetric, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val progress = ((metric.value ?: 0).toFloat() / metric.reference.coerceAtLeast(1)).coerceIn(0f, 1f)
     Card(
-        modifier = modifier.height(168.dp),
+        modifier = modifier.height(168.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.06f))
     ) {
@@ -268,6 +292,60 @@ private fun GaugeMetricCard(metric: GaugeMetric, modifier: Modifier = Modifier) 
             }
         }
     }
+}
+
+@Composable
+private fun GaugeSettingsDialog(metric: GaugeMetric, onDismiss: () -> Unit) {
+    var draft by remember { mutableStateOf(metric.reference.toString()) }
+    LaunchedEffect(metric.label, metric.reference) {
+        draft = metric.reference.toString()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${metric.label} Meter") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Center value / reference point", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it.filter(Char::isDigit).take(6) },
+                    label = { Text("Reference${if (metric.unit.isBlank()) "" else " (${metric.unit.trim()})"}") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Default: ${metric.defaultReference}${metric.unit}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    draft.toIntOrNull()?.takeIf { it > 0 }?.let(metric.onReferenceChange)
+                    onDismiss()
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { metric.onReferenceChange(metric.defaultReference); onDismiss() }) {
+                    Text("Use Default")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
+}
+
+private fun gaugeReference(value: String, default: Int): Int {
+    return value.toIntOrNull()?.takeIf { it > 0 } ?: default
 }
 
 private fun buildSleepSummary(state: WatchState): String {
