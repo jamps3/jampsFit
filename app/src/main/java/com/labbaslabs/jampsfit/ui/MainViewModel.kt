@@ -37,6 +37,8 @@ class MainViewModel : ViewModel() {
     fun selectFestival(id: Long) = watchManager?.selectFestival(id)
     fun updateFestivalName(id: Long, name: String) = watchManager?.updateFestivalName(id, name)
     fun updateFestivalImage(id: Long, imageUri: String?) = watchManager?.updateFestivalImage(id, imageUri)
+    fun setFestivalActive(id: Long) = watchManager?.setFestivalActive(id)
+    fun deleteFestival(id: Long) = watchManager?.deleteFestival(id)
     fun attachEventToSelectedFestival(eventId: Long) = watchManager?.attachEventToSelectedFestival(eventId)
     fun attachEventToFestival(eventId: Long, festivalId: Long) = watchManager?.attachEventToFestival(eventId, festivalId)
     fun deleteEvent(eventId: Long) = watchManager?.deleteEvent(eventId)
@@ -68,6 +70,7 @@ class MainViewModel : ViewModel() {
     fun toggleLegacyCallNotifications(enabled: Boolean) = watchManager?.toggleLegacyCallNotifications(enabled)
     fun toggleHrReminder(enabled: Boolean) = watchManager?.toggleHrReminder(enabled)
     fun updateHrReminderInterval(minutes: Int) = watchManager?.updateHrReminderInterval(minutes)
+    fun toggleDoubleConfirmations(enabled: Boolean) = watchManager?.toggleDoubleConfirmations(enabled)
     
     fun addNotificationFilter(pkg: String) = watchManager?.addNotificationFilter(pkg)
     fun removeNotificationFilter(pkg: String) = watchManager?.removeNotificationFilter(pkg)

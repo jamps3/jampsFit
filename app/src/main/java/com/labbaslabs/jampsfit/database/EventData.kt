@@ -56,6 +56,7 @@ data class FestivalEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String = DEFAULT_FESTIVAL_NAME,
     val imageUri: String? = null,
+    val isActive: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt
 )
@@ -110,8 +111,26 @@ interface EventDao {
     @Query("SELECT * FROM festivals ORDER BY createdAt DESC LIMIT 1")
     suspend fun getNewestFestival(): FestivalEntity?
 
+    @Query("SELECT * FROM festivals WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getActiveFestival(): FestivalEntity?
+
     @Query("SELECT * FROM festivals WHERE id = :id LIMIT 1")
     suspend fun getFestival(id: Long): FestivalEntity?
+
+    @Query("UPDATE festivals SET isActive = CASE WHEN id = :id THEN 1 ELSE 0 END, updatedAt = :updatedAt")
+    suspend fun setActiveFestival(id: Long, updatedAt: Long)
+
+    @Query("DELETE FROM festivals WHERE id = :id")
+    suspend fun deleteFestival(id: Long)
+
+    @Query("UPDATE events SET festivalId = NULL WHERE festivalId = :festivalId")
+    suspend fun detachEventsFromFestival(festivalId: Long)
+
+    @Query("UPDATE candies SET festivalId = NULL WHERE festivalId = :festivalId")
+    suspend fun detachCandiesFromFestival(festivalId: Long)
+
+    @Query("UPDATE meals SET festivalId = NULL WHERE festivalId = :festivalId")
+    suspend fun detachMealsFromFestival(festivalId: Long)
 
     @Insert
     suspend fun insert(event: EventEntity): Long

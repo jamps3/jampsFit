@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.ui.components.ConfirmActionDialog
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import kotlinx.coroutines.launch
 
@@ -32,6 +33,7 @@ fun LogsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var confirmClearUnknown by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(text = "Logs", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -47,7 +49,7 @@ fun LogsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "Long-press to copy all entries.", style = MaterialTheme.typography.bodyMedium, color = androidx.compose.ui.graphics.Color.Gray)
-                IconButton(onClick = onResetClick) {
+                IconButton(onClick = { confirmClearUnknown = true }) {
                     Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = MaterialTheme.colorScheme.error)
                 }
             }
@@ -96,5 +98,15 @@ fun LogsScreen(
                 )
             }
         }
+    }
+    if (confirmClearUnknown) {
+        ConfirmActionDialog(
+            title = "Clear unknown packets?",
+            text = "This removes all unknown packet log entries.",
+            confirmLabel = "Clear",
+            doubleConfirm = state.doubleConfirmationsEnabled,
+            onConfirm = onResetClick,
+            onDismiss = { confirmClearUnknown = false }
+        )
     }
 }

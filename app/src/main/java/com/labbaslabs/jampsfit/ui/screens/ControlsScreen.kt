@@ -592,6 +592,7 @@ private fun AppSettingsControls(
             if (it) activity?.checkPermissionsAndStart() else activity?.stopWatchService()
         }
         SettingSwitch(label = "Connect Automatically", checked = state.autoConnect) { viewModel.toggleAutoConnect(it) }
+        SettingSwitch(label = "Double Confirm Delete Actions", checked = state.doubleConfirmationsEnabled) { viewModel.toggleDoubleConfirmations(it) }
         SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { viewModel.toggleAutoFetchSteps(it) }
         SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { viewModel.toggleAutoFetchBattery(it) }
         SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { viewModel.toggleAutoFetchSleep(it) }

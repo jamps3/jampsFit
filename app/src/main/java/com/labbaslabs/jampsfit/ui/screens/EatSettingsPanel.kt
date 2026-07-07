@@ -53,6 +53,7 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
+import com.labbaslabs.jampsfit.ui.components.ConfirmActionDialog
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import java.util.Locale
 import kotlin.math.abs
@@ -132,6 +133,7 @@ private fun EatSettingsPanel(state: WatchState) {
                         onShoppingListChange = { viewModel.setFoodOnShoppingList(food.id, it) },
                         onAmountChange = { viewModel.setFoodAvailableAmount(food.id, it) },
                         onEdit = { editingFood = food },
+                        doubleConfirm = state.doubleConfirmationsEnabled,
                         onDelete = { viewModel.deleteFood(food.id) }
                     )
                 }
@@ -158,8 +160,10 @@ private fun FoodSettingsRow(
     onShoppingListChange: (Boolean) -> Unit,
     onAmountChange: (Float?) -> Unit,
     onEdit: () -> Unit,
+    doubleConfirm: Boolean,
     onDelete: () -> Unit
 ) {
+    var confirmDelete by remember(food.id) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -176,7 +180,7 @@ private fun FoodSettingsRow(
                 Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             }
             if (food.isCustom) {
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
@@ -212,6 +216,16 @@ private fun FoodSettingsRow(
                 Text(if (food.onShoppingList) "On shopping list" else "Not listed", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
         }
+    }
+    if (confirmDelete) {
+        ConfirmActionDialog(
+            title = "Delete food?",
+            text = "This removes ${food.name} from food options.",
+            confirmLabel = "Delete",
+            doubleConfirm = doubleConfirm,
+            onConfirm = onDelete,
+            onDismiss = { confirmDelete = false }
+        )
     }
 }
 

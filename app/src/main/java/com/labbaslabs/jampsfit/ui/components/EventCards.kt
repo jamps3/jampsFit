@@ -172,6 +172,8 @@ fun FestivalProgressCard(
     onSelectFestival: (Long) -> Unit,
     onRenameFestival: (Long, String) -> Unit,
     onFestivalImageChange: (Long, String?) -> Unit,
+    onActivateFestival: (Long) -> Unit,
+    onDeleteFestival: (Long) -> Unit,
     onAttachEventToFestival: (Long) -> Unit,
     onMoveEventToFestival: (Long, Long) -> Unit,
     onDeleteEvent: (Long) -> Unit
@@ -205,6 +207,7 @@ fun FestivalProgressCard(
     }
     val selectedIndex = state.festivals.indexOfFirst { it.id == selectedFestivalId }.takeIf { it >= 0 } ?: 0
     var editingName by remember(selectedFestivalId) { mutableStateOf(false) }
+    var confirmDeleteFestival by remember(selectedFestivalId) { mutableStateOf(false) }
     var draftName by remember(selectedFestival?.name) { mutableStateOf(selectedFestival?.name ?: "Festival Progress") }
     var choosingImage by remember(selectedFestivalId) { mutableStateOf(false) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -251,7 +254,11 @@ fun FestivalProgressCard(
                             editingName = true
                         }
                     )
-                    Text("${unlocked.size}/${festivalAchievements.size} unlocked", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text(
+                        "${if (selectedFestival?.isActive == true) "Active" else "Inactive"} • ${unlocked.size}/${festivalAchievements.size} unlocked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (selectedFestival?.isActive == true) Color(0xFF8BC34A) else Color.Gray
+                    )
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -269,6 +276,27 @@ fun FestivalProgressCard(
                 }
                 IconButton(onClick = onCreateFestival) {
                     Icon(Icons.Default.Add, contentDescription = "New festival")
+                }
+            }
+        }
+        if (selectedFestival != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (selectedFestival.isActive) "This festival is active" else "This festival is inactive",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selectedFestival.isActive) Color(0xFF8BC34A) else Color.Gray
+                )
+                OutlinedButton(
+                    onClick = { onActivateFestival(selectedFestival.id) },
+                    enabled = !selectedFestival.isActive
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(if (selectedFestival.isActive) "Active" else "Activate")
                 }
             }
         }
@@ -295,6 +323,7 @@ fun FestivalProgressCard(
                         festivals = state.festivals,
                         currentFestivalId = selectedFestivalId,
                         onMoveToFestival = { festivalId -> onMoveEventToFestival(event.id, festivalId) },
+                        doubleConfirm = state.doubleConfirmationsEnabled,
                         onDelete = { onDeleteEvent(event.id) }
                     )
                 }
@@ -367,10 +396,30 @@ fun FestivalProgressCard(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { editingName = false }) {
-                    Text("Cancel")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { confirmDeleteFestival = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFFF7043))
+                        Text("Delete", color = Color(0xFFFF7043))
+                    }
+                    TextButton(onClick = { editingName = false }) {
+                        Text("Cancel")
+                    }
                 }
             }
+        )
+    }
+
+    if (confirmDeleteFestival && selectedFestival != null) {
+        ConfirmActionDialog(
+            title = "Delete festival?",
+            text = "This deletes the festival. Events, candies, and meals are kept but detached from it.",
+            confirmLabel = "Delete",
+            doubleConfirm = state.doubleConfirmationsEnabled,
+            onConfirm = {
+                onDeleteFestival(selectedFestival.id)
+                editingName = false
+            },
+            onDismiss = { confirmDeleteFestival = false }
         )
     }
 
@@ -475,6 +524,7 @@ private fun EventSummaryRow(
     festivals: List<FestivalEntity>,
     currentFestivalId: Long?,
     onMoveToFestival: (Long) -> Unit,
+    doubleConfirm: Boolean,
     onDelete: () -> Unit
 ) {
     var confirmDelete by remember(event.id) { mutableStateOf(false) }
@@ -557,25 +607,13 @@ private fun EventSummaryRow(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete dancing event?") },
-            text = { Text("This removes the event from the current festival. The raw watch health history stays untouched.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmDelete = false
-                        onDelete()
-                    }
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) {
-                    Text("Cancel")
-                }
-            }
+        ConfirmActionDialog(
+            title = "Delete dancing event?",
+            text = "This removes the event from the current festival. The raw watch health history stays untouched.",
+            confirmLabel = "Delete",
+            doubleConfirm = doubleConfirm,
+            onConfirm = onDelete,
+            onDismiss = { confirmDelete = false }
         )
     }
 }

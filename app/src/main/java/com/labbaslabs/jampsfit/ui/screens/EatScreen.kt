@@ -80,6 +80,7 @@ import com.labbaslabs.jampsfit.food.availableFoods
 import com.labbaslabs.jampsfit.food.calculateEatCalorieTarget
 import com.labbaslabs.jampsfit.food.generateMealSuggestions
 import com.labbaslabs.jampsfit.food.recalculateMealWithLockedIngredient
+import com.labbaslabs.jampsfit.ui.components.ConfirmActionDialog
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -251,6 +252,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                     candyHours = ""
                 }
             },
+            doubleConfirm = state.doubleConfirmationsEnabled,
             onDelete = { viewModel.deleteCandy(it.id) }
         )
 
@@ -364,7 +366,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             }
         )
         CurrentNuggetsCard(targetCalories = targetCalories)
-        MealTimelineCard(meals = festivalMeals, onDelete = { viewModel.deleteMeal(it.id) })
+        MealTimelineCard(meals = festivalMeals, doubleConfirm = state.doubleConfirmationsEnabled, onDelete = { viewModel.deleteMeal(it.id) })
     }
 
     if (confirmMealReset) {
@@ -434,6 +436,7 @@ private fun CandiesCard(
     onSizeChange: (String) -> Unit,
     onHoursChange: (String) -> Unit,
     onAdd: () -> Unit,
+    doubleConfirm: Boolean,
     onDelete: (CandyEntity) -> Unit
 ) {
     val canAdd = name.trim().isNotEmpty() && size.length in 1..4 && hours.length in 1..2
@@ -487,7 +490,7 @@ private fun CandiesCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 candies.forEach { candy ->
-                    CandyEntryRow(candy = candy, onDelete = { onDelete(candy) })
+                    CandyEntryRow(candy = candy, doubleConfirm = doubleConfirm, onDelete = { onDelete(candy) })
                 }
             }
         }
@@ -495,8 +498,9 @@ private fun CandiesCard(
 }
 
 @Composable
-private fun CandyEntryRow(candy: CandyEntity, onDelete: () -> Unit) {
+private fun CandyEntryRow(candy: CandyEntity, doubleConfirm: Boolean, onDelete: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var confirmDelete by remember(candy.id) { mutableStateOf(false) }
     LaunchedEffect(candy.id, candy.endTime) {
         while (now < candy.endTime) {
             delay(1_000L)
@@ -528,9 +532,19 @@ private fun CandyEntryRow(candy: CandyEntity, onDelete: () -> Unit) {
             fontWeight = FontWeight.Bold,
             color = Color(0xFFE91E63)
         )
-        IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(34.dp)) {
             Icon(Icons.Default.Remove, contentDescription = "Delete candy", tint = Color.Gray)
         }
+    }
+    if (confirmDelete) {
+        ConfirmActionDialog(
+            title = "Delete candy?",
+            text = "This removes the candy timeline entry.",
+            confirmLabel = "Delete",
+            doubleConfirm = doubleConfirm,
+            onConfirm = onDelete,
+            onDismiss = { confirmDelete = false }
+        )
     }
 }
 
@@ -551,7 +565,7 @@ private fun formatDuration(durationMs: Long): String {
 }
 
 @Composable
-private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> Unit) {
+private fun MealTimelineCard(meals: List<MealEntity>, doubleConfirm: Boolean, onDelete: (MealEntity) -> Unit) {
     var selectedMeal by remember { mutableStateOf<MealEntity?>(null) }
     SleekCard(borderColor = Color(0xFF03A9F4)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -570,6 +584,7 @@ private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> 
                     MealTimelineRow(
                         meal = meal,
                         onClick = { selectedMeal = meal },
+                        doubleConfirm = doubleConfirm,
                         onDelete = { onDelete(meal) }
                     )
                 }
@@ -582,7 +597,8 @@ private fun MealTimelineCard(meals: List<MealEntity>, onDelete: (MealEntity) -> 
 }
 
 @Composable
-private fun MealTimelineRow(meal: MealEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun MealTimelineRow(meal: MealEntity, onClick: () -> Unit, doubleConfirm: Boolean, onDelete: () -> Unit) {
+    var confirmDelete by remember(meal.id) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -596,9 +612,19 @@ private fun MealTimelineRow(meal: MealEntity, onClick: () -> Unit, onDelete: () 
             }
         }
         Text("${meal.calories} kcal", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF03A9F4))
-        IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(34.dp)) {
             Icon(Icons.Default.Remove, contentDescription = "Delete meal", tint = Color.Gray)
         }
+    }
+    if (confirmDelete) {
+        ConfirmActionDialog(
+            title = "Delete meal?",
+            text = "This removes the saved meal from the timeline.",
+            confirmLabel = "Delete",
+            doubleConfirm = doubleConfirm,
+            onConfirm = onDelete,
+            onDismiss = { confirmDelete = false }
+        )
     }
 }
 

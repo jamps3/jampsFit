@@ -105,6 +105,7 @@ data class WatchState(
     val calorieBaseline: Int = 0,
     val hrReminderEnabled: Boolean = false,
     val hrReminderIntervalMinutes: Int = 60,
+    val doubleConfirmationsEnabled: Boolean = false,
     val shoppingListCheckedIds: Set<Long> = emptySet(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
@@ -221,6 +222,7 @@ class WatchManager(private val context: Context) {
         calorieBaseline = prefs.getInt("calorieBaseline", 0),
         hrReminderEnabled = prefs.getBoolean("hrReminderEnabled", false),
         hrReminderIntervalMinutes = prefs.getInt("hrReminderIntervalMinutes", 60),
+        doubleConfirmationsEnabled = prefs.getBoolean("doubleConfirmationsEnabled", false),
         shoppingListCheckedIds = prefs.getStringSet("shoppingListCheckedIds", emptySet())
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
@@ -426,6 +428,8 @@ class WatchManager(private val context: Context) {
                     state.copy(
                         festivals = festivals,
                         selectedFestivalId = state.selectedFestivalId
+                            ?.takeIf { selected -> festivals.any { it.id == selected } }
+                            ?: festivals.firstOrNull { it.isActive }?.id
                             ?: festivals.maxByOrNull { it.createdAt }?.id
                     )
                 }
@@ -440,7 +444,8 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             if (eventDao.getNewestFestival() == null) {
                 val now = System.currentTimeMillis()
-                val id = eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+                val id = eventDao.insertFestival(FestivalEntity(isActive = true, createdAt = now, updatedAt = now))
+                eventDao.setActiveFestival(id, now)
                 _state.update { it.copy(selectedFestivalId = id) }
             }
         }
@@ -526,10 +531,7 @@ class WatchManager(private val context: Context) {
                 return@launch
             }
             val now = System.currentTimeMillis()
-            val selectedFestivalId = _state.value.selectedFestivalId
-            val festivalId = selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             val id = eventDao.insert(
                 EventEntity(
                     festivalId = festivalId,
@@ -555,10 +557,12 @@ class WatchManager(private val context: Context) {
             val id = eventDao.insertFestival(
                 FestivalEntity(
                     name = "Event $count",
+                    isActive = true,
                     createdAt = now,
                     updatedAt = now
                 )
             )
+            eventDao.setActiveFestival(id, now)
             _state.update { it.copy(selectedFestivalId = id) }
             updateDebugLog("Festival created")
         }
@@ -583,6 +587,32 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    fun setFestivalActive(id: Long) {
+        managerScope.launch {
+            if (eventDao.getFestival(id) == null) return@launch
+            val now = System.currentTimeMillis()
+            eventDao.setActiveFestival(id, now)
+            _state.update { it.copy(selectedFestivalId = id) }
+            updateDebugLog("Festival $id activated")
+        }
+    }
+
+    fun deleteFestival(id: Long) {
+        managerScope.launch {
+            val festival = eventDao.getFestival(id) ?: return@launch
+            eventDao.detachEventsFromFestival(id)
+            eventDao.detachCandiesFromFestival(id)
+            eventDao.detachMealsFromFestival(id)
+            eventDao.deleteFestival(id)
+            val replacement = eventDao.getActiveFestival() ?: eventDao.getNewestFestival()
+            replacement?.let {
+                if (festival.isActive) eventDao.setActiveFestival(it.id, System.currentTimeMillis())
+            }
+            _state.update { it.copy(selectedFestivalId = replacement?.id) }
+            updateDebugLog("Festival $id deleted")
+        }
+    }
+
     fun stopActiveEvent() {
         managerScope.launch {
             val activeEvents = eventDao.getActiveEventsOnce()
@@ -603,9 +633,7 @@ class WatchManager(private val context: Context) {
     fun attachEventToSelectedFestival(eventId: Long) {
         managerScope.launch {
             val now = System.currentTimeMillis()
-            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             eventDao.attachEventToFestival(eventId, festivalId, now)
             updateDebugLog("Event $eventId attached to festival $festivalId")
         }
@@ -629,9 +657,7 @@ class WatchManager(private val context: Context) {
     fun addCandy(name: String, size: Int, hours: Int) {
         managerScope.launch {
             val now = System.currentTimeMillis()
-            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             eventDao.insertCandy(
                 CandyEntity(
                     festivalId = festivalId,
@@ -656,9 +682,7 @@ class WatchManager(private val context: Context) {
     fun addMeal(name: String, type: String, calories: Int, details: String) {
         managerScope.launch {
             val now = System.currentTimeMillis()
-            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             eventDao.insertMeal(
                 MealEntity(
                     festivalId = festivalId,
@@ -680,14 +704,21 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private suspend fun currentTargetFestivalId(now: Long): Long {
+        return eventDao.getActiveFestival()?.id
+            ?: _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
+            ?: eventDao.getNewestFestival()?.id
+            ?: eventDao.insertFestival(FestivalEntity(isActive = true, createdAt = now, updatedAt = now)).also {
+                eventDao.setActiveFestival(it, now)
+            }
+    }
+
     private fun persistWatchExerciseFromHeartRate() {
         managerScope.launch {
             val workout = inferLatestWorkout(_state.value) ?: return@launch
             val now = System.currentTimeMillis()
             if (now - workout.endTime > 2 * 60_000L) return@launch
-            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             val existing = eventDao.findOpenEventByType(EVENT_TYPE_WATCH_EXERCISE)
                 ?: eventDao.findEventOverlapping(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, workout.endTime, 2 * 60_000L)
                 ?: eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, workout.startTime, 15_000L)
@@ -720,9 +751,7 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             val now = System.currentTimeMillis()
             val startTime = now - summary.durationSeconds * 1000L
-            val festivalId = _state.value.selectedFestivalId?.takeIf { eventDao.getFestival(it) != null }
-                ?: eventDao.getNewestFestival()?.id
-                ?: eventDao.insertFestival(FestivalEntity(createdAt = now, updatedAt = now))
+            val festivalId = currentTargetFestivalId(now)
             val existing = eventDao.findOpenEventByType(EVENT_TYPE_WATCH_EXERCISE)
                 ?: eventDao.findEventOverlapping(EVENT_TYPE_WATCH_EXERCISE, startTime, now, 2 * 60_000L)
                 ?: eventDao.findEventNearStart(EVENT_TYPE_WATCH_EXERCISE, startTime, 30_000L)
@@ -915,6 +944,7 @@ class WatchManager(private val context: Context) {
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
     fun toggleHrReminder(enabled: Boolean) { prefs.edit { putBoolean("hrReminderEnabled", enabled) }; _state.update { it.copy(hrReminderEnabled = enabled) }; restartHrReminder() }
     fun updateHrReminderInterval(minutes: Int) { val safe = minutes.coerceIn(15, 720); prefs.edit { putInt("hrReminderIntervalMinutes", safe) }; _state.update { it.copy(hrReminderIntervalMinutes = safe) }; restartHrReminder() }
+    fun toggleDoubleConfirmations(enabled: Boolean) { prefs.edit { putBoolean("doubleConfirmationsEnabled", enabled) }; _state.update { it.copy(doubleConfirmationsEnabled = enabled) } }
     fun addNotificationFilter(pkg: String) { val f = _state.value.notificationFilters + pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
     fun removeNotificationFilter(pkg: String) { val f = _state.value.notificationFilters - pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
     fun registerDiscoveredApp(p: String, n: String) { if (_state.value.discoveredApps[p] == n) return; val a = _state.value.discoveredApps + (p to n); prefs.edit { putStringSet("discoveredApps", a.map { "${it.key}|${it.value}" }.toSet()) }; _state.update { it.copy(discoveredApps = a) } }
