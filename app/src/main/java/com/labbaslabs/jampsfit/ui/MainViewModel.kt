@@ -63,6 +63,8 @@ class MainViewModel : ViewModel() {
     fun toggleNotifications(enabled: Boolean) = watchManager?.toggleNotifications(enabled)
     fun toggleIgnoreDuplicates(enabled: Boolean) = watchManager?.toggleIgnoreDuplicates(enabled)
     fun toggleLegacyCallNotifications(enabled: Boolean) = watchManager?.toggleLegacyCallNotifications(enabled)
+    fun toggleHrReminder(enabled: Boolean) = watchManager?.toggleHrReminder(enabled)
+    fun updateHrReminderInterval(minutes: Int) = watchManager?.updateHrReminderInterval(minutes)
     
     fun addNotificationFilter(pkg: String) = watchManager?.addNotificationFilter(pkg)
     fun removeNotificationFilter(pkg: String) = watchManager?.removeNotificationFilter(pkg)

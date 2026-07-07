@@ -101,6 +101,8 @@ data class WatchState(
     val appliedMealCalories: Int = 0,
     val eatCaloriesIncremental: Boolean = false,
     val calorieBaseline: Int = 0,
+    val hrReminderEnabled: Boolean = false,
+    val hrReminderIntervalMinutes: Int = 60,
     val shoppingListCheckedIds: Set<Long> = emptySet(),
     val alarmSettings: List<WatchAlarm> = emptyList(),
     val stepGoalSetting: Int? = null,
@@ -162,6 +164,8 @@ class WatchManager(private val context: Context) {
     private val initialAppliedMealCalories = prefs.getInt("appliedMealCalories", 0)
         .takeIf { initialEatCaloriesIncremental || prefs.getString("appliedMealCaloriesDay", initialMealDay) == initialMealDay }
         ?: 0
+    private var calorieCarryOffset = prefs.getInt("calorieCarryOffset", 0)
+    private var lastRawCalories = prefs.getInt("lastRawCalories", 0)
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val adapter: BluetoothAdapter? = bluetoothManager.adapter
     private val scanner get() = adapter?.bluetoothLeScanner
@@ -213,6 +217,8 @@ class WatchManager(private val context: Context) {
         appliedMealCalories = initialAppliedMealCalories,
         eatCaloriesIncremental = initialEatCaloriesIncremental,
         calorieBaseline = prefs.getInt("calorieBaseline", 0),
+        hrReminderEnabled = prefs.getBoolean("hrReminderEnabled", false),
+        hrReminderIntervalMinutes = prefs.getInt("hrReminderIntervalMinutes", 60),
         shoppingListCheckedIds = prefs.getStringSet("shoppingListCheckedIds", emptySet())
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
@@ -234,6 +240,7 @@ class WatchManager(private val context: Context) {
     private var autoStepFetchJob: Job? = null
     private var autoSyncTimeJob: Job? = null
     private var autoSleepFetchJob: Job? = null
+    private var hrReminderJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
     private val recentActivityPayloadSet = mutableSetOf<String>()
@@ -284,14 +291,16 @@ class WatchManager(private val context: Context) {
             }
             is ProtocolDecoder.DecodedResult.Activity -> {
                 if (rememberRecentPayload(result.seq.toString(), recentActivityPayloads, recentActivityPayloadSet)) return
-                _state.update { it.copy(activityCount = result.activityCount, distance = result.distance, calories = result.calories, lastWatchSeenTime = System.currentTimeMillis()) }
+                val calories = adjustedCalories(result.calories)
+                _state.update { it.copy(activityCount = result.activityCount, distance = result.distance, calories = calories, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(activityCount = result.activityCount, distance = result.distance, calories = result.calories)
-                updateDebugLog("Activity: seq=${result.seq} count=${result.activityCount} dist=${result.distance}m cal=${result.calories}")
+                updateDebugLog("Activity: seq=${result.seq} count=${result.activityCount} dist=${result.distance}m cal=$calories")
             }
             is ProtocolDecoder.DecodedResult.DailyTotals -> {
-                _state.update { it.copy(steps = result.steps, distance = result.distance, calories = result.calories, lastWatchSeenTime = System.currentTimeMillis()) }
+                val calories = adjustedCalories(result.calories)
+                _state.update { it.copy(steps = result.steps, distance = result.distance, calories = calories, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(steps = result.steps, distance = result.distance, calories = result.calories)
-                updateDebugLog("Daily Totals: steps=${result.steps} dist=${result.distance}m cal=${result.calories}")
+                updateDebugLog("Daily Totals: steps=${result.steps} dist=${result.distance}m cal=$calories")
             }
             is ProtocolDecoder.DecodedResult.HourlyActivity -> {
                 val totals = StepBucketTotals(result.stepsDown, result.stepsUp, result.stepsOther)
@@ -717,6 +726,7 @@ class WatchManager(private val context: Context) {
         autoStepFetchJob?.cancel()
         autoSyncTimeJob?.cancel()
         autoSleepFetchJob?.cancel()
+        hrReminderJob?.cancel()
         synchronized(operationQueue) {
             operationQueue.clear()
             isOperating = false
@@ -792,6 +802,26 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun restartHrReminder() {
+        hrReminderJob?.cancel()
+        if (!_state.value.hrReminderEnabled || !_state.value.isConnected) return
+        hrReminderJob = managerScope.launch {
+            while (isActive) {
+                val intervalMs = _state.value.hrReminderIntervalMinutes.coerceIn(15, 720) * 60_000L
+                delay(intervalMs)
+                val lastHeartRateTime = _state.value.heartRateHistory.maxOfOrNull { it.timestamp } ?: 0L
+                if (_state.value.isConnected && System.currentTimeMillis() - lastHeartRateTime >= intervalMs) {
+                    sendNotification(
+                        title = "Measure HR",
+                        text = "No heart-rate measurement for ${_state.value.hrReminderIntervalMinutes} min",
+                        ignoreDuplicate = true,
+                        forceMirrored = true
+                    )
+                }
+            }
+        }
+    }
+
     fun setWeatherCity(city: String) {
         val safeCity = city.trim().ifBlank { "London" }.take(12)
         managerScope.launch {
@@ -849,6 +879,8 @@ class WatchManager(private val context: Context) {
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
+    fun toggleHrReminder(enabled: Boolean) { prefs.edit { putBoolean("hrReminderEnabled", enabled) }; _state.update { it.copy(hrReminderEnabled = enabled) }; restartHrReminder() }
+    fun updateHrReminderInterval(minutes: Int) { val safe = minutes.coerceIn(15, 720); prefs.edit { putInt("hrReminderIntervalMinutes", safe) }; _state.update { it.copy(hrReminderIntervalMinutes = safe) }; restartHrReminder() }
     fun addNotificationFilter(pkg: String) { val f = _state.value.notificationFilters + pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
     fun removeNotificationFilter(pkg: String) { val f = _state.value.notificationFilters - pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
     fun registerDiscoveredApp(p: String, n: String) { if (_state.value.discoveredApps[p] == n) return; val a = _state.value.discoveredApps + (p to n); prefs.edit { putStringSet("discoveredApps", a.map { "${it.key}|${it.value}" }.toSet()) }; _state.update { it.copy(discoveredApps = a) } }
@@ -884,7 +916,11 @@ class WatchManager(private val context: Context) {
             putBoolean("eatCaloriesIncremental", enabled)
             putString("appliedMealCaloriesDay", mealDayKey())
         }
-        _state.update { it.copy(eatCaloriesIncremental = enabled) }
+        if (!enabled) {
+            calorieCarryOffset = 0
+            prefs.edit { putInt("calorieCarryOffset", 0) }
+        }
+        _state.update { it.copy(eatCaloriesIncremental = enabled, calories = if (enabled) it.calories else lastRawCalories) }
     }
     fun resetAppliedMealCalories() {
         prefs.edit {
@@ -897,6 +933,22 @@ class WatchManager(private val context: Context) {
         val baseline = _state.value.calories ?: _state.value.caloriesHistory.maxOfOrNull { it.value } ?: 0
         prefs.edit { putInt("calorieBaseline", baseline) }
         _state.update { it.copy(calorieBaseline = baseline) }
+    }
+    private fun adjustedCalories(rawCalories: Int): Int {
+        if (!_state.value.eatCaloriesIncremental) {
+            lastRawCalories = rawCalories
+            calorieCarryOffset = 0
+            prefs.edit { putInt("lastRawCalories", rawCalories); putInt("calorieCarryOffset", 0) }
+            return rawCalories
+        }
+        if (lastRawCalories > 0 && rawCalories + 25 < lastRawCalories) {
+            calorieCarryOffset = (calorieCarryOffset + lastRawCalories).coerceIn(0, 1_000_000)
+            prefs.edit { putInt("calorieCarryOffset", calorieCarryOffset) }
+            updateDebugLog("Calorie counter rollover preserved: +$lastRawCalories kcal")
+        }
+        lastRawCalories = rawCalories
+        prefs.edit { putInt("lastRawCalories", rawCalories) }
+        return (calorieCarryOffset + rawCalories).coerceIn(0, 1_000_000)
     }
     fun setShoppingListChecked(id: Long, checked: Boolean) {
         val checkedIds = if (checked) _state.value.shoppingListCheckedIds + id else _state.value.shoppingListCheckedIds - id
@@ -1037,7 +1089,7 @@ class WatchManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
             if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1047,7 +1099,7 @@ class WatchManager(private val context: Context) {
                     c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { enqueueOperation(GattOperation.WriteDescriptor(it, if ((c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) }
                 }
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
-            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch()
+            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder()
         }
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { finishOperation() }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { finishOperation() }

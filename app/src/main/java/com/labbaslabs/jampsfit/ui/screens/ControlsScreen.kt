@@ -595,6 +595,19 @@ private fun AppSettingsControls(
         SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { viewModel.toggleAutoFetchSteps(it) }
         SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { viewModel.toggleAutoFetchBattery(it) }
         SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { viewModel.toggleAutoFetchSleep(it) }
+        SettingSwitch(label = "Remind to Measure HR", checked = state.hrReminderEnabled) { viewModel.toggleHrReminder(it) }
+        if (state.hrReminderEnabled) {
+            Text("HR reminder interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf(60, 120, 180, 240).forEach { minutes ->
+                    FilterChip(
+                        selected = state.hrReminderIntervalMinutes == minutes,
+                        onClick = { viewModel.updateHrReminderInterval(minutes) },
+                        label = { Text("${minutes / 60}h", fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
         if (state.autoFetchSteps || state.autoFetchBattery || state.autoFetchSleep) {
             val intervalOptions = listOf(15, 30, 60, 120, 240)
             Text("Auto-fetch interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
