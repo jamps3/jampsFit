@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +98,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var confirmCalorieReset by remember { mutableStateOf(false) }
     var addingFood by remember { mutableStateOf(false) }
     var burgerCenterBuns by rememberSaveable { mutableStateOf(0) }
+    var burgerPatties by rememberSaveable { mutableStateOf<Int?>(null) }
     var candyName by rememberSaveable { mutableStateOf("") }
     var candySize by rememberSaveable { mutableStateOf("") }
     var candyHours by rememberSaveable { mutableStateOf("") }
@@ -334,7 +336,9 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
         CurrentBurgerCard(
             targetCalories = targetCalories,
             centerBuns = burgerCenterBuns,
-            onCenterBunsChange = { burgerCenterBuns = it.coerceIn(0, 12) }
+            patties = burgerPatties,
+            onCenterBunsChange = { burgerCenterBuns = it.coerceIn(0, 12) },
+            onPattiesChange = { burgerPatties = it.coerceIn(0, 40) }
         )
         CurrentNuggetsCard(targetCalories = targetCalories)
     }
@@ -687,15 +691,13 @@ private fun QuantityField(
 private fun CurrentBurgerCard(
     targetCalories: Int,
     centerBuns: Int,
-    onCenterBunsChange: (Int) -> Unit
+    patties: Int?,
+    onCenterBunsChange: (Int) -> Unit,
+    onPattiesChange: (Int) -> Unit
 ) {
-    val burger = remember(targetCalories, centerBuns) { BurgerPlan.fromCalories(targetCalories, centerBuns) }
+    val burger = remember(targetCalories, centerBuns, patties) { BurgerPlan.fromCalories(targetCalories, centerBuns, patties) }
     SleekCard(borderColor = Color(0xFFFF7043)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 IconBadge(Icons.Default.Fastfood, Color(0xFFFF7043))
                 Column {
@@ -703,26 +705,22 @@ private fun CurrentBurgerCard(
                     Text("${burger.displayCalories} kcal burger", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(
-                    onClick = { onCenterBunsChange(centerBuns - 1) },
-                    enabled = centerBuns > 0,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Remove, contentDescription = "Remove center bun", tint = Color.Gray)
-                }
-                AssistChip(
-                    onClick = {},
-                    label = { Text("${burger.centerBuns} center buns", fontSize = 11.sp) }
-                )
-                IconButton(
-                    onClick = { onCenterBunsChange(centerBuns + 1) },
-                    enabled = centerBuns < 12,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add center bun", tint = Color(0xFFFF7043))
-                }
-            }
+            BurgerCountControl(
+                label = "Patties",
+                value = burger.patties,
+                onDecrease = { onPattiesChange(burger.patties - 1) },
+                onIncrease = { onPattiesChange(burger.patties + 1) },
+                canDecrease = burger.patties > 0,
+                canIncrease = burger.patties < 40
+            )
+            BurgerCountControl(
+                label = "Center buns",
+                value = burger.centerBuns,
+                onDecrease = { onCenterBunsChange(centerBuns - 1) },
+                onIncrease = { onCenterBunsChange(centerBuns + 1) },
+                canDecrease = centerBuns > 0,
+                canIncrease = centerBuns < 12
+            )
         }
         Spacer(modifier = Modifier.height(10.dp))
         Canvas(
@@ -740,6 +738,33 @@ private fun CurrentBurgerCard(
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )
+    }
+}
+
+@Composable
+private fun BurgerCountControl(
+    label: String,
+    value: Int,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    canDecrease: Boolean,
+    canIncrease: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(onClick = onDecrease, enabled = canDecrease, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Remove, contentDescription = "Decrease $label", tint = Color.Gray)
+            }
+            AssistChip(onClick = {}, label = { Text("$value", fontSize = 11.sp) })
+            IconButton(onClick = onIncrease, enabled = canIncrease, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "Increase $label", tint = Color(0xFFFF7043))
+            }
+        }
     }
 }
 
@@ -810,13 +835,14 @@ private data class BurgerPlan(
         private const val ONION_KCAL = 6
         private const val PICKLE_KCAL = 6
 
-        fun fromCalories(calories: Int, centerBuns: Int): BurgerPlan {
+        fun fromCalories(calories: Int, centerBuns: Int, patties: Int?): BurgerPlan {
             val displayCalories = calories.coerceIn(0, MAX_BURGER_KCAL)
             val safeCenterBuns = centerBuns.coerceIn(0, 12)
-            val fixedCalories = BASE_BUN_KCAL + safeCenterBuns * CENTER_BUN_KCAL
+            val autoPatties = ((displayCalories - BASE_BUN_KCAL - safeCenterBuns * CENTER_BUN_KCAL).coerceAtLeast(0) / PATTY_KCAL)
+                .coerceIn(0, 40)
+            val safePatties = patties?.coerceIn(0, 40) ?: autoPatties
+            val fixedCalories = BASE_BUN_KCAL + safeCenterBuns * CENTER_BUN_KCAL + safePatties * PATTY_KCAL
             var remaining = (displayCalories - fixedCalories).coerceAtLeast(0)
-            val patties = max(1, remaining / PATTY_KCAL)
-            remaining = (remaining - patties * PATTY_KCAL).coerceAtLeast(0)
             val cheeseSlices = remaining / CHEESE_KCAL
             remaining -= cheeseSlices * CHEESE_KCAL
             val sauceLayers = remaining / SAUCE_KCAL
@@ -825,7 +851,7 @@ private data class BurgerPlan(
             remaining -= vegetableCycles * (SALAD_KCAL + TOMATO_KCAL + ONION_KCAL + PICKLE_KCAL)
             return BurgerPlan(
                 displayCalories = displayCalories,
-                patties = patties,
+                patties = safePatties,
                 cheeseSlices = cheeseSlices,
                 sauceLayers = sauceLayers,
                 saladLayers = vegetableCycles,
@@ -872,18 +898,20 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
     val burgerHeight = topBunHeight + ingredientHeight + bottomBunHeight
     var y = ((size.height - burgerHeight) / 2f).coerceAtLeast(8.dp.toPx())
 
+    clipRect(left = left, top = y, right = left + burgerWidth, bottom = y + topBunHeight) {
+        drawOval(
+            color = Color(0xFFE7A84F),
+            topLeft = Offset(left, y),
+            size = Size(burgerWidth, topBunHeight * 1.75f)
+        )
+    }
     drawRoundRect(
-        color = Color(0xFFE7A84F),
-        topLeft = Offset(left, y),
-        size = Size(burgerWidth, topBunHeight),
-        cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+        color = Color(0xFFD9953B),
+        topLeft = Offset(left + burgerWidth * 0.05f, y + topBunHeight * 0.76f),
+        size = Size(burgerWidth * 0.9f, topBunHeight * 0.2f),
+        cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
     )
-    drawRoundRect(
-        color = Color(0xFFF8D37B),
-        topLeft = Offset(left + burgerWidth * 0.08f, y + topBunHeight * 0.46f),
-        size = Size(burgerWidth * 0.84f, topBunHeight * 0.18f),
-        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
-    )
+    drawSesameSeeds(left, y, burgerWidth, topBunHeight)
     y += topBunHeight + layerGap
 
     repeat(plan.patties) { index ->
@@ -918,6 +946,34 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
             y += centerBunHeight + layerGap
         }
     }
+    repeat((plan.saladLayers - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFF6CBF3F), 0.92f, 10.dp.toPx())
+        y += veggieHeight + layerGap
+    }
+    repeat((plan.tomatoLayers - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFFE53935), 0.88f, 8.dp.toPx())
+        y += veggieHeight + layerGap
+    }
+    repeat((plan.onionLayers - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFFE1BEE7), 0.82f, 8.dp.toPx())
+        y += veggieHeight + layerGap
+    }
+    repeat((plan.pickleLayers - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, veggieHeight, Color(0xFF8BC34A), 0.78f, 8.dp.toPx())
+        y += veggieHeight + layerGap
+    }
+    repeat((plan.sauceLayers - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, sauceHeight, Color(0xFFD84315), 0.86f, 8.dp.toPx())
+        y += sauceHeight + layerGap
+    }
+    repeat((plan.cheeseSlices - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, cheeseHeight, Color(0xFFFFD54F), 0.96f, 4.dp.toPx())
+        y += cheeseHeight + layerGap
+    }
+    repeat((plan.centerBuns - plan.patties).coerceAtLeast(0)) {
+        drawIngredientLayer(left, y, burgerWidth, centerBunHeight, Color(0xFFE0A24B), 0.88f, 10.dp.toPx())
+        y += centerBunHeight + layerGap
+    }
     if (plan.extraSauceCalories > 0) {
         drawIngredientLayer(left, y, burgerWidth, sauceHeight, Color(0xFFFF7043), 0.8f, 8.dp.toPx())
         y += sauceHeight + layerGap
@@ -929,6 +985,27 @@ private fun DrawScope.drawBurger(plan: BurgerPlan) {
         size = Size(burgerWidth * 0.92f, bottomBunHeight),
         cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
     )
+}
+
+private fun DrawScope.drawSesameSeeds(bunLeft: Float, bunTop: Float, bunWidth: Float, bunHeight: Float) {
+    val seedColor = Color(0xFFFFF3C4)
+    val seedSize = Size(5.dp.toPx(), 2.dp.toPx())
+    val seeds = listOf(
+        0.22f to 0.34f,
+        0.34f to 0.2f,
+        0.48f to 0.32f,
+        0.62f to 0.18f,
+        0.76f to 0.36f,
+        0.39f to 0.48f,
+        0.58f to 0.5f
+    )
+    seeds.forEach { (x, y) ->
+        drawOval(
+            color = seedColor,
+            topLeft = Offset(bunLeft + bunWidth * x, bunTop + bunHeight * y),
+            size = seedSize
+        )
+    }
 }
 
 private fun DrawScope.drawIngredientLayer(
