@@ -84,6 +84,8 @@ Decoder policy: jampsFit should decode, persist, and surface every watch value o
 
 Workout note: the attached Dancing exercise capture lasted 3m48s, burned 15 kcal, and showed 94 average BPM on-watch. The unknown log only contained the `2A37` heart-rate stream, so jampsFit can already decode and persist the BPM samples. No duration, sport type, or calorie summary packet was present in that log; workout summaries remain a future sync target unless another characteristic emits those fields. Until then, the app infers short workout summaries from contiguous `2A37` samples: stream duration, average/min/max BPM, and estimated active calories. During watch workouts, the watch-face step counter may stay flat while streamed distance/calories move; Dancing Event therefore falls back to estimated steps from distance when no explicit step delta is available.
 
+Auto-HR interval capture note: the 2026-07-08 bugreport HCI log spans local `02:14:30` to `04:15:14` and includes the Da Fit setting changes. Da Fit wrote `FE EA 20 06 1F 02` to ATT handle `0x0047` at `02:14:57.298` for 10 minutes, then wrote `FE EA 20 06 1F 01` at `02:15:03.807` for 5 minutes. Later FEE3 HR-history-looking clusters (`35 xx` pages and `37`) were not a stable passive 5-minute push stream: observed cluster gaps included about 5.2, 9.8, 15, 30, and 45 minutes. Treat the 5m/10m setting writes as confirmed, but keep the delivery cadence hypothesis open. jampsFit exposes an optional app-side re-send cadence for the selected 5m/10m command so we can test whether the watch setting expires or becomes less frequent over time.
+
 ### `FEE1` Live Activity Packet Breakdown
 
 | Offset | Size | Meaning | Notes |

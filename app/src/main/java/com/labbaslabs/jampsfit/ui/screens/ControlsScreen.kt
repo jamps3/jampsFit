@@ -649,7 +649,7 @@ private fun AppSettingsControls(
     }
 
     SleekCard {
-        Text(text = "Da Fit Settings Probes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text(text = "Watch Health Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -662,27 +662,31 @@ private fun AppSettingsControls(
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(15, 30, 60).forEach { minutes ->
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Auto HR re-send", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            listOf(0, 15, 30, 60, 120, 180, 240, 300, 360).forEach { minutes ->
                 FilterChip(
-                    selected = state.autoHeartRateIntervalMinutes == minutes,
-                    onClick = { viewModel.setAutoHeartRateInterval(minutes) },
+                    selected = state.autoHeartRateReactivationMinutes == minutes,
+                    onClick = { viewModel.updateAutoHeartRateReactivationInterval(minutes) },
                     enabled = state.isConnected,
-                    label = { Text("${minutes}m?", fontSize = 11.sp) }
+                    label = { Text(formatAutoHrReactivationLabel(minutes), fontSize = 11.sp) }
                 )
             }
         }
-        Text(
-            text = "5m and 10m are captured Da Fit writes. Other intervals are mapped as cautious candidates; this does not send the vibrating manual HR command.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
+        Spacer(modifier = Modifier.height(12.dp))
         Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
             GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
         }
     }
+}
+
+private fun formatAutoHrReactivationLabel(minutes: Int): String = when {
+    minutes == 0 -> "Off"
+    minutes < 60 -> "${minutes}m"
+    else -> "${minutes / 60}h"
 }
 
 @Composable

@@ -67,6 +67,7 @@ data class WatchState(
     val autoFetchSleep: Boolean = true,
     val stepFetchIntervalMinutes: Int = 60,
     val autoHeartRateIntervalMinutes: Int = 0,
+    val autoHeartRateReactivationMinutes: Int = 0,
     val batteryThreshold: Int = 15,
     val batteryEstimation: String? = null,
     val notificationsEnabled: Boolean = false,
@@ -186,6 +187,7 @@ class WatchManager(private val context: Context) {
         autoFetchSleep = prefs.getBoolean("autoFetchSleep", true),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         autoHeartRateIntervalMinutes = prefs.getInt("autoHeartRateIntervalMinutes", 0),
+        autoHeartRateReactivationMinutes = prefs.getInt("autoHeartRateReactivationMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
         musicAction = prefs.getString("musicAction", "Media") ?: "Media",
@@ -250,6 +252,7 @@ class WatchManager(private val context: Context) {
     private var autoSyncTimeJob: Job? = null
     private var autoSleepFetchJob: Job? = null
     private var hrReminderJob: Job? = null
+    private var autoHeartRateReactivationJob: Job? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
     private val recentActivityPayloadSet = mutableSetOf<String>()
@@ -868,6 +871,7 @@ class WatchManager(private val context: Context) {
         autoSyncTimeJob?.cancel()
         autoSleepFetchJob?.cancel()
         hrReminderJob?.cancel()
+        autoHeartRateReactivationJob?.cancel()
         synchronized(operationQueue) {
             operationQueue.clear()
             isOperating = false
@@ -963,6 +967,25 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun restartAutoHeartRateReactivation() {
+        autoHeartRateReactivationJob?.cancel()
+        val reactivationMinutes = _state.value.autoHeartRateReactivationMinutes
+        if (!_state.value.isConnected || reactivationMinutes <= 0) return
+        val intervalMinutes = _state.value.autoHeartRateIntervalMinutes
+        if (intervalMinutes !in listOf(5, 10)) return
+        val commandCode = autoHeartRateIntervalCode(intervalMinutes) ?: return
+        autoHeartRateReactivationJob = managerScope.launch {
+            val intervalMs = reactivationMinutes * 60_000L
+            while (isActive) {
+                delay(intervalMs)
+                if (_state.value.isConnected && _state.value.autoHeartRateIntervalMinutes == intervalMinutes) {
+                    sendFee2NativeRaw(nativePacket(0x1F, commandCode))
+                    updateDebugLog("Auto HR ${intervalMinutes}m re-sent")
+                }
+            }
+        }
+    }
+
     fun setWeatherCity(city: String) {
         val safeCity = city.trim().ifBlank { "London" }.take(12)
         managerScope.launch {
@@ -995,9 +1018,12 @@ class WatchManager(private val context: Context) {
     }
 
     fun setAutoHeartRateInterval(minutes: Int) {
-        val code = when (minutes) { 0 -> 0x00; 5 -> 0x01; 10 -> 0x02; 15 -> 0x03; 30 -> 0x04; 60 -> 0x05; else -> return }
+        val code = autoHeartRateIntervalCode(minutes) ?: return
         sendFee2NativeRaw(nativePacket(0x1F, code)); prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }; _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
+        restartAutoHeartRateReactivation()
     }
+
+    private fun autoHeartRateIntervalCode(minutes: Int): Int? = when (minutes) { 0 -> 0x00; 5 -> 0x01; 10 -> 0x02; else -> null }
 
     fun setAlarm(slot: Int, enabled: Boolean, hour: Int, minute: Int, repeatMask: Int, month: Int = 0, day: Int = 0) {
         val sS = slot.coerceIn(0, 2); val sH = hour.coerceIn(0, 23); val sM = minute.coerceIn(0, 59); val sR = repeatMask and 0x7F; val mode = if (sR != 0) 0x02 else 0x00
@@ -1017,6 +1043,12 @@ class WatchManager(private val context: Context) {
     fun toggleAutoFetchBattery(e: Boolean) { prefs.edit { putBoolean("autoFetchBattery", e) }; _state.update { it.copy(autoFetchBattery = e) } }
     fun toggleAutoFetchSleep(e: Boolean) { prefs.edit { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) }; restartAutoSleepFetch() }
     fun updateStepFetchInterval(m: Int) { prefs.edit { putInt("stepFetchIntervalMinutes", m) }; _state.update { it.copy(stepFetchIntervalMinutes = m) }; restartAutoStepFetch() }
+    fun updateAutoHeartRateReactivationInterval(minutes: Int) {
+        val safe = if (minutes in listOf(0, 15, 30, 60, 120, 180, 240, 300, 360)) minutes else return
+        prefs.edit { putInt("autoHeartRateReactivationMinutes", safe) }
+        _state.update { it.copy(autoHeartRateReactivationMinutes = safe) }
+        restartAutoHeartRateReactivation()
+    }
     fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
     fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
@@ -1251,7 +1283,7 @@ class WatchManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
             if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1261,7 +1293,7 @@ class WatchManager(private val context: Context) {
                     c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { enqueueOperation(GattOperation.WriteDescriptor(it, if ((c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) }
                 }
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
-            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder()
+            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateReactivation()
         }
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { finishOperation() }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { finishOperation() }
