@@ -2,6 +2,7 @@ package com.labbaslabs.jampsfit
 
 import android.annotation.SuppressLint
 import android.app.*
+import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -79,6 +80,16 @@ class WatchService : Service() {
         }
     }
 
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_ON -> watchManager.onBluetoothTurnedOn()
+                BluetoothAdapter.STATE_OFF -> watchManager.markBluetoothOff()
+            }
+        }
+    }
+
     lateinit var watchManager: WatchManager
         private set
 
@@ -120,6 +131,11 @@ class WatchService : Service() {
             addAction("com.labbaslabs.jampsfit.NOTIFICATION_REMOVED")
         }
         registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
+        registerReceiver(
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            RECEIVER_EXPORTED
+        )
 
         watchManager.state.onEach { state ->
             updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
@@ -516,6 +532,7 @@ class WatchService : Service() {
         watchMissingJob?.cancel()
         serviceScope.cancel()
         unregisterReceiver(notificationReceiver)
+        unregisterReceiver(bluetoothStateReceiver)
         watchManager.close()
         super.onDestroy()
     }

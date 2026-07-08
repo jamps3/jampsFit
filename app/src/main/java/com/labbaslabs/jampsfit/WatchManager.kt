@@ -1239,6 +1239,7 @@ class WatchManager(private val context: Context) {
         if (adapter?.isEnabled != true) {
             _state.update { it.copy(isConnected = false, connectionStatus = "Bluetooth off") }
             updateDebugLog("Bluetooth is off; waiting to reconnect.")
+            scheduleReconnect(10_000)
             return
         }
         stopScan()
@@ -1314,6 +1315,21 @@ class WatchManager(private val context: Context) {
     fun ensureAutoConnect() {
         if (userRequestedDisconnect || !_state.value.autoConnect || _state.value.isConnected) return
         if (_state.value.connectionStatus == "Scanning..." || _state.value.connectionStatus == "Connecting...") return
+        scheduleReconnect(0)
+    }
+
+    fun markBluetoothOff() {
+        stopScan()
+        reconnectJob?.cancel()
+        _state.update { it.copy(isConnected = false, connectionStatus = "Bluetooth off") }
+        if (!userRequestedDisconnect && _state.value.autoConnect) {
+            scheduleReconnect(10_000)
+        }
+    }
+
+    fun onBluetoothTurnedOn() {
+        if (userRequestedDisconnect || !_state.value.autoConnect || _state.value.isConnected) return
+        updateDebugLog("Bluetooth turned on; reconnecting.")
         scheduleReconnect(0)
     }
 
