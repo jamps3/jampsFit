@@ -110,6 +110,12 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var addingFood by remember { mutableStateOf(false) }
     var burgerCenterBuns by rememberSaveable { mutableStateOf(0) }
     var burgerPatties by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerCheeseSlices by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerSauceLayers by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerSaladLayers by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerTomatoLayers by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerOnionLayers by rememberSaveable { mutableStateOf<Int?>(null) }
+    var burgerPickleLayers by rememberSaveable { mutableStateOf<Int?>(null) }
     var candyName by rememberSaveable { mutableStateOf("") }
     var candySize by rememberSaveable { mutableStateOf("") }
     var candyHours by rememberSaveable { mutableStateOf("") }
@@ -363,8 +369,20 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
             targetCalories = targetCalories,
             centerBuns = burgerCenterBuns,
             patties = burgerPatties,
+            cheeseSlices = burgerCheeseSlices,
+            sauceLayers = burgerSauceLayers,
+            saladLayers = burgerSaladLayers,
+            tomatoLayers = burgerTomatoLayers,
+            onionLayers = burgerOnionLayers,
+            pickleLayers = burgerPickleLayers,
             onCenterBunsChange = { burgerCenterBuns = it.coerceIn(0, 12) },
             onPattiesChange = { burgerPatties = it.coerceIn(0, 40) },
+            onCheeseSlicesChange = { burgerCheeseSlices = it.coerceIn(0, 80) },
+            onSauceLayersChange = { burgerSauceLayers = it.coerceIn(0, 80) },
+            onSaladLayersChange = { burgerSaladLayers = it.coerceIn(0, 80) },
+            onTomatoLayersChange = { burgerTomatoLayers = it.coerceIn(0, 80) },
+            onOnionLayersChange = { burgerOnionLayers = it.coerceIn(0, 80) },
+            onPickleLayersChange = { burgerPickleLayers = it.coerceIn(0, 80) },
             onSave = { burger ->
                 viewModel.addMeal(
                     name = "Current Burger",
@@ -1235,11 +1253,35 @@ private fun CurrentBurgerCard(
     targetCalories: Int,
     centerBuns: Int,
     patties: Int?,
+    cheeseSlices: Int?,
+    sauceLayers: Int?,
+    saladLayers: Int?,
+    tomatoLayers: Int?,
+    onionLayers: Int?,
+    pickleLayers: Int?,
     onCenterBunsChange: (Int) -> Unit,
     onPattiesChange: (Int) -> Unit,
+    onCheeseSlicesChange: (Int) -> Unit,
+    onSauceLayersChange: (Int) -> Unit,
+    onSaladLayersChange: (Int) -> Unit,
+    onTomatoLayersChange: (Int) -> Unit,
+    onOnionLayersChange: (Int) -> Unit,
+    onPickleLayersChange: (Int) -> Unit,
     onSave: (BurgerPlan) -> Unit
 ) {
-    val burger = remember(targetCalories, centerBuns, patties) { BurgerPlan.fromCalories(targetCalories, centerBuns, patties) }
+    val burger = remember(targetCalories, centerBuns, patties, cheeseSlices, sauceLayers, saladLayers, tomatoLayers, onionLayers, pickleLayers) {
+        BurgerPlan.fromCalories(
+            calories = targetCalories,
+            centerBuns = centerBuns,
+            patties = patties,
+            cheeseSlices = cheeseSlices,
+            sauceLayers = sauceLayers,
+            saladLayers = saladLayers,
+            tomatoLayers = tomatoLayers,
+            onionLayers = onionLayers,
+            pickleLayers = pickleLayers
+        )
+    }
     val calorieDelta = burger.totalCalories - targetCalories
     SleekCard(borderColor = Color(0xFFFF7043)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1275,6 +1317,54 @@ private fun CurrentBurgerCard(
                 onIncrease = { onCenterBunsChange(centerBuns + 1) },
                 canDecrease = centerBuns > 0,
                 canIncrease = centerBuns < 12
+            )
+            BurgerCountControl(
+                label = "Cheese",
+                value = burger.cheeseSlices,
+                onDecrease = { onCheeseSlicesChange(burger.cheeseSlices - 1) },
+                onIncrease = { onCheeseSlicesChange(burger.cheeseSlices + 1) },
+                canDecrease = burger.cheeseSlices > 0,
+                canIncrease = burger.cheeseSlices < 80
+            )
+            BurgerCountControl(
+                label = "Sauce",
+                value = burger.sauceLayers,
+                onDecrease = { onSauceLayersChange(burger.sauceLayers - 1) },
+                onIncrease = { onSauceLayersChange(burger.sauceLayers + 1) },
+                canDecrease = burger.sauceLayers > 0,
+                canIncrease = burger.sauceLayers < 80
+            )
+            BurgerCountControl(
+                label = "Salad",
+                value = burger.saladLayers,
+                onDecrease = { onSaladLayersChange(burger.saladLayers - 1) },
+                onIncrease = { onSaladLayersChange(burger.saladLayers + 1) },
+                canDecrease = burger.saladLayers > 0,
+                canIncrease = burger.saladLayers < 80
+            )
+            BurgerCountControl(
+                label = "Tomato",
+                value = burger.tomatoLayers,
+                onDecrease = { onTomatoLayersChange(burger.tomatoLayers - 1) },
+                onIncrease = { onTomatoLayersChange(burger.tomatoLayers + 1) },
+                canDecrease = burger.tomatoLayers > 0,
+                canIncrease = burger.tomatoLayers < 80
+            )
+            BurgerCountControl(
+                label = "Onion",
+                value = burger.onionLayers,
+                onDecrease = { onOnionLayersChange(burger.onionLayers - 1) },
+                onIncrease = { onOnionLayersChange(burger.onionLayers + 1) },
+                canDecrease = burger.onionLayers > 0,
+                canIncrease = burger.onionLayers < 80
+            )
+            BurgerCountControl(
+                label = "Pickled cucumber",
+                value = burger.pickleLayers,
+                onDecrease = { onPickleLayersChange(burger.pickleLayers - 1) },
+                onIncrease = { onPickleLayersChange(burger.pickleLayers + 1) },
+                canDecrease = burger.pickleLayers > 0,
+                canIncrease = burger.pickleLayers < 80
             )
             Button(onClick = { onSave(burger) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Save Burger")
@@ -1395,29 +1485,58 @@ private data class BurgerPlan(
         private const val ONION_KCAL = 6
         private const val PICKLE_KCAL = 6
 
-        fun fromCalories(calories: Int, centerBuns: Int, patties: Int?): BurgerPlan {
+        fun fromCalories(
+            calories: Int,
+            centerBuns: Int,
+            patties: Int?,
+            cheeseSlices: Int?,
+            sauceLayers: Int?,
+            saladLayers: Int?,
+            tomatoLayers: Int?,
+            onionLayers: Int?,
+            pickleLayers: Int?
+        ): BurgerPlan {
             val displayCalories = calories.coerceIn(0, MAX_BURGER_KCAL)
             val safeCenterBuns = centerBuns.coerceIn(0, 12)
             val autoPatties = ((displayCalories - BASE_BUN_KCAL - safeCenterBuns * CENTER_BUN_KCAL).coerceAtLeast(0) / PATTY_KCAL)
                 .coerceIn(0, 40)
             val safePatties = patties?.coerceIn(0, 40) ?: autoPatties
-            val fixedCalories = BASE_BUN_KCAL + safeCenterBuns * CENTER_BUN_KCAL + safePatties * PATTY_KCAL
+            var fixedCalories = BASE_BUN_KCAL + safeCenterBuns * CENTER_BUN_KCAL + safePatties * PATTY_KCAL
+            val manualCheese = cheeseSlices?.coerceIn(0, 80)
+            val manualSauce = sauceLayers?.coerceIn(0, 80)
+            val manualSalad = saladLayers?.coerceIn(0, 80)
+            val manualTomato = tomatoLayers?.coerceIn(0, 80)
+            val manualOnion = onionLayers?.coerceIn(0, 80)
+            val manualPickle = pickleLayers?.coerceIn(0, 80)
+            fixedCalories += (manualCheese ?: 0) * CHEESE_KCAL
+            fixedCalories += (manualSauce ?: 0) * SAUCE_KCAL
+            fixedCalories += (manualSalad ?: 0) * SALAD_KCAL
+            fixedCalories += (manualTomato ?: 0) * TOMATO_KCAL
+            fixedCalories += (manualOnion ?: 0) * ONION_KCAL
+            fixedCalories += (manualPickle ?: 0) * PICKLE_KCAL
             var remaining = (displayCalories - fixedCalories).coerceAtLeast(0)
-            val cheeseSlices = remaining / CHEESE_KCAL
-            remaining -= cheeseSlices * CHEESE_KCAL
-            val sauceLayers = remaining / SAUCE_KCAL
-            remaining -= sauceLayers * SAUCE_KCAL
-            val vegetableCycles = remaining / (SALAD_KCAL + TOMATO_KCAL + ONION_KCAL + PICKLE_KCAL)
-            remaining -= vegetableCycles * (SALAD_KCAL + TOMATO_KCAL + ONION_KCAL + PICKLE_KCAL)
+            val resolvedCheese = manualCheese ?: (remaining / CHEESE_KCAL).also { remaining -= it * CHEESE_KCAL }
+            val resolvedSauce = manualSauce ?: (remaining / SAUCE_KCAL).also { remaining -= it * SAUCE_KCAL }
+            val vegetableCalories =
+                (if (manualSalad == null) SALAD_KCAL else 0) +
+                    (if (manualTomato == null) TOMATO_KCAL else 0) +
+                    (if (manualOnion == null) ONION_KCAL else 0) +
+                    (if (manualPickle == null) PICKLE_KCAL else 0)
+            val vegetableCycles = if (vegetableCalories > 0) remaining / vegetableCalories else 0
+            val resolvedSalad = manualSalad ?: vegetableCycles
+            val resolvedTomato = manualTomato ?: vegetableCycles
+            val resolvedOnion = manualOnion ?: vegetableCycles
+            val resolvedPickle = manualPickle ?: vegetableCycles
+            remaining -= vegetableCycles * vegetableCalories
             return BurgerPlan(
                 displayCalories = displayCalories,
                 patties = safePatties,
-                cheeseSlices = cheeseSlices,
-                sauceLayers = sauceLayers,
-                saladLayers = vegetableCycles,
-                tomatoLayers = vegetableCycles,
-                onionLayers = vegetableCycles,
-                pickleLayers = vegetableCycles,
+                cheeseSlices = resolvedCheese,
+                sauceLayers = resolvedSauce,
+                saladLayers = resolvedSalad,
+                tomatoLayers = resolvedTomato,
+                onionLayers = resolvedOnion,
+                pickleLayers = resolvedPickle,
                 centerBuns = safeCenterBuns,
                 extraSauceCalories = remaining
             )
