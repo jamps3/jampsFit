@@ -645,7 +645,7 @@ private fun AppSettingsControls(
         Text(text = "Battery Notification", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text("Notify at ${state.batteryThreshold}%")
-        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { viewModel.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..50f)
+        Slider(value = state.batteryThreshold.toFloat(), onValueChange = { viewModel.updateBatteryThreshold(it.toInt()) }, valueRange = 5f..90f)
     }
 
     SleekCard {
