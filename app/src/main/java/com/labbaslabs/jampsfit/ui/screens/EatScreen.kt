@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RemoveShoppingCart
 import androidx.compose.material.icons.filled.Restaurant
@@ -53,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -73,6 +76,8 @@ import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.MealEntity
+import com.labbaslabs.jampsfit.database.SupplementEntity
+import com.labbaslabs.jampsfit.database.SupplementEntryEntity
 import com.labbaslabs.jampsfit.food.CalorieTargetMode
 import com.labbaslabs.jampsfit.food.MealIngredient
 import com.labbaslabs.jampsfit.food.MealSuggestion
@@ -84,6 +89,7 @@ import com.labbaslabs.jampsfit.ui.components.ConfirmActionDialog
 import com.labbaslabs.jampsfit.ui.components.SleekCard
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
@@ -140,6 +146,9 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     }
     val festivalMeals = remember(state.meals, selectedFestivalId) {
         state.meals.filter { meal -> selectedFestivalId == null || meal.festivalId == selectedFestivalId }
+    }
+    val festivalSupplementEntries = remember(state.supplementEntries, selectedFestivalId) {
+        state.supplementEntries.filter { entry -> selectedFestivalId == null || entry.festivalId == selectedFestivalId }
     }
 
     Column(
@@ -367,6 +376,15 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
         )
         CurrentNuggetsCard(targetCalories = targetCalories)
         MealTimelineCard(meals = festivalMeals, doubleConfirm = state.doubleConfirmationsEnabled, onDelete = { viewModel.deleteMeal(it.id) })
+        SupplementsCard(
+            supplements = state.supplements,
+            entries = festivalSupplementEntries,
+            doubleConfirm = state.doubleConfirmationsEnabled,
+            onSaveSupplement = { viewModel.saveSupplement(it) },
+            onTakeSupplement = { viewModel.takeSupplement(it.id) },
+            onDeleteEntry = { viewModel.deleteSupplementEntry(it.id) },
+            onReorder = { viewModel.reorderSupplements(it) }
+        )
     }
 
     if (confirmMealReset) {
@@ -654,6 +672,376 @@ private fun MealDetailsDialog(meal: MealEntity, onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+@Composable
+private fun SupplementsCard(
+    supplements: List<SupplementEntity>,
+    entries: List<SupplementEntryEntity>,
+    doubleConfirm: Boolean,
+    onSaveSupplement: (SupplementEntity) -> Unit,
+    onTakeSupplement: (SupplementEntity) -> Unit,
+    onDeleteEntry: (SupplementEntryEntity) -> Unit,
+    onReorder: (List<Long>) -> Unit
+) {
+    var addingSupplement by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis()
+    val todayStart = remember(now) { startOfLocalDay(now) }
+    val todayAmounts = remember(entries, todayStart) {
+        entries.filter { it.takenAt >= todayStart }
+            .groupBy { it.supplementId }
+            .mapValues { item -> item.value.sumOf { it.amountMg } }
+    }
+    val latestBySupplement = remember(entries) {
+        entries.groupBy { it.supplementId }.mapValues { item -> item.value.maxOf { it.takenAt } }
+    }
+    var orderedSupplements by remember(supplements) { mutableStateOf(supplements.sortedWith(compareBy<SupplementEntity> { it.sortOrder }.thenBy { it.name })) }
+
+    SleekCard(borderColor = Color(0xFF7E57C2)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconBadge(Icons.Default.Restaurant, Color(0xFF7E57C2))
+                Text("Supplements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = { addingSupplement = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "Add supplement", tint = Color(0xFF7E57C2))
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        if (orderedSupplements.isEmpty()) {
+            Text("No supplements yet", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                orderedSupplements.forEachIndexed { index, supplement ->
+                    val todayTaken = todayAmounts[supplement.id] ?: 0
+                    val lastTaken = latestBySupplement[supplement.id]
+                    SupplementRow(
+                        supplement = supplement,
+                        todayTakenMg = todayTaken,
+                        lastTakenAt = lastTaken,
+                        onSave = onSaveSupplement,
+                        onTake = { onTakeSupplement(supplement) },
+                        onMove = { direction ->
+                            val target = (index + direction).coerceIn(0, orderedSupplements.lastIndex)
+                            if (target != index) {
+                                orderedSupplements = orderedSupplements.toMutableList().also {
+                                    val moving = it.removeAt(index)
+                                    it.add(target, moving)
+                                }
+                                onReorder(orderedSupplements.map { it.id })
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Timeline", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
+        if (entries.isEmpty()) {
+            Text("Nothing taken yet", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                entries.take(12).forEach { entry ->
+                    SupplementEntryRow(entry = entry, doubleConfirm = doubleConfirm, onDelete = { onDeleteEntry(entry) })
+                }
+            }
+        }
+    }
+    if (addingSupplement) {
+        SupplementEditorDialog(
+            supplement = SupplementEntity(sortOrder = supplements.size),
+            onDismiss = { addingSupplement = false },
+            onSave = {
+                onSaveSupplement(it)
+                addingSupplement = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun SupplementRow(
+    supplement: SupplementEntity,
+    todayTakenMg: Int,
+    lastTakenAt: Long?,
+    onSave: (SupplementEntity) -> Unit,
+    onTake: () -> Unit,
+    onMove: (Int) -> Unit
+) {
+    var nameText by remember(supplement.id, supplement.name) { mutableStateOf(supplement.name) }
+    var amountText by remember(supplement.id, supplement.selectedAmountMg) { mutableStateOf(supplement.selectedAmountMg.toString()) }
+    var doseText by remember(supplement.id, supplement.singleDoseMg) { mutableStateOf(supplement.singleDoseMg.toString()) }
+    var editingSettings by remember { mutableStateOf(false) }
+    val suggestedTarget = supplement.currentTargetMg()
+    val remaining = (suggestedTarget - todayTakenMg).coerceAtLeast(0)
+    val suggestion = supplementSuggestion(supplement, todayTakenMg, lastTakenAt)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = "Reorder supplement",
+                tint = Color.Gray,
+                modifier = Modifier
+                    .size(30.dp)
+                    .pointerInput(supplement.id) {
+                        var dragTotal = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { dragTotal = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragTotal += dragAmount
+                            },
+                            onDragEnd = {
+                                when {
+                                    dragTotal < -36f -> onMove(-1)
+                                    dragTotal > 36f -> onMove(1)
+                                }
+                            }
+                        )
+                    }
+            )
+            OutlinedTextField(
+                value = nameText,
+                onValueChange = {
+                    nameText = it.take(32)
+                    onSave(supplement.copy(name = it.take(32)))
+                },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = { editingSettings = true }) {
+                Text("Edit")
+            }
+            Button(onClick = onTake, enabled = supplement.selectedAmountMg > 0) {
+                Text("Take")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(
+                onClick = {
+                    val next = ((amountText.toIntOrNull() ?: supplement.selectedAmountMg) - supplement.singleDoseMg)
+                        .coerceAtLeast(supplement.singleDoseMg)
+                    amountText = next.toString()
+                    onSave(supplement.copy(selectedAmountMg = next))
+                },
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(Icons.Default.Remove, contentDescription = "Decrease amount", tint = Color.Gray)
+            }
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = {
+                    amountText = it.filter(Char::isDigit).take(5)
+                    it.filter(Char::isDigit).toIntOrNull()?.let { amount ->
+                        onSave(supplement.copy(selectedAmountMg = amount))
+                    }
+                },
+                label = { Text("Amount mg") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.widthIn(min = 112.dp, max = 130.dp)
+            )
+            IconButton(
+                onClick = {
+                    val next = ((amountText.toIntOrNull() ?: supplement.selectedAmountMg) + supplement.singleDoseMg)
+                        .coerceAtMost(supplement.maxDailyMg)
+                    amountText = next.toString()
+                    onSave(supplement.copy(selectedAmountMg = next))
+                },
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Increase amount", tint = Color(0xFF7E57C2))
+            }
+            OutlinedTextField(
+                value = doseText,
+                onValueChange = {
+                    doseText = it.filter(Char::isDigit).take(5)
+                    it.filter(Char::isDigit).toIntOrNull()?.let { dose ->
+                        onSave(supplement.copy(singleDoseMg = dose, stepMg = dose))
+                    }
+                },
+                label = { Text("Dose mg") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.widthIn(min = 104.dp, max = 120.dp)
+            )
+        }
+        Text(
+            "$suggestion • today $todayTakenMg/${supplement.dailyTargetMg} mg" +
+                if (remaining > 0) " • $remaining mg left" else " • daily target met",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (remaining > 0) Color(0xFF7E57C2) else Color(0xFF4CAF50)
+        )
+    }
+    if (editingSettings) {
+        SupplementEditorDialog(
+            supplement = supplement,
+            onDismiss = { editingSettings = false },
+            onSave = {
+                onSave(it)
+                editingSettings = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun SupplementEditorDialog(
+    supplement: SupplementEntity,
+    onDismiss: () -> Unit,
+    onSave: (SupplementEntity) -> Unit
+) {
+    var name by remember(supplement.id) { mutableStateOf(supplement.name) }
+    var dailyTarget by remember(supplement.id) { mutableStateOf(supplement.dailyTargetMg.toString()) }
+    var singleDose by remember(supplement.id) { mutableStateOf(supplement.singleDoseMg.toString()) }
+    var selectedAmount by remember(supplement.id) { mutableStateOf(supplement.selectedAmountMg.toString()) }
+    var maxDaily by remember(supplement.id) { mutableStateOf(supplement.maxDailyMg.toString()) }
+    var rampEnabled by remember(supplement.id) { mutableStateOf(supplement.rampEnabled) }
+    var rampStart by remember(supplement.id) { mutableStateOf(supplement.rampStartMg.toString()) }
+    var rampTarget by remember(supplement.id) { mutableStateOf(supplement.rampTargetMg.toString()) }
+    var rampDays by remember(supplement.id) { mutableStateOf(supplement.rampDays.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (supplement.id == 0L) "Add Supplement" else "Edit Supplement") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it.take(32) }, label = { Text("Name") }, singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MgField("Daily mg", dailyTarget, { dailyTarget = it }, Modifier.weight(1f))
+                    MgField("Dose mg", singleDose, { singleDose = it }, Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MgField("Take mg", selectedAmount, { selectedAmount = it }, Modifier.weight(1f))
+                    MgField("Max mg", maxDaily, { maxDaily = it }, Modifier.weight(1f))
+                }
+                FilterChip(
+                    selected = rampEnabled,
+                    onClick = { rampEnabled = !rampEnabled },
+                    label = { Text("Smooth dose ramp") }
+                )
+                if (rampEnabled) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MgField("Start mg", rampStart, { rampStart = it }, Modifier.weight(1f))
+                        MgField("Full mg", rampTarget, { rampTarget = it }, Modifier.weight(1f))
+                    }
+                    MgField("Ramp days", rampDays, { rampDays = it }, Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val now = System.currentTimeMillis()
+                    onSave(
+                        supplement.copy(
+                            name = name.trim().ifBlank { "Supplement" },
+                            dailyTargetMg = dailyTarget.toIntOrNull() ?: supplement.dailyTargetMg,
+                            singleDoseMg = singleDose.toIntOrNull() ?: supplement.singleDoseMg,
+                            selectedAmountMg = selectedAmount.toIntOrNull() ?: supplement.selectedAmountMg,
+                            stepMg = singleDose.toIntOrNull() ?: supplement.stepMg,
+                            maxDailyMg = maxDaily.toIntOrNull() ?: supplement.maxDailyMg,
+                            rampEnabled = rampEnabled,
+                            rampStartMg = rampStart.toIntOrNull() ?: supplement.rampStartMg,
+                            rampTargetMg = rampTarget.toIntOrNull() ?: supplement.rampTargetMg,
+                            rampDays = rampDays.toIntOrNull() ?: supplement.rampDays,
+                            rampStartedAt = if (rampEnabled) supplement.rampStartedAt ?: now else null
+                        )
+                    )
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun MgField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter(Char::isDigit).take(6)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SupplementEntryRow(entry: SupplementEntryEntity, doubleConfirm: Boolean, onDelete: () -> Unit) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("${entry.name} ${entry.amountMg} mg", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(formatCandyTime(entry.takenAt), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        }
+        IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(34.dp)) {
+            Icon(Icons.Default.Remove, contentDescription = "Delete supplement entry", tint = Color.Gray)
+        }
+    }
+    if (confirmDelete) {
+        ConfirmActionDialog(
+            title = "Delete supplement entry?",
+            text = "This removes this supplement from the timeline.",
+            confirmLabel = "Delete",
+            doubleConfirm = doubleConfirm,
+            onConfirm = {
+                onDelete()
+                confirmDelete = false
+            },
+            onDismiss = { confirmDelete = false }
+        )
+    }
+}
+
+private fun supplementSuggestion(supplement: SupplementEntity, todayTakenMg: Int, lastTakenAt: Long?): String {
+    val now = System.currentTimeMillis()
+    val missingDays = lastTakenAt?.let { ((now - it) / (24L * 60L * 60L * 1000L)).toInt() } ?: Int.MAX_VALUE
+    val target = supplement.currentTargetMg(now)
+    val remaining = (target - todayTakenMg).coerceAtLeast(0)
+    return when {
+        missingDays >= 7 -> "Suggested now: ${supplement.maxDailyMg} mg max today"
+        remaining > 0 -> "Suggested now: ${remaining.coerceAtMost(supplement.singleDoseMg)} mg"
+        else -> "No more suggested today"
+    }
+}
+
+private fun SupplementEntity.currentTargetMg(now: Long = System.currentTimeMillis()): Int {
+    if (!rampEnabled || rampDays <= 0 || rampStartedAt == null) return dailyTargetMg
+    val elapsedDays = ((now - rampStartedAt) / (24L * 60L * 60L * 1000L)).coerceAtLeast(0L)
+    val progress = (elapsedDays.toFloat() / rampDays.toFloat()).coerceIn(0f, 1f)
+    return (rampStartMg + ((rampTargetMg - rampStartMg) * progress)).roundToInt().coerceAtLeast(1)
+}
+
+private fun startOfLocalDay(timestamp: Long): Long {
+    return Calendar.getInstance().apply {
+        timeInMillis = timestamp
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 }
 
 @Composable

@@ -24,7 +24,10 @@ import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.database.MealEntity
+import com.labbaslabs.jampsfit.database.SupplementEntity
+import com.labbaslabs.jampsfit.database.SupplementEntryEntity
 import com.labbaslabs.jampsfit.database.defaultFoods
+import com.labbaslabs.jampsfit.database.defaultSupplements
 import com.labbaslabs.jampsfit.events.summarizeEvent
 import com.labbaslabs.jampsfit.workout.inferLatestWorkout
 import kotlinx.coroutines.*
@@ -94,6 +97,8 @@ data class WatchState(
     val recentEvents: List<EventEntity> = emptyList(),
     val candies: List<CandyEntity> = emptyList(),
     val meals: List<MealEntity> = emptyList(),
+    val supplements: List<SupplementEntity> = emptyList(),
+    val supplementEntries: List<SupplementEntryEntity> = emptyList(),
     val festivals: List<FestivalEntity> = emptyList(),
     val selectedFestivalId: Long? = null,
     val foods: List<FoodEntity> = emptyList(),
@@ -261,6 +266,7 @@ class WatchManager(private val context: Context) {
 
     init {
         seedDefaultFoods()
+        seedDefaultSupplements()
         seedDefaultFestival()
         observeHistory()
         observeEvents()
@@ -423,6 +429,16 @@ class WatchManager(private val context: Context) {
             }
         }
         managerScope.launch {
+            eventDao.observeSupplements().collect { supplements ->
+                _state.update { it.copy(supplements = supplements) }
+            }
+        }
+        managerScope.launch {
+            eventDao.observeSupplementEntries().collect { entries ->
+                _state.update { it.copy(supplementEntries = entries) }
+            }
+        }
+        managerScope.launch {
             eventDao.observeFestivals().collect { festivals ->
                 _state.update { state ->
                     state.copy(
@@ -465,6 +481,22 @@ class WatchManager(private val context: Context) {
                     foodDao.insert(food)
                 } else if (!existing.isCustom && existing != food.copy(id = existing.id)) {
                     foodDao.update(food.copy(id = existing.id))
+                }
+            }
+        }
+    }
+
+    private fun seedDefaultSupplements() {
+        managerScope.launch {
+            val defaults = defaultSupplements()
+            if (eventDao.countSupplements() == 0) {
+                defaults.forEach { eventDao.insertSupplement(it) }
+                return@launch
+            }
+
+            defaults.forEach { supplement ->
+                if (eventDao.getSupplementByName(supplement.name) == null) {
+                    eventDao.insertSupplement(supplement)
                 }
             }
         }
@@ -603,6 +635,7 @@ class WatchManager(private val context: Context) {
             eventDao.detachEventsFromFestival(id)
             eventDao.detachCandiesFromFestival(id)
             eventDao.detachMealsFromFestival(id)
+            eventDao.detachSupplementEntriesFromFestival(id)
             eventDao.deleteFestival(id)
             val replacement = eventDao.getActiveFestival() ?: eventDao.getNewestFestival()
             replacement?.let {
@@ -701,6 +734,51 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             eventDao.deleteMeal(id)
             updateDebugLog("Meal $id deleted")
+        }
+    }
+
+    fun saveSupplement(supplement: SupplementEntity) {
+        managerScope.launch {
+            val sanitized = supplement.sanitized()
+            if (sanitized.id == 0L) {
+                eventDao.insertSupplement(sanitized)
+            } else {
+                eventDao.updateSupplement(sanitized)
+            }
+        }
+    }
+
+    fun takeSupplement(id: Long) {
+        managerScope.launch {
+            val supplement = eventDao.getSupplement(id) ?: return@launch
+            val now = System.currentTimeMillis()
+            val festivalId = currentTargetFestivalId(now)
+            eventDao.insertSupplementEntry(
+                SupplementEntryEntity(
+                    festivalId = festivalId,
+                    supplementId = supplement.id,
+                    name = supplement.name,
+                    amountMg = supplement.selectedAmountMg.coerceAtLeast(1),
+                    takenAt = now
+                )
+            )
+            updateDebugLog("Supplement taken: ${supplement.name} ${supplement.selectedAmountMg}mg")
+        }
+    }
+
+    fun deleteSupplementEntry(id: Long) {
+        managerScope.launch {
+            eventDao.deleteSupplementEntry(id)
+            updateDebugLog("Supplement entry $id deleted")
+        }
+    }
+
+    fun reorderSupplements(ids: List<Long>) {
+        managerScope.launch {
+            val now = System.currentTimeMillis()
+            ids.forEachIndexed { index, id ->
+                eventDao.updateSupplementOrder(id, index, now)
+            }
         }
     }
 
@@ -1075,6 +1153,26 @@ class WatchManager(private val context: Context) {
             onShoppingList = onShoppingList
         )
     }
+
+    private fun SupplementEntity.sanitized(): SupplementEntity {
+        val safeSingleDose = singleDoseMg.coerceIn(1, 50_000)
+        val safeMaxDaily = maxDailyMg.coerceIn(safeSingleDose, 100_000)
+        return copy(
+            name = name.trim().ifBlank { "Supplement" }.take(32),
+            dailyTargetMg = dailyTargetMg.coerceIn(1, safeMaxDaily),
+            singleDoseMg = safeSingleDose,
+            selectedAmountMg = selectedAmountMg.coerceIn(1, safeMaxDaily),
+            stepMg = stepMg.coerceIn(1, safeMaxDaily),
+            maxDailyMg = safeMaxDaily,
+            sortOrder = sortOrder.coerceIn(0, 10_000),
+            rampStartMg = rampStartMg.coerceIn(1, safeMaxDaily),
+            rampTargetMg = rampTargetMg.coerceIn(1, 100_000),
+            rampDays = rampDays.coerceIn(0, 3650),
+            rampStartedAt = rampStartedAt?.coerceAtLeast(0L),
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     private fun Float.cleanAmount(fallback: Float, min: Float, max: Float): Float {
         return if (isFinite()) coerceIn(min, max) else fallback
     }

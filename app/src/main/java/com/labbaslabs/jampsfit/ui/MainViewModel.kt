@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.labbaslabs.jampsfit.WatchManager
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.FoodEntity
+import com.labbaslabs.jampsfit.database.SupplementEntity
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,10 @@ class MainViewModel : ViewModel() {
     fun addMeal(name: String, type: String, calories: Int, details: String) =
         watchManager?.addMeal(name, type, calories, details)
     fun deleteMeal(id: Long) = watchManager?.deleteMeal(id)
+    fun saveSupplement(supplement: SupplementEntity) = watchManager?.saveSupplement(supplement)
+    fun takeSupplement(id: Long) = watchManager?.takeSupplement(id)
+    fun deleteSupplementEntry(id: Long) = watchManager?.deleteSupplementEntry(id)
+    fun reorderSupplements(ids: List<Long>) = watchManager?.reorderSupplements(ids)
     
     fun updateShutterAction(action: String) = watchManager?.updateShutterAction(action)
     fun updateMusicAction(action: String) = watchManager?.updateMusicAction(action)

@@ -14,11 +14,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeenNotification::class,
         CandyEntity::class,
         MealEntity::class,
+        SupplementEntity::class,
+        SupplementEntryEntity::class,
         EventEntity::class,
         FestivalEntity::class,
         FoodEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -175,6 +177,47 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `supplements` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `dailyTargetMg` INTEGER NOT NULL,
+                        `singleDoseMg` INTEGER NOT NULL,
+                        `selectedAmountMg` INTEGER NOT NULL,
+                        `stepMg` INTEGER NOT NULL,
+                        `maxDailyMg` INTEGER NOT NULL,
+                        `sortOrder` INTEGER NOT NULL,
+                        `rampEnabled` INTEGER NOT NULL,
+                        `rampStartMg` INTEGER NOT NULL,
+                        `rampTargetMg` INTEGER NOT NULL,
+                        `rampDays` INTEGER NOT NULL,
+                        `rampStartedAt` INTEGER,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_supplements_name` ON `supplements` (`name`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `supplement_entries` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `festivalId` INTEGER,
+                        `supplementId` INTEGER NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `amountMg` INTEGER NOT NULL,
+                        `takenAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_supplement_entries_festivalId` ON `supplement_entries` (`festivalId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_supplement_entries_supplementId` ON `supplement_entries` (`supplementId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_supplement_entries_takenAt` ON `supplement_entries` (`takenAt`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -182,7 +225,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "jampsfit_database"
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                 INSTANCE = instance
                 instance

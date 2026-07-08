@@ -51,6 +51,46 @@ data class MealEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(
+    tableName = "supplements",
+    indices = [
+        Index(value = ["name"])
+    ]
+)
+data class SupplementEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String = "Supplement",
+    val dailyTargetMg: Int = 100,
+    val singleDoseMg: Int = 100,
+    val selectedAmountMg: Int = singleDoseMg,
+    val stepMg: Int = singleDoseMg,
+    val maxDailyMg: Int = dailyTargetMg,
+    val sortOrder: Int = 0,
+    val rampEnabled: Boolean = false,
+    val rampStartMg: Int = singleDoseMg,
+    val rampTargetMg: Int = dailyTargetMg,
+    val rampDays: Int = 0,
+    val rampStartedAt: Long? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "supplement_entries",
+    indices = [
+        Index(value = ["festivalId"]),
+        Index(value = ["supplementId"]),
+        Index(value = ["takenAt"])
+    ]
+)
+data class SupplementEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val festivalId: Long? = null,
+    val supplementId: Long = 0,
+    val name: String = "Supplement",
+    val amountMg: Int = 0,
+    val takenAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "festivals")
 data class FestivalEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -132,6 +172,9 @@ interface EventDao {
     @Query("UPDATE meals SET festivalId = NULL WHERE festivalId = :festivalId")
     suspend fun detachMealsFromFestival(festivalId: Long)
 
+    @Query("UPDATE supplement_entries SET festivalId = NULL WHERE festivalId = :festivalId")
+    suspend fun detachSupplementEntriesFromFestival(festivalId: Long)
+
     @Insert
     suspend fun insert(event: EventEntity): Long
 
@@ -197,4 +240,45 @@ interface EventDao {
 
     @Query("DELETE FROM meals WHERE id = :id")
     suspend fun deleteMeal(id: Long)
+
+    @Insert
+    suspend fun insertSupplement(supplement: SupplementEntity): Long
+
+    @Update
+    suspend fun updateSupplement(supplement: SupplementEntity)
+
+    @Query("SELECT * FROM supplements ORDER BY sortOrder ASC, name ASC")
+    fun observeSupplements(): Flow<List<SupplementEntity>>
+
+    @Query("SELECT COUNT(*) FROM supplements")
+    suspend fun countSupplements(): Int
+
+    @Query("SELECT * FROM supplements WHERE name = :name LIMIT 1")
+    suspend fun getSupplementByName(name: String): SupplementEntity?
+
+    @Query("SELECT * FROM supplements WHERE id = :id LIMIT 1")
+    suspend fun getSupplement(id: Long): SupplementEntity?
+
+    @Query("UPDATE supplements SET sortOrder = :sortOrder, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSupplementOrder(id: Long, sortOrder: Int, updatedAt: Long)
+
+    @Insert
+    suspend fun insertSupplementEntry(entry: SupplementEntryEntity): Long
+
+    @Query("SELECT * FROM supplement_entries ORDER BY takenAt DESC LIMIT 300")
+    fun observeSupplementEntries(): Flow<List<SupplementEntryEntity>>
+
+    @Query("DELETE FROM supplement_entries WHERE id = :id")
+    suspend fun deleteSupplementEntry(id: Long)
 }
+
+fun defaultSupplements(): List<SupplementEntity> = listOf(
+    SupplementEntity(name = "Magnesium", dailyTargetMg = 400, singleDoseMg = 100, selectedAmountMg = 100, stepMg = 100, maxDailyMg = 400, sortOrder = 0),
+    SupplementEntity(name = "B", dailyTargetMg = 50, singleDoseMg = 50, selectedAmountMg = 50, stepMg = 50, maxDailyMg = 100, sortOrder = 1),
+    SupplementEntity(name = "NAC", dailyTargetMg = 600, singleDoseMg = 600, selectedAmountMg = 600, stepMg = 100, maxDailyMg = 1_200, sortOrder = 2),
+    SupplementEntity(name = "MSM", dailyTargetMg = 15_000, singleDoseMg = 1_000, selectedAmountMg = 1_000, stepMg = 500, maxDailyMg = 15_000, sortOrder = 3, rampEnabled = true, rampStartMg = 1_000, rampTargetMg = 15_000, rampDays = 90),
+    SupplementEntity(name = "C", dailyTargetMg = 500, singleDoseMg = 500, selectedAmountMg = 500, stepMg = 100, maxDailyMg = 2_000, sortOrder = 4),
+    SupplementEntity(name = "Zinc", dailyTargetMg = 15, singleDoseMg = 15, selectedAmountMg = 15, stepMg = 5, maxDailyMg = 40, sortOrder = 5),
+    SupplementEntity(name = "Kreatine", dailyTargetMg = 5_000, singleDoseMg = 5_000, selectedAmountMg = 5_000, stepMg = 1_000, maxDailyMg = 5_000, sortOrder = 6),
+    SupplementEntity(name = "Kalium", dailyTargetMg = 500, singleDoseMg = 500, selectedAmountMg = 500, stepMg = 100, maxDailyMg = 1_000, sortOrder = 7)
+)
