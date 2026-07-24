@@ -253,6 +253,15 @@ class WatchManager(private val context: Context) {
     private var autoSleepFetchJob: Job? = null
     private var hrReminderJob: Job? = null
     private var autoHeartRateReactivationJob: Job? = null
+    private val heavyObserverJobs = mutableListOf<Job>()
+    private var appForegrounded = false
+    private var reconnectAttempt = 0
+    private var activeEventSummaryJob: Job? = null
+    private var lastEventSummaryTime = 0L
+    private var pendingBackgroundHealthEntry: HealthEntry? = null
+    private var backgroundHealthFlushJob: Job? = null
+    private var lastPersistedHealthEntry: HealthEntry? = null
+    private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
     private val recentActivityPayloadSet = mutableSetOf<String>()
@@ -282,11 +291,13 @@ class WatchManager(private val context: Context) {
     private fun handleDecodedResult(result: ProtocolDecoder.DecodedResult) {
         when (result) {
             is ProtocolDecoder.DecodedResult.Battery -> {
+                reconnectAttempt = 0
                 _state.update { it.copy(battery = result.level, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(battery = result.level)
                 updateDebugLog("Battery: ${result.level}%")
             }
             is ProtocolDecoder.DecodedResult.HeartRate -> {
+                reconnectAttempt = 0
                 _state.update { it.copy(heartRate = result.bpm, lastWatchSeenTime = System.currentTimeMillis()) }
                 saveToDb(heartRate = result.bpm)
                 persistWatchExerciseFromHeartRate()
@@ -395,19 +406,43 @@ class WatchManager(private val context: Context) {
     }
 
     private fun observeHistory() {
-        managerScope.launch { healthDao.getBatteryHistory().collect { h -> _state.update { it.copy(batteryHistory = h.reversed()) } } }
         managerScope.launch { healthDao.getHeartRateHistory().collect { h -> _state.update { it.copy(heartRateHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getSpO2History().collect { h -> _state.update { it.copy(spo2History = h.reversed()) } } }
-        managerScope.launch { healthDao.getBloodPressureHistory().collect { h -> _state.update { it.copy(bpHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getStepsHistory().collect { h -> _state.update { it.copy(stepsHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getDistanceHistory().collect { h -> _state.update { it.copy(distanceHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getActivityHistory().collect { h -> _state.update { it.copy(activityHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getCaloriesHistory().collect { h -> _state.update { it.copy(caloriesHistory = h.reversed()) } } }
-        managerScope.launch { healthDao.getLast24hStats().collect { h -> _state.update { it.copy(last24hStats = h.reversed()) } } }
-        managerScope.launch { healthDao.getDailyStats().collect { h -> _state.update { it.copy(dailyStats = h.reversed()) } } }
-        managerScope.launch { healthDao.getWeeklyStats().collect { h -> _state.update { it.copy(weeklyStats = h.reversed()) } } }
-        managerScope.launch { healthDao.getMonthlyStats().collect { h -> _state.update { it.copy(monthlyStats = h.reversed()) } } }
-        managerScope.launch { healthDao.getAllUnknownPackets().collect { h -> _state.update { it.copy(unknownMessages = h) } } }
+    }
+
+    private fun startHeavyObservers() {
+        if (heavyObserverJobs.isNotEmpty()) return
+        heavyObserverJobs += managerScope.launch { healthDao.getBatteryHistory().collect { h -> _state.update { it.copy(batteryHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getSpO2History().collect { h -> _state.update { it.copy(spo2History = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getBloodPressureHistory().collect { h -> _state.update { it.copy(bpHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getStepsHistory().collect { h -> _state.update { it.copy(stepsHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getDistanceHistory().collect { h -> _state.update { it.copy(distanceHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getActivityHistory().collect { h -> _state.update { it.copy(activityHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getCaloriesHistory().collect { h -> _state.update { it.copy(caloriesHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getLast24hStats().collect { h -> _state.update { it.copy(last24hStats = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getDailyStats().collect { h -> _state.update { it.copy(dailyStats = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getWeeklyStats().collect { h -> _state.update { it.copy(weeklyStats = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getMonthlyStats().collect { h -> _state.update { it.copy(monthlyStats = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch { healthDao.getAllUnknownPackets().collect { h -> _state.update { it.copy(unknownMessages = h) } } }
+    }
+
+    private fun stopHeavyObservers() {
+        heavyObserverJobs.forEach { it.cancel() }
+        heavyObserverJobs.clear()
+    }
+
+    fun setAppForegrounded(foregrounded: Boolean) {
+        if (appForegrounded == foregrounded) return
+        appForegrounded = foregrounded
+        if (foregrounded) {
+            startHeavyObservers()
+            flushPendingBackgroundHealth()
+        } else {
+            stopHeavyObservers()
+        }
+        restartAutoStepFetch()
+        restartAutoSyncTime()
+        restartAutoSleepFetch()
+        restartAutoHeartRateReactivation()
     }
 
     private fun observeEvents() {
@@ -872,6 +907,9 @@ class WatchManager(private val context: Context) {
         autoSleepFetchJob?.cancel()
         hrReminderJob?.cancel()
         autoHeartRateReactivationJob?.cancel()
+        activeEventSummaryJob?.cancel()
+        backgroundHealthFlushJob?.cancel()
+        stopHeavyObservers()
         synchronized(operationQueue) {
             operationQueue.clear()
             isOperating = false
@@ -928,12 +966,24 @@ class WatchManager(private val context: Context) {
 
     private fun restartAutoStepFetch() {
         autoStepFetchJob?.cancel(); if (!_state.value.autoFetchSteps || !_state.value.isConnected) return
-        autoStepFetchJob = managerScope.launch { val interval = _state.value.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L; while (isActive) { queryCurrentSteps(); delay(interval) } }
+        autoStepFetchJob = managerScope.launch {
+            while (isActive) {
+                queryCurrentSteps()
+                val interval = _state.value.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
+                delay(if (appForegrounded) interval else maxOf(interval, 30 * 60_000L))
+            }
+        }
     }
 
     private fun restartAutoSyncTime() {
         autoSyncTimeJob?.cancel(); if (!_state.value.autoSyncTime || !_state.value.isConnected) return
-        autoSyncTimeJob = managerScope.launch { val interval = _state.value.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L; while (isActive) { syncTime(); delay(interval) } }
+        autoSyncTimeJob = managerScope.launch {
+            while (isActive) {
+                syncTime()
+                val interval = _state.value.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L
+                delay(if (appForegrounded) interval else maxOf(interval, 12 * 3600_000L))
+            }
+        }
     }
 
     private fun restartAutoSleepFetch() {
@@ -941,8 +991,13 @@ class WatchManager(private val context: Context) {
         if (!_state.value.autoFetchSleep || !_state.value.isConnected) return
         autoSleepFetchJob = managerScope.launch {
             while (isActive) {
-                querySleepBoundaries()
-                delay(30 * 60_000L)
+                val today = mealDayKey()
+                val shouldFetch = appForegrounded || sleepFetchedDayKey != today || isLikelySleepWakeWindow()
+                if (shouldFetch) {
+                    querySleepBoundaries()
+                    sleepFetchedDayKey = today
+                }
+                delay(if (appForegrounded) 30 * 60_000L else 6 * 3600_000L)
             }
         }
     }
@@ -977,7 +1032,7 @@ class WatchManager(private val context: Context) {
         autoHeartRateReactivationJob = managerScope.launch {
             val intervalMs = reactivationMinutes * 60_000L
             while (isActive) {
-                delay(intervalMs)
+                delay(if (appForegrounded) intervalMs else maxOf(intervalMs, 6 * 3600_000L))
                 if (_state.value.isConnected && _state.value.autoHeartRateIntervalMinutes == intervalMinutes) {
                     sendFee2NativeRaw(nativePacket(0x1F, commandCode))
                     updateDebugLog("Auto HR ${intervalMinutes}m re-sent")
@@ -1239,7 +1294,7 @@ class WatchManager(private val context: Context) {
         if (adapter?.isEnabled != true) {
             _state.update { it.copy(isConnected = false, connectionStatus = "Bluetooth off") }
             updateDebugLog("Bluetooth is off; waiting to reconnect.")
-            scheduleReconnect(10_000)
+            scheduleReconnect(nextReconnectDelay())
             return
         }
         stopScan()
@@ -1283,7 +1338,7 @@ class WatchManager(private val context: Context) {
     }
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
-            if (ns == BluetoothProfile.STATE_CONNECTED) { connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
+            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
             else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
@@ -1330,6 +1385,7 @@ class WatchManager(private val context: Context) {
     fun onBluetoothTurnedOn() {
         if (userRequestedDisconnect || !_state.value.autoConnect || _state.value.isConnected) return
         updateDebugLog("Bluetooth turned on; reconnecting.")
+        reconnectAttempt = 0
         scheduleReconnect(0)
     }
 
@@ -1343,8 +1399,7 @@ class WatchManager(private val context: Context) {
                     connectKnownDeviceOrScan()
                 } else {
                     _state.update { it.copy(connectionStatus = "Bluetooth off") }
-                    delay(10_000)
-                    scheduleReconnect(0)
+                    scheduleReconnect(nextReconnectDelay())
                 }
             }
         }
@@ -1359,7 +1414,7 @@ class WatchManager(private val context: Context) {
             startScan()
         }
     }
-    private fun startScanWatchdog() { scanWatchdogJob?.cancel(); scanWatchdogJob = managerScope.launch { delay(12000); if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning...") startScan() } }
+    private fun startScanWatchdog() { scanWatchdogJob?.cancel(); scanWatchdogJob = managerScope.launch { delay(if (appForegrounded) 12_000L else 60_000L); if (!_state.value.isConnected && _state.value.connectionStatus == "Scanning...") scheduleReconnect(nextReconnectDelay()) } }
     private fun startConnectWatchdog() {
         connectWatchdogJob?.cancel()
         connectWatchdogJob = managerScope.launch {
@@ -1368,14 +1423,89 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("Connect timed out; scanning again.")
                 bluetoothGatt?.close()
                 bluetoothGatt = null
-                startScan()
+                scheduleReconnect(nextReconnectDelay())
             }
+        }
+    }
+
+    private fun nextReconnectDelay(): Long {
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(12)
+        return when {
+            appForegrounded && reconnectAttempt <= 5 -> 3_000L
+            reconnectAttempt <= 5 -> 30_000L
+            reconnectAttempt <= 10 -> 2 * 60_000L
+            else -> 10 * 60_000L
         }
     }
     private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null) {
         managerScope.launch {
-            healthDao.insert(HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes))
+            val entry = HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)
+            if (shouldSkipHealthEntry(entry)) return@launch
+            if (appForegrounded || entry.heartRate != null || entry.sleepMinutes != null) {
+                healthDao.insert(entry)
+                lastPersistedHealthEntry = entry
+            } else {
+                pendingBackgroundHealthEntry = mergeHealthEntries(pendingBackgroundHealthEntry, entry)
+                scheduleBackgroundHealthFlush()
+            }
+            scheduleActiveEventSummary()
+        }
+    }
+
+    private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
+        val last = lastPersistedHealthEntry ?: return false
+        if (entry.heartRate != null || entry.sleepMinutes != null || entry.spo2 != null || entry.systolic != null || entry.diastolic != null) return false
+        return entry.battery == last.battery &&
+            entry.steps == last.steps &&
+            entry.activityCount == last.activityCount &&
+            entry.distance == last.distance &&
+            entry.calories == last.calories
+    }
+
+    private fun mergeHealthEntries(old: HealthEntry?, next: HealthEntry): HealthEntry {
+        return HealthEntry(
+            battery = next.battery ?: old?.battery,
+            heartRate = next.heartRate ?: old?.heartRate,
+            spo2 = next.spo2 ?: old?.spo2,
+            systolic = next.systolic ?: old?.systolic,
+            diastolic = next.diastolic ?: old?.diastolic,
+            steps = next.steps ?: old?.steps,
+            activityCount = next.activityCount ?: old?.activityCount,
+            distance = next.distance ?: old?.distance,
+            calories = next.calories ?: old?.calories,
+            sleepMinutes = next.sleepMinutes ?: old?.sleepMinutes,
+            deepSleepMinutes = next.deepSleepMinutes ?: old?.deepSleepMinutes,
+            lightSleepMinutes = next.lightSleepMinutes ?: old?.lightSleepMinutes
+        )
+    }
+
+    private fun scheduleBackgroundHealthFlush() {
+        if (backgroundHealthFlushJob?.isActive == true) return
+        backgroundHealthFlushJob = managerScope.launch {
+            delay(30_000L)
+            flushPendingBackgroundHealth()
+        }
+    }
+
+    private fun flushPendingBackgroundHealth() {
+        managerScope.launch {
+            val entry = pendingBackgroundHealthEntry ?: return@launch
+            pendingBackgroundHealthEntry = null
+            healthDao.insert(entry)
+            lastPersistedHealthEntry = entry
+            scheduleActiveEventSummary()
+        }
+    }
+
+    private fun scheduleActiveEventSummary(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val interval = if (appForegrounded) 30_000L else 5 * 60_000L
+        if (!force && now - lastEventSummaryTime < interval) return
+        if (activeEventSummaryJob?.isActive == true) return
+        activeEventSummaryJob = managerScope.launch {
+            if (!force) delay(2_000L)
             eventDao.getActiveEventOnce()?.let { refreshEventSummary(it, System.currentTimeMillis()) }
+            lastEventSummaryTime = System.currentTimeMillis()
         }
     }
 
@@ -1390,6 +1520,11 @@ class WatchManager(private val context: Context) {
                 weightKg = _state.value.profileWeightKg
             )
         )
+    }
+
+    private fun isLikelySleepWakeWindow(): Boolean {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return hour in 5..12
     }
     private fun finishOperation() {
         synchronized(operationQueue) { isOperating = false }

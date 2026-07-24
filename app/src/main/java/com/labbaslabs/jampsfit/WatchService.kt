@@ -104,6 +104,8 @@ class WatchService : Service() {
     private var alarmVibrationJob: Job? = null
     private var watchMissingJob: Job? = null
     private var watchMissingNotified = false
+    private var lastServiceNotificationStatus: String? = null
+    private var lastServiceNotificationTime = 0L
 
     companion object {
         private const val CHANNEL_ID = "WatchServiceChannel"
@@ -138,7 +140,7 @@ class WatchService : Service() {
         )
 
         watchManager.state.onEach { state ->
-            updateNotification(if (state.isConnected) "Connected" else "Waiting for watch")
+            updateNotificationThrottled(if (state.isConnected) "Connected" else "Waiting for watch")
             handleWatchMissingReminder(state.isConnected)
             
             // Connection alert logic
@@ -525,6 +527,14 @@ class WatchService : Service() {
     private fun updateNotification(status: String) {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, createNotification(status))
+    }
+
+    private fun updateNotificationThrottled(status: String) {
+        val now = System.currentTimeMillis()
+        if (status == lastServiceNotificationStatus && now - lastServiceNotificationTime < 60_000L) return
+        lastServiceNotificationStatus = status
+        lastServiceNotificationTime = now
+        updateNotification(status)
     }
 
     override fun onDestroy() {

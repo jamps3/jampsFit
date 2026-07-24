@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.*
 import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
             isBound = true
             
             viewModel.setWatchManager(s.watchManager)
+            s.watchManager.setAppForegrounded(true)
             
             if (pendingScanRequest) {
                 s.watchManager.startScan()
@@ -86,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             JampsFitTheme {
-                val state by viewModel.uiState.collectAsState()
+                val state by viewModel.uiState.collectAsStateWithLifecycle()
                 
                 CompositionLocalProvider(
                     LocalWatchState provides state,
@@ -187,6 +189,12 @@ class MainActivity : ComponentActivity() {
         Intent(this, WatchService::class.java).also { intent ->
             bindService(intent, connection, BIND_AUTO_CREATE)
         }
+        watchService?.watchManager?.setAppForegrounded(true)
+    }
+
+    override fun onStop() {
+        watchService?.watchManager?.setAppForegrounded(false)
+        super.onStop()
     }
 
     fun startWatchService() {
