@@ -1284,13 +1284,28 @@ class WatchManager(private val context: Context) {
         }
     }
     private val scanCallback = object : ScanCallback() {
-        override fun onScanResult(ct: Int, res: ScanResult) { if (res.device.name?.contains(TARGET_NAME, true) == true) { stopScan(); connectToDevice(res.device) } }
+        override fun onScanResult(ct: Int, res: ScanResult) {
+            if (_state.value.isConnected) {
+                stopScan()
+                return
+            }
+            if (res.device.name?.contains(TARGET_NAME, true) == true) {
+                stopScan()
+                connectToDevice(res.device)
+            }
+        }
         override fun onScanFailed(err: Int) { updateDebugLog("Scan failed: $err"); scheduleReconnect(1500) }
     }
     fun startScan() {
         userRequestedDisconnect = false
         reconnectJob?.cancel()
         connectWatchdogJob?.cancel()
+        if (_state.value.isConnected) {
+            stopScan()
+            _state.update { it.copy(connectionStatus = "Connected") }
+            updateDebugLog("Scan skipped; watch is already connected.")
+            return
+        }
         if (adapter?.isEnabled != true) {
             _state.update { it.copy(isConnected = false, connectionStatus = "Bluetooth off") }
             updateDebugLog("Bluetooth is off; waiting to reconnect.")
@@ -1405,6 +1420,7 @@ class WatchManager(private val context: Context) {
         }
     }
     private fun connectKnownDeviceOrScan() {
+        if (_state.value.isConnected) return
         val address = prefs.getString(LAST_DEVICE_ADDRESS_KEY, null)
         val knownDevice = address?.let { runCatching { adapter?.getRemoteDevice(it) }.getOrNull() }
         if (knownDevice != null) {

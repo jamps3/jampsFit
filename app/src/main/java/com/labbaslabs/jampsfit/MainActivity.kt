@@ -53,7 +53,9 @@ class MainActivity : ComponentActivity() {
             s.watchManager.setAppForegrounded(true)
             
             if (pendingScanRequest) {
-                s.watchManager.startScan()
+                if (!s.watchManager.state.value.isConnected) {
+                    s.watchManager.startScan()
+                }
                 pendingScanRequest = false
             }
         }
@@ -203,7 +205,9 @@ class MainActivity : ComponentActivity() {
         
         val service = watchService
         if (service != null) {
-            service.watchManager.startScan()
+            if (!service.watchManager.state.value.isConnected) {
+                service.watchManager.startScan()
+            }
         } else {
             pendingScanRequest = true
         }
