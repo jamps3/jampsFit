@@ -22,6 +22,7 @@ import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.HealthEntry
+import com.labbaslabs.jampsfit.database.HealthSyncQueueEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.database.MealEntity
 import com.labbaslabs.jampsfit.database.SupplementEntity
@@ -89,6 +90,8 @@ data class WatchState(
     val stepsHistory: List<HistoryPoint> = emptyList(),
     val distanceHistory: List<HistoryPoint> = emptyList(),
     val caloriesHistory: List<HistoryPoint> = emptyList(),
+    val pendingHealthSyncCount: Int = 0,
+    val lastHealthSyncError: String? = null,
     val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
@@ -258,8 +261,6 @@ class WatchManager(private val context: Context) {
     private var reconnectAttempt = 0
     private var activeEventSummaryJob: Job? = null
     private var lastEventSummaryTime = 0L
-    private var pendingBackgroundHealthEntry: HealthEntry? = null
-    private var backgroundHealthFlushJob: Job? = null
     private var lastPersistedHealthEntry: HealthEntry? = null
     private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
@@ -281,6 +282,8 @@ class WatchManager(private val context: Context) {
         seedDefaultSupplements()
         seedDefaultFestival()
         observeHistory()
+        observeHealthSyncQueue()
+        startHealthSyncWorker()
         observeEvents()
         observeFoods()
         cleanupSeenNotifications()
@@ -409,6 +412,39 @@ class WatchManager(private val context: Context) {
         managerScope.launch { healthDao.getHeartRateHistory().collect { h -> _state.update { it.copy(heartRateHistory = h.reversed()) } } }
     }
 
+    private fun observeHealthSyncQueue() {
+        managerScope.launch {
+            healthDao.observePendingHealthSync().collect { count ->
+                _state.update { it.copy(pendingHealthSyncCount = count) }
+            }
+        }
+    }
+
+    private fun startHealthSyncWorker() {
+        managerScope.launch {
+            while (isActive) {
+                val queued = healthDao.getNextQueuedHealth(System.currentTimeMillis())
+                if (queued == null) {
+                    delay(2_000L)
+                    continue
+                }
+                try {
+                    healthDao.insert(queued.toHealthEntry())
+                    healthDao.deleteQueuedHealth(queued.id)
+                    lastPersistedHealthEntry = queued.toHealthEntry()
+                    _state.update { it.copy(lastHealthSyncError = null) }
+                } catch (error: Exception) {
+                    val attempts = queued.attempts + 1
+                    val delayMs = (1L shl attempts.coerceAtMost(8)) * 1_000L
+                    val message = error.message ?: error::class.simpleName ?: "Unknown database error"
+                    healthDao.retryQueuedHealth(queued.id, attempts, System.currentTimeMillis() + delayMs, message)
+                    _state.update { it.copy(lastHealthSyncError = message) }
+                    delay(delayMs.coerceAtMost(60_000L))
+                }
+            }
+        }
+    }
+
     private fun startHeavyObservers() {
         if (heavyObserverJobs.isNotEmpty()) return
         heavyObserverJobs += managerScope.launch { healthDao.getBatteryHistory().collect { h -> _state.update { it.copy(batteryHistory = h.reversed()) } } }
@@ -435,7 +471,6 @@ class WatchManager(private val context: Context) {
         appForegrounded = foregrounded
         if (foregrounded) {
             startHeavyObservers()
-            flushPendingBackgroundHealth()
         } else {
             stopHeavyObservers()
         }
@@ -908,7 +943,6 @@ class WatchManager(private val context: Context) {
         hrReminderJob?.cancel()
         autoHeartRateReactivationJob?.cancel()
         activeEventSummaryJob?.cancel()
-        backgroundHealthFlushJob?.cancel()
         stopHeavyObservers()
         synchronized(operationQueue) {
             operationQueue.clear()
@@ -1457,16 +1491,18 @@ class WatchManager(private val context: Context) {
         managerScope.launch {
             val entry = HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)
             if (shouldSkipHealthEntry(entry)) return@launch
-            if (appForegrounded || entry.heartRate != null || entry.sleepMinutes != null) {
-                healthDao.insert(entry)
-                lastPersistedHealthEntry = entry
-            } else {
-                pendingBackgroundHealthEntry = mergeHealthEntries(pendingBackgroundHealthEntry, entry)
-                scheduleBackgroundHealthFlush()
-            }
+            val key = healthSyncKey(entry)
+            healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, dedupeKey = key))
             scheduleActiveEventSummary()
         }
     }
+
+    private fun healthSyncKey(entry: HealthEntry): String = listOf(
+        entry.timestamp / 10_000L, entry.battery, entry.heartRate, entry.spo2,
+        entry.systolic, entry.diastolic, entry.steps, entry.activityCount,
+        entry.distance, entry.calories, entry.sleepMinutes, entry.deepSleepMinutes,
+        entry.lightSleepMinutes
+    ).joinToString(":")
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
         val last = lastPersistedHealthEntry ?: return false
@@ -1476,41 +1512,6 @@ class WatchManager(private val context: Context) {
             entry.activityCount == last.activityCount &&
             entry.distance == last.distance &&
             entry.calories == last.calories
-    }
-
-    private fun mergeHealthEntries(old: HealthEntry?, next: HealthEntry): HealthEntry {
-        return HealthEntry(
-            battery = next.battery ?: old?.battery,
-            heartRate = next.heartRate ?: old?.heartRate,
-            spo2 = next.spo2 ?: old?.spo2,
-            systolic = next.systolic ?: old?.systolic,
-            diastolic = next.diastolic ?: old?.diastolic,
-            steps = next.steps ?: old?.steps,
-            activityCount = next.activityCount ?: old?.activityCount,
-            distance = next.distance ?: old?.distance,
-            calories = next.calories ?: old?.calories,
-            sleepMinutes = next.sleepMinutes ?: old?.sleepMinutes,
-            deepSleepMinutes = next.deepSleepMinutes ?: old?.deepSleepMinutes,
-            lightSleepMinutes = next.lightSleepMinutes ?: old?.lightSleepMinutes
-        )
-    }
-
-    private fun scheduleBackgroundHealthFlush() {
-        if (backgroundHealthFlushJob?.isActive == true) return
-        backgroundHealthFlushJob = managerScope.launch {
-            delay(30_000L)
-            flushPendingBackgroundHealth()
-        }
-    }
-
-    private fun flushPendingBackgroundHealth() {
-        managerScope.launch {
-            val entry = pendingBackgroundHealthEntry ?: return@launch
-            pendingBackgroundHealthEntry = null
-            healthDao.insert(entry)
-            lastPersistedHealthEntry = entry
-            scheduleActiveEventSummary()
-        }
     }
 
     private fun scheduleActiveEventSummary(force: Boolean = false) {

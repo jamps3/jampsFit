@@ -10,6 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         HealthEntry::class,
+        HealthSyncQueueEntry::class,
         UnknownPacket::class,
         SeenNotification::class,
         CandyEntity::class,
@@ -20,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FestivalEntity::class,
         FoodEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -218,6 +219,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `health_sync_queue` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `battery` INTEGER,
+                        `heartRate` INTEGER,
+                        `spo2` INTEGER,
+                        `systolic` INTEGER,
+                        `diastolic` INTEGER,
+                        `steps` INTEGER,
+                        `activityCount` INTEGER,
+                        `distance` INTEGER,
+                        `calories` INTEGER,
+                        `sleepMinutes` INTEGER,
+                        `deepSleepMinutes` INTEGER,
+                        `lightSleepMinutes` INTEGER,
+                        `dedupeKey` TEXT NOT NULL,
+                        `attempts` INTEGER NOT NULL,
+                        `nextAttemptAt` INTEGER NOT NULL,
+                        `lastError` TEXT
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_health_sync_queue_dedupeKey` ON `health_sync_queue` (`dedupeKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_sync_queue_nextAttemptAt` ON `health_sync_queue` (`nextAttemptAt`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -225,7 +255,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "jampsfit_database"
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                 INSTANCE = instance
                 instance

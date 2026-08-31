@@ -21,6 +21,39 @@ data class HealthEntry(
     val lightSleepMinutes: Int? = null
 )
 
+@Entity(
+    tableName = "health_sync_queue",
+    indices = [Index(value = ["dedupeKey"], unique = true), Index(value = ["nextAttemptAt"])]
+)
+data class HealthSyncQueueEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val battery: Int? = null,
+    val heartRate: Int? = null,
+    val spo2: Int? = null,
+    val systolic: Int? = null,
+    val diastolic: Int? = null,
+    val steps: Int? = null,
+    val activityCount: Int? = null,
+    val distance: Int? = null,
+    val calories: Int? = null,
+    val sleepMinutes: Int? = null,
+    val deepSleepMinutes: Int? = null,
+    val lightSleepMinutes: Int? = null,
+    val dedupeKey: String,
+    val attempts: Int = 0,
+    val nextAttemptAt: Long = timestamp,
+    val lastError: String? = null
+) {
+    fun toHealthEntry() = HealthEntry(
+        timestamp = timestamp, battery = battery, heartRate = heartRate, spo2 = spo2,
+        systolic = systolic, diastolic = diastolic, steps = steps,
+        activityCount = activityCount, distance = distance, calories = calories,
+        sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes,
+        lightSleepMinutes = lightSleepMinutes
+    )
+}
+
 data class HistoryPoint(
     val value: Int,
     val timestamp: Long
@@ -30,6 +63,21 @@ data class HistoryPoint(
 interface HealthDao {
     @Insert
     suspend fun insert(entry: HealthEntry)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun enqueueHealth(entry: HealthSyncQueueEntry): Long
+
+    @Query("SELECT * FROM health_sync_queue WHERE nextAttemptAt <= :now ORDER BY id ASC LIMIT 1")
+    suspend fun getNextQueuedHealth(now: Long): HealthSyncQueueEntry?
+
+    @Query("DELETE FROM health_sync_queue WHERE id = :id")
+    suspend fun deleteQueuedHealth(id: Long)
+
+    @Query("UPDATE health_sync_queue SET attempts = :attempts, nextAttemptAt = :nextAttemptAt, lastError = :error WHERE id = :id")
+    suspend fun retryQueuedHealth(id: Long, attempts: Int, nextAttemptAt: Long, error: String?)
+
+    @Query("SELECT COUNT(*) FROM health_sync_queue")
+    fun observePendingHealthSync(): Flow<Int>
 
     @Query("SELECT * FROM health_data ORDER BY timestamp DESC LIMIT 100")
     fun getLatestEntries(): Flow<List<HealthEntry>>
