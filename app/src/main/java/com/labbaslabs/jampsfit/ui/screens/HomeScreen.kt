@@ -99,6 +99,14 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                 color = if (state.isConnected) Color(0xFF4CAF50) else Color.Gray
             )
         }
+        state.connectionDetail?.let { detail ->
+            Text(
+                text = if (state.reconnectAttempt > 0) "$detail (attempt ${state.reconnectAttempt})" else detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray,
+                textAlign = TextAlign.Center
+            )
+        }
 
         if (state.deviceName != null) {
             Text(text = state.deviceName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)

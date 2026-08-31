@@ -53,6 +53,8 @@ data class WatchState(
     val firmwareVersion: String? = null,
     val watchFaceId: Int? = null,
     val connectionStatus: String = "Disconnected",
+    val connectionDetail: String? = null,
+    val reconnectAttempt: Int = 0,
     val debugLog: String = "Wait for scan...",
     val unknownMessages: List<String> = emptyList(),
     val lastRemoteEvent: String? = null,
@@ -1332,7 +1334,12 @@ class WatchManager(private val context: Context) {
                 connectToDevice(res.device)
             }
         }
-        override fun onScanFailed(err: Int) { updateDebugLog("Scan failed: $err"); scheduleReconnect(1500) }
+        override fun onScanFailed(err: Int) {
+            val detail = "Bluetooth scan failed (code $err)"
+            updateDebugLog(detail)
+            _state.update { it.copy(connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }
+            scheduleReconnect(1500)
+        }
     }
     fun startScan() {
         userRequestedDisconnect = false
@@ -1351,7 +1358,7 @@ class WatchManager(private val context: Context) {
             return
         }
         stopScan()
-        _state.update { it.copy(connectionStatus = "Scanning...") }
+        _state.update { it.copy(connectionStatus = "Scanning...", connectionDetail = "Looking for ${TARGET_NAME}", reconnectAttempt = reconnectAttempt) }
         scanner?.startScan(
             null,
             android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
@@ -1384,15 +1391,15 @@ class WatchManager(private val context: Context) {
         stopScan()
         lastConnectedDevice = device
         prefs.edit { putString(LAST_DEVICE_ADDRESS_KEY, device.address) }
-        _state.update { it.copy(connectionStatus = "Connecting...", deviceName = device.name) }
+        _state.update { it.copy(connectionStatus = "Connecting...", connectionDetail = "Connecting to ${device.name ?: device.address}", reconnectAttempt = reconnectAttempt, deviceName = device.name) }
         bluetoothGatt?.close()
         bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
         startConnectWatchdog()
     }
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
-            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }; synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
+            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1474,6 +1481,8 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob = managerScope.launch {
             delay(15_000)
             if (!_state.value.isConnected && _state.value.connectionStatus == "Connecting...") {
+                val detail = "Connection timed out; retrying"
+                _state.update { it.copy(connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }
                 updateDebugLog("Connect timed out; scanning again.")
                 bluetoothGatt?.close()
                 bluetoothGatt = null
@@ -1484,6 +1493,7 @@ class WatchManager(private val context: Context) {
 
     private fun nextReconnectDelay(): Long {
         reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(12)
+        _state.update { it.copy(reconnectAttempt = reconnectAttempt) }
         return when {
             appForegrounded && reconnectAttempt <= 5 -> 3_000L
             reconnectAttempt <= 5 -> 30_000L
