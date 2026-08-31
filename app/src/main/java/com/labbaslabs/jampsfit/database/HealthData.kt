@@ -79,6 +79,9 @@ interface HealthDao {
     @Query("SELECT COUNT(*) FROM health_sync_queue")
     fun observePendingHealthSync(): Flow<Int>
 
+    @Query("UPDATE health_sync_queue SET nextAttemptAt = :now, lastError = NULL WHERE nextAttemptAt > :now")
+    suspend fun retryPendingHealthSync(now: Long)
+
     @Query("SELECT * FROM health_data ORDER BY timestamp DESC LIMIT 100")
     fun getLatestEntries(): Flow<List<HealthEntry>>
 

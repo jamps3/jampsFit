@@ -92,6 +92,7 @@ data class WatchState(
     val caloriesHistory: List<HistoryPoint> = emptyList(),
     val pendingHealthSyncCount: Int = 0,
     val lastHealthSyncError: String? = null,
+    val lastHealthSyncTime: Long? = null,
     val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
@@ -432,7 +433,7 @@ class WatchManager(private val context: Context) {
                     healthDao.insert(queued.toHealthEntry())
                     healthDao.deleteQueuedHealth(queued.id)
                     lastPersistedHealthEntry = queued.toHealthEntry()
-                    _state.update { it.copy(lastHealthSyncError = null) }
+                    _state.update { it.copy(lastHealthSyncError = null, lastHealthSyncTime = System.currentTimeMillis()) }
                 } catch (error: Exception) {
                     val attempts = queued.attempts + 1
                     val delayMs = (1L shl attempts.coerceAtMost(8)) * 1_000L
@@ -1503,6 +1504,14 @@ class WatchManager(private val context: Context) {
         entry.distance, entry.calories, entry.sleepMinutes, entry.deepSleepMinutes,
         entry.lightSleepMinutes
     ).joinToString(":")
+
+    fun retryPendingHealthSync() {
+        managerScope.launch {
+            healthDao.retryPendingHealthSync(System.currentTimeMillis())
+            _state.update { it.copy(lastHealthSyncError = null) }
+            updateDebugLog("Health sync retry requested.")
+        }
+    }
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
         val last = lastPersistedHealthEntry ?: return false

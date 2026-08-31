@@ -107,6 +107,10 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
             Text(text = "Last seen ${relativeTimeLabel(it)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
 
+        if (state.pendingHealthSyncCount > 0 || state.lastHealthSyncError != null || state.lastHealthSyncTime != null) {
+            HealthSyncStatusCard(state = state, onRetry = { viewModel.retryPendingHealthSync() })
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         DancingEventControlCard(
@@ -219,6 +223,38 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
     selectedGauge?.let { metric ->
         GaugeSettingsDialog(metric = metric, onDismiss = { selectedGauge = null })
     }
+}
+
+@Composable
+private fun HealthSyncStatusCard(state: WatchState, onRetry: () -> Unit) {
+    val hasError = state.lastHealthSyncError != null
+    val color = when {
+        hasError -> Color(0xFFFF7043)
+        state.pendingHealthSyncCount > 0 -> Color(0xFFFFC107)
+        else -> Color(0xFF4CAF50)
+    }
+    DataCard(
+        label = "Health sync",
+        value = when {
+            hasError -> "Retry needed"
+            state.pendingHealthSyncCount > 0 -> "${state.pendingHealthSyncCount} pending"
+            else -> "Up to date"
+        },
+        supportingText = when {
+            hasError -> state.lastHealthSyncError!!.take(64)
+            state.lastHealthSyncTime != null -> "Last saved ${relativeTimeLabel(state.lastHealthSyncTime)}"
+            else -> "Waiting for watch data"
+        },
+        icon = if (hasError) Icons.Default.Warning else Icons.Default.Sync,
+        color = color,
+        action = if (hasError || state.pendingHealthSyncCount > 0) {
+            {
+                IconButton(onClick = onRetry) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Retry health sync", tint = color)
+                }
+            }
+        } else null
+    )
 }
 
 private data class GaugeMetric(
