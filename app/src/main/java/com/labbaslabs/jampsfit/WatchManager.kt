@@ -173,6 +173,7 @@ class WatchManager(private val context: Context) {
     private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
     private val initialMealDay = mealDayKey()
+    private val initialLastHealthSyncTime = prefs.getLong("lastHealthSyncTime", 0L).takeIf { it > 0L }
     private val initialEatCaloriesIncremental = prefs.getBoolean("eatCaloriesIncremental", false)
     private val initialAppliedMealCalories = prefs.getInt("appliedMealCalories", 0)
         .takeIf { initialEatCaloriesIncremental || prefs.getString("appliedMealCaloriesDay", initialMealDay) == initialMealDay }
@@ -237,7 +238,8 @@ class WatchManager(private val context: Context) {
         shoppingListCheckedIds = prefs.getStringSet("shoppingListCheckedIds", emptySet())
             ?.mapNotNull { it.toLongOrNull() }
             ?.toSet()
-            ?: emptySet()
+            ?: emptySet(),
+        lastHealthSyncTime = initialLastHealthSyncTime
     ))
     val state = _state.asStateFlow()
 
@@ -430,10 +432,11 @@ class WatchManager(private val context: Context) {
                     continue
                 }
                 try {
-                    healthDao.insert(queued.toHealthEntry())
-                    healthDao.deleteQueuedHealth(queued.id)
+                    healthDao.drainQueuedHealth(queued)
                     lastPersistedHealthEntry = queued.toHealthEntry()
-                    _state.update { it.copy(lastHealthSyncError = null, lastHealthSyncTime = System.currentTimeMillis()) }
+                    val syncedAt = System.currentTimeMillis()
+                    prefs.edit { putLong("lastHealthSyncTime", syncedAt) }
+                    _state.update { it.copy(lastHealthSyncError = null, lastHealthSyncTime = syncedAt) }
                 } catch (error: Exception) {
                     val attempts = queued.attempts + 1
                     val delayMs = (1L shl attempts.coerceAtMost(8)) * 1_000L

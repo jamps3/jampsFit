@@ -73,6 +73,12 @@ interface HealthDao {
     @Query("DELETE FROM health_sync_queue WHERE id = :id")
     suspend fun deleteQueuedHealth(id: Long)
 
+    @Transaction
+    suspend fun drainQueuedHealth(entry: HealthSyncQueueEntry) {
+        insert(entry.toHealthEntry())
+        deleteQueuedHealth(entry.id)
+    }
+
     @Query("UPDATE health_sync_queue SET attempts = :attempts, nextAttemptAt = :nextAttemptAt, lastError = :error WHERE id = :id")
     suspend fun retryQueuedHealth(id: Long, attempts: Int, nextAttemptAt: Long, error: String?)
 
