@@ -25,7 +25,11 @@ data class GamificationSummary(
     val levelXpTarget: Int,
     val currentStreakDays: Int,
     val goals: List<GoalProgress>,
-    val achievements: List<Achievement>
+    val achievements: List<Achievement>,
+    val weeklySteps: Int,
+    val weeklySleepNights: Int,
+    val bestSteps: Int,
+    val bestSleepMinutes: Int
 )
 
 data class GoalProgress(
@@ -78,6 +82,14 @@ fun calculateGamificationSummary(state: WatchState): GamificationSummary {
     val level = totalXp / XP_PER_LEVEL + 1
     val streak = calculateStepGoalStreak(state.dailyStats, stepGoal)
     val bestSteps = max(todaySteps, state.dailyStats.maxOfOrNull { it.steps ?: 0 } ?: 0)
+    val weekStart = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_WEEK, firstDayOfWeek)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val weekEntries = state.dailyStats.filter { it.timestamp >= weekStart }
 
     return GamificationSummary(
         level = level,
@@ -99,7 +111,11 @@ fun calculateGamificationSummary(state: WatchState): GamificationSummary {
             hasHeartRate = hasHeartRate,
             streak = streak,
             bestSteps = bestSteps
-        )
+        ),
+        weeklySteps = weekEntries.sumOf { it.steps ?: 0 },
+        weeklySleepNights = weekEntries.count { (it.sleepMinutes ?: 0) >= DEFAULT_SLEEP_GOAL_MINUTES },
+        bestSteps = bestSteps,
+        bestSleepMinutes = state.dailyStats.maxOfOrNull { it.sleepMinutes ?: 0 } ?: todaySleep
     )
 }
 

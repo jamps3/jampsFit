@@ -83,6 +83,20 @@ fun GamificationCard(state: WatchState) {
             modifier = Modifier.padding(top = 6.dp)
         )
 
+        Spacer(modifier = Modifier.height(14.dp))
+        Text("This week", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "${summary.weeklySteps} / 35,000 steps  •  ${summary.weeklySleepNights} / 3 good nights",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Personal bests: ${summary.bestSteps} steps  •  ${summary.bestSleepMinutes / 60}h ${summary.bestSleepMinutes % 60}m sleep",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.LightGray
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             summary.goals.forEach { goal ->
