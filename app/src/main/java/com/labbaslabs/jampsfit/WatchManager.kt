@@ -108,6 +108,7 @@ data class WatchState(
     val lastHealthSyncError: String? = null,
     val lastHealthSyncTime: Long? = null,
     val healthRetentionDays: Int = 180,
+    val healthWriteIntervalMinutes: Int = 60,
     val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
@@ -256,6 +257,7 @@ class WatchManager(private val context: Context) {
             ?: emptySet(),
         lastHealthSyncTime = initialLastHealthSyncTime
         ,healthRetentionDays = prefs.getInt("healthRetentionDays", 180)
+        ,healthWriteIntervalMinutes = prefs.getInt("healthWriteIntervalMinutes", 60).coerceIn(60, 1440)
     ))
     val state = _state.asStateFlow()
 
@@ -631,7 +633,6 @@ class WatchManager(private val context: Context) {
         private const val LAST_DEVICE_ADDRESS_KEY = "lastDeviceAddress"
         private const val OPERATION_TIMEOUT_MS = 10_000L
         private const val MAX_OPERATION_ATTEMPTS = 3
-        private const val HEALTH_WRITE_INTERVAL_MS = 60_000L
         private const val PACKET_LOG_INTERVAL_MS = 60_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
@@ -1161,7 +1162,7 @@ class WatchManager(private val context: Context) {
                     querySleepBoundaries()
                     sleepFetchedDayKey = today
                 }
-                delay(if (appForegrounded) 60 * 60_000L else 12 * 3600_000L)
+                delay(6 * 3600_000L)
             }
         }
     }
@@ -1695,7 +1696,7 @@ class WatchManager(private val context: Context) {
                 sleepSegmentsJson = incoming.sleepSegmentsJson ?: previous.sleepSegmentsJson
             )
             if (healthFlushJob?.isActive != true) {
-                val waitMs = (lastHealthWriteTime + HEALTH_WRITE_INTERVAL_MS - System.currentTimeMillis()).coerceAtLeast(0L)
+                val waitMs = (lastHealthWriteTime + healthWriteIntervalMs() - System.currentTimeMillis()).coerceAtLeast(0L)
                 healthFlushJob = managerScope.launch {
                     delay(waitMs)
                     flushPendingHealthEntry()
@@ -1722,7 +1723,7 @@ class WatchManager(private val context: Context) {
         synchronized(healthWriteLock) {
             if (pendingHealthEntry != null && healthFlushJob?.isActive != true) {
                 healthFlushJob = managerScope.launch {
-                    delay((lastHealthWriteTime + HEALTH_WRITE_INTERVAL_MS - System.currentTimeMillis()).coerceAtLeast(0L))
+                    delay((lastHealthWriteTime + healthWriteIntervalMs() - System.currentTimeMillis()).coerceAtLeast(0L))
                     flushPendingHealthEntry()
                 }
             }
@@ -1763,6 +1764,14 @@ class WatchManager(private val context: Context) {
         prefs.edit { putInt("healthRetentionDays", safe) }
         _state.update { it.copy(healthRetentionDays = safe) }
     }
+
+    fun updateHealthWriteInterval(minutes: Int) {
+        val safe = minutes.coerceIn(60, 1440)
+        prefs.edit { putInt("healthWriteIntervalMinutes", safe) }
+        _state.update { it.copy(healthWriteIntervalMinutes = safe) }
+    }
+
+    private fun healthWriteIntervalMs(): Long = _state.value.healthWriteIntervalMinutes.coerceIn(60, 1440) * 60_000L
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
         val last = lastPersistedHealthEntry ?: return false

@@ -127,6 +127,18 @@ private fun WatchSettingsControls(
             steps = 20
         )
         Text("Older health samples are removed during startup cleanup.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Health database save interval: ${formatHealthInterval(state.healthWriteIntervalMinutes)}", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            listOf(60, 120, 360, 720, 1440).forEach { minutes ->
+                FilterChip(
+                    selected = state.healthWriteIntervalMinutes == minutes,
+                    onClick = { viewModel.updateHealthWriteInterval(minutes) },
+                    label = { Text(formatHealthInterval(minutes), fontSize = 11.sp) }
+                )
+            }
+        }
+        Text("Minimum interval is 1 hour.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
     }
 
     SleekCard {
@@ -356,6 +368,12 @@ private fun WatchSettingsControls(
             color = Color.Gray
         )
     }
+}
+
+private fun formatHealthInterval(minutes: Int): String = when {
+    minutes % 1440 == 0 -> "${minutes / 1440}d"
+    minutes % 60 == 0 -> "${minutes / 60}h"
+    else -> "${minutes}m"
 }
 
 @Composable
