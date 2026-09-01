@@ -39,6 +39,7 @@ import com.labbaslabs.jampsfit.database.SupplementEntryEntity
 import com.labbaslabs.jampsfit.database.defaultFoods
 import com.labbaslabs.jampsfit.database.defaultSupplements
 import com.labbaslabs.jampsfit.events.summarizeEvent
+import com.labbaslabs.jampsfit.food.CalorieTargetMode
 import com.labbaslabs.jampsfit.workout.inferLatestWorkout
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,6 +85,7 @@ data class WatchState(
     val autoHeartRateIntervalMinutes: Int = 0,
     val autoHeartRateReactivationMinutes: Int = 0,
     val batteryThreshold: Int = 15,
+    val gaugeSettings: Map<GaugeSetting, Int> = loadGaugeSettings(emptyMap<String, Any>()),
     val batteryEstimation: String? = null,
     val notificationsEnabled: Boolean = false,
     val weatherCity: String = "London",
@@ -132,6 +134,7 @@ data class WatchState(
     val eatShowHome: Boolean = true,
     val eatShowStore: Boolean = true,
     val eatShowFastFood: Boolean = false,
+    val eatCalorieTargetMode: String = CalorieTargetMode.TotalSoFar.name,
     val appliedMealCalories: Int = 0,
     val eatCaloriesIncremental: Boolean = false,
     val calorieBaseline: Int = 0,
@@ -226,6 +229,7 @@ class WatchManager(private val context: Context) {
         autoHeartRateIntervalMinutes = initialAutoHeartRateInterval,
         autoHeartRateReactivationMinutes = prefs.getInt("autoHeartRateReactivationMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
+        gaugeSettings = loadGaugeSettings(prefs.all),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
         musicAction = prefs.getString("musicAction", "Media") ?: "Media",
         playPauseAction = prefs.getString("playPauseAction", "Play/Pause") ?: "Play/Pause",
@@ -252,6 +256,12 @@ class WatchManager(private val context: Context) {
         muteAlarmSyncNotification = prefs.getBoolean("muteAlarmSyncNotification", false),
         autoSyncTime = prefs.getBoolean("autoSyncTime", false),
         syncTimeIntervalHours = prefs.getInt("syncTimeIntervalHours", 4),
+        weatherCity = prefs.getString("weatherCity", "London") ?: "London",
+        stepGoalSetting = prefs.getInt("stepGoalSetting", 9_000),
+        autoLockSecondsSetting = prefs.getInt("autoLockSecondsSetting", 20),
+        protocolHeader = prefs.getString("protocolHeader", "FE EA 20") ?: "FE EA 20",
+        writeUuidShort = prefs.getString("writeUuidShort", "6387") ?: "6387",
+        payloadLengthOnly = prefs.getBoolean("payloadLengthOnly", false),
         is24HourFormat = prefs.getBoolean("is24HourFormat", true),
         quickViewEnabled = prefs.getBoolean("quickViewEnabled", true),
         quickViewStartHour = prefs.getInt("quickViewStartHour", 10),
@@ -261,6 +271,9 @@ class WatchManager(private val context: Context) {
         eatShowHome = prefs.getBoolean("eatShowHome", true),
         eatShowStore = prefs.getBoolean("eatShowStore", true),
         eatShowFastFood = prefs.getBoolean("eatShowFastFood", false),
+        eatCalorieTargetMode = prefs.getString("eatCalorieTargetMode", CalorieTargetMode.TotalSoFar.name)
+            ?.takeIf { saved -> CalorieTargetMode.entries.any { it.name == saved } }
+            ?: CalorieTargetMode.TotalSoFar.name,
         appliedMealCalories = initialAppliedMealCalories,
         eatCaloriesIncremental = initialEatCaloriesIncremental,
         calorieBaseline = prefs.getInt("calorieBaseline", 0),
@@ -276,6 +289,12 @@ class WatchManager(private val context: Context) {
         ,healthWriteIntervalMinutes = HealthSavePolicy.normalizeIntervalMinutes(prefs.getInt("healthWriteIntervalMinutes", HealthSavePolicy.DEFAULT_INTERVAL_MINUTES))
     ))
     val state = _state.asStateFlow()
+
+    private inline fun persistSettings(update: android.content.SharedPreferences.Editor.() -> Unit) {
+        if (!prefs.edit().apply(update).commit()) {
+            Log.e(TAG, "Failed to persist app settings")
+        }
+    }
 
     private val decoder = ProtocolDecoder { result -> handleDecodedResult(result) }
     private var bluetoothGatt: BluetoothGatt? = null
@@ -410,10 +429,12 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("Alarms synced: ${result.alarms.size} slots")
             }
             is ProtocolDecoder.DecodedResult.StepGoal -> {
+                persistSettings { putInt("stepGoalSetting", result.goal) }
                 _state.update { it.copy(stepGoalSetting = result.goal) }
                 updateDebugLog("Step goal: ${result.goal}")
             }
             is ProtocolDecoder.DecodedResult.AutoLock -> {
+                persistSettings { putInt("autoLockSecondsSetting", result.seconds) }
                 _state.update { it.copy(autoLockSecondsSetting = result.seconds) }
                 updateDebugLog("Auto-lock: ${result.seconds}s")
             }
@@ -451,7 +472,7 @@ class WatchManager(private val context: Context) {
         } else if (minutes == 0) {
             autoHeartRateTrackingStartedAt = 0L
         }
-        prefs.edit {
+        persistSettings {
             putInt("autoHeartRateIntervalMinutes", minutes)
             if (autoHeartRateTrackingStartedAt > 0L) {
                 putLong(AUTO_HR_TRACKING_STARTED_AT_KEY, autoHeartRateTrackingStartedAt)
@@ -1190,15 +1211,15 @@ class WatchManager(private val context: Context) {
         enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x41, *payload)))
     }
 
-    fun setAutoLockSeconds(seconds: Int) { val safe = seconds.coerceIn(5, 60); enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x7D, safe))); _state.update { it.copy(autoLockSecondsSetting = safe) } }
+    fun setAutoLockSeconds(seconds: Int) { val safe = seconds.coerceIn(5, 60); enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x7D, safe))); persistSettings { putInt("autoLockSecondsSetting", safe) }; _state.update { it.copy(autoLockSecondsSetting = safe) } }
     fun setQuickViewWindow(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
         val sH = startHour.coerceIn(0, 23); val sM = startMinute.coerceIn(0, 59); val eH = endHour.coerceIn(0, 23); val eM = endMinute.coerceIn(0, 59)
         sendFee2NativeRaw(nativePacket(0x72, sH, sM, eH, eM))
-        prefs.edit { putInt("quickViewStartHour", sH); putInt("quickViewStartMinute", sM); putInt("quickViewEndHour", eH); putInt("quickViewEndMinute", eM) }
+        persistSettings { putInt("quickViewStartHour", sH); putInt("quickViewStartMinute", sM); putInt("quickViewEndHour", eH); putInt("quickViewEndMinute", eM) }
         _state.update { it.copy(quickViewStartHour = sH, quickViewStartMinute = sM, quickViewEndHour = eH, quickViewEndMinute = eM) }
     }
 
-    fun setStepGoal(goal: Int) { val safe = (goal / 1000).coerceIn(2, 35) * 1000; enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x16, 0x00, (safe shr 8) and 0xFF, safe and 0xFF))); _state.update { it.copy(stepGoalSetting = safe) } }
+    fun setStepGoal(goal: Int) { val safe = (goal / 1000).coerceIn(2, 35) * 1000; enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x16, 0x00, (safe shr 8) and 0xFF, safe and 0xFF))); persistSettings { putInt("stepGoalSetting", safe) }; _state.update { it.copy(stepGoalSetting = safe) } }
     fun queryCurrentSteps() {
         enqueueOperations(listOf(nativePacket(0x59, 0x00), nativePacket(0x59, 0x01)))
     }
@@ -1295,6 +1316,8 @@ class WatchManager(private val context: Context) {
 
     fun setWeatherCity(city: String) {
         val safeCity = city.trim().ifBlank { "London" }.take(12)
+        persistSettings { putString("weatherCity", safeCity) }
+        _state.update { it.copy(weatherCity = safeCity) }
         managerScope.launch {
             val cityAscii = safeCity.lowercase().toByteArray(Charsets.UTF_8); val cityUtf16 = safeCity.lowercase().toByteArray(Charsets.UTF_16LE); val displayAscii = safeCity.toByteArray(Charsets.UTF_8)
             sendFee2NativeRaw(nativePacket(0xB9, 0x19, 0x00)); delay(180); sendFee2NativeRaw(nativePacket(0x43, 0x00, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, *cityUtf16.map { it.toInt() and 0xFF }.toIntArray())); delay(180)
@@ -1314,10 +1337,10 @@ class WatchManager(private val context: Context) {
     fun sendGadgetbridgeProbe(kind: String) {
         val packet = when (kind) {
             "get-alarms" -> nativePacket(0x21); "get-step-goal" -> nativePacket(0x26); "get-auto-lock" -> nativePacket(0x8D)
-            "time-12h" -> { _state.update { it.copy(is24HourFormat = false) }; nativePacket(0x17, 0x00) }
-            "time-24h" -> { _state.update { it.copy(is24HourFormat = true) }; nativePacket(0x17, 0x01) }
-            "quick-view-off" -> { _state.update { it.copy(quickViewEnabled = false) }; nativePacket(0x18, 0x00) }
-            "quick-view-on" -> { _state.update { it.copy(quickViewEnabled = true) }; nativePacket(0x18, 0x01) }
+            "time-12h" -> { persistSettings { putBoolean("is24HourFormat", false) }; _state.update { it.copy(is24HourFormat = false) }; nativePacket(0x17, 0x00) }
+            "time-24h" -> { persistSettings { putBoolean("is24HourFormat", true) }; _state.update { it.copy(is24HourFormat = true) }; nativePacket(0x17, 0x01) }
+            "quick-view-off" -> { persistSettings { putBoolean("quickViewEnabled", false) }; _state.update { it.copy(quickViewEnabled = false) }; nativePacket(0x18, 0x00) }
+            "quick-view-on" -> { persistSettings { putBoolean("quickViewEnabled", true) }; _state.update { it.copy(quickViewEnabled = true) }; nativePacket(0x18, 0x01) }
             "auto-hr-10m" -> nativePacket(0x1F, 0x02); "move-reminder-on" -> nativePacket(0x1D, 0x01); "sync-history-3d" -> { managerScope.launch { listOf(0x32, 0x33, 0x51, 0x52, 0x53).forEach { c -> (0..3).forEach { o -> sendFee2NativeRaw(nativePacket(c, o)); delay(200) } } }; nativePacket(0x64) }
             else -> return
         }
@@ -1341,35 +1364,36 @@ class WatchManager(private val context: Context) {
     fun readBattery() { bluetoothGatt?.services?.forEach { s -> s.getCharacteristic(BATTERY_CHAR)?.let { enqueueOperation(GattOperation.ReadCharacteristic(it)); return } } }
     fun startMeasurement(type: String) { updateDebugLog("$type app-start disabled. Use watch UI.") }
     fun stopMeasurement() { _state.update { it.copy(activeMeasurement = null) } }
-    fun updateShutterAction(a: String) { prefs.edit { putString("shutterAction", a) }; _state.update { it.copy(shutterAction = a) } }
-    fun updateMusicAction(a: String) { prefs.edit { putString("musicAction", a) }; _state.update { it.copy(musicAction = a) } }
-    fun updateCustomAction(b: String, a: String) { when (b) { "Play/Pause" -> { prefs.edit { putString("playPauseAction", a) }; _state.update { it.copy(playPauseAction = a) } }; "Next" -> { prefs.edit { putString("nextAction", a) }; _state.update { it.copy(nextAction = a) } }; "Previous" -> { prefs.edit { putString("prevAction", a) }; _state.update { it.copy(prevAction = a) } } } }
-    fun toggleAutoStart(e: Boolean) { prefs.edit { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
-    fun toggleAutoConnect(e: Boolean) { prefs.edit { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
-    fun toggleAutoFetchSteps(e: Boolean) { prefs.edit { putBoolean("autoFetchSteps", e) }; _state.update { it.copy(autoFetchSteps = e) }; restartAutoStepFetch() }
-    fun toggleAutoFetchBattery(e: Boolean) { prefs.edit { putBoolean("autoFetchBattery", e) }; _state.update { it.copy(autoFetchBattery = e) } }
-    fun toggleAutoFetchSleep(e: Boolean) { prefs.edit { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) }; restartAutoSleepFetch() }
-    fun updateStepFetchInterval(m: Int) { prefs.edit { putInt("stepFetchIntervalMinutes", m) }; _state.update { it.copy(stepFetchIntervalMinutes = m) }; restartAutoStepFetch() }
+    fun updateShutterAction(a: String) { persistSettings { putString("shutterAction", a) }; _state.update { it.copy(shutterAction = a) } }
+    fun updateMusicAction(a: String) { persistSettings { putString("musicAction", a) }; _state.update { it.copy(musicAction = a) } }
+    fun updateCustomAction(b: String, a: String) { when (b) { "Play/Pause" -> { persistSettings { putString("playPauseAction", a) }; _state.update { it.copy(playPauseAction = a) } }; "Next" -> { persistSettings { putString("nextAction", a) }; _state.update { it.copy(nextAction = a) } }; "Previous" -> { persistSettings { putString("prevAction", a) }; _state.update { it.copy(prevAction = a) } } } }
+    fun toggleAutoStart(e: Boolean) { persistSettings { putBoolean("autoStart", e) }; _state.update { it.copy(autoStart = e) } }
+    fun toggleAutoConnect(e: Boolean) { persistSettings { putBoolean("autoConnect", e) }; _state.update { it.copy(autoConnect = e) } }
+    fun toggleAutoFetchSteps(e: Boolean) { persistSettings { putBoolean("autoFetchSteps", e) }; _state.update { it.copy(autoFetchSteps = e) }; restartAutoStepFetch() }
+    fun toggleAutoFetchBattery(e: Boolean) { persistSettings { putBoolean("autoFetchBattery", e) }; _state.update { it.copy(autoFetchBattery = e) } }
+    fun toggleAutoFetchSleep(e: Boolean) { persistSettings { putBoolean("autoFetchSleep", e) }; _state.update { it.copy(autoFetchSleep = e) }; restartAutoSleepFetch() }
+    fun updateStepFetchInterval(m: Int) { persistSettings { putInt("stepFetchIntervalMinutes", m) }; _state.update { it.copy(stepFetchIntervalMinutes = m) }; restartAutoStepFetch() }
     fun updateAutoHeartRateReactivationInterval(minutes: Int) {
         val safe = if (minutes in listOf(0, 15, 30, 60, 120, 180, 240, 300, 360)) minutes else return
-        prefs.edit { putInt("autoHeartRateReactivationMinutes", safe) }
+        persistSettings { putInt("autoHeartRateReactivationMinutes", safe) }
         _state.update { it.copy(autoHeartRateReactivationMinutes = safe) }
         restartAutoHeartRateReactivation()
     }
-    fun toggleNotifications(e: Boolean) { prefs.edit { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
-    fun toggleIgnoreDuplicates(e: Boolean) { prefs.edit { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
-    fun toggleLegacyCallNotifications(e: Boolean) { prefs.edit { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
-    fun toggleHrReminder(enabled: Boolean) { prefs.edit { putBoolean("hrReminderEnabled", enabled) }; _state.update { it.copy(hrReminderEnabled = enabled) }; restartHrReminder() }
-    fun updateHrReminderInterval(minutes: Int) { val safe = minutes.coerceIn(15, 720); prefs.edit { putInt("hrReminderIntervalMinutes", safe) }; _state.update { it.copy(hrReminderIntervalMinutes = safe) }; restartHrReminder() }
-    fun toggleDoubleConfirmations(enabled: Boolean) { prefs.edit { putBoolean("doubleConfirmationsEnabled", enabled) }; _state.update { it.copy(doubleConfirmationsEnabled = enabled) } }
-    fun addNotificationFilter(pkg: String) { val f = _state.value.notificationFilters + pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
-    fun removeNotificationFilter(pkg: String) { val f = _state.value.notificationFilters - pkg; prefs.edit { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
-    fun registerDiscoveredApp(p: String, n: String) { if (_state.value.discoveredApps[p] == n) return; val a = _state.value.discoveredApps + (p to n); prefs.edit { putStringSet("discoveredApps", a.map { "${it.key}|${it.value}" }.toSet()) }; _state.update { it.copy(discoveredApps = a) } }
-    fun updateBatteryThreshold(t: Int) { prefs.edit { putInt("batteryThreshold", t) }; _state.update { it.copy(batteryThreshold = t) } }
-    fun updateBorderColor(c: Int) { prefs.edit { putInt("borderColor", c) }; _state.update { it.copy(borderColor = c) } }
-    fun updateBorderThickness(t: Float) { prefs.edit { putFloat("borderThickness", t) }; _state.update { it.copy(borderThickness = t) } }
-    fun updateBorderAlpha(a: Float) { prefs.edit { putFloat("borderAlpha", a) }; _state.update { it.copy(borderAlpha = a) } }
-    fun updateProfile(g: String, h: Int, w: Float, a: Int) { prefs.edit { putString("profileGender", g); putInt("profileHeightCm", h); putFloat("profileWeightKg", w); putInt("profileAgeYears", a) }; _state.update { it.copy(profileGender = g, profileHeightCm = h, profileWeightKg = w, profileAgeYears = a) } }
+    fun toggleNotifications(e: Boolean) { persistSettings { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
+    fun toggleIgnoreDuplicates(e: Boolean) { persistSettings { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
+    fun toggleLegacyCallNotifications(e: Boolean) { persistSettings { putBoolean("useLegacyCallNotifications", e) }; _state.update { it.copy(useLegacyCallNotifications = e) } }
+    fun toggleHrReminder(enabled: Boolean) { persistSettings { putBoolean("hrReminderEnabled", enabled) }; _state.update { it.copy(hrReminderEnabled = enabled) }; restartHrReminder() }
+    fun updateHrReminderInterval(minutes: Int) { val safe = minutes.coerceIn(15, 720); persistSettings { putInt("hrReminderIntervalMinutes", safe) }; _state.update { it.copy(hrReminderIntervalMinutes = safe) }; restartHrReminder() }
+    fun toggleDoubleConfirmations(enabled: Boolean) { persistSettings { putBoolean("doubleConfirmationsEnabled", enabled) }; _state.update { it.copy(doubleConfirmationsEnabled = enabled) } }
+    fun addNotificationFilter(pkg: String) { val f = _state.value.notificationFilters + pkg; persistSettings { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
+    fun removeNotificationFilter(pkg: String) { val f = _state.value.notificationFilters - pkg; persistSettings { putStringSet("notificationFilters", f) }; _state.update { it.copy(notificationFilters = f) } }
+    fun registerDiscoveredApp(p: String, n: String) { if (_state.value.discoveredApps[p] == n) return; val a = _state.value.discoveredApps + (p to n); persistSettings { putStringSet("discoveredApps", a.map { "${it.key}|${it.value}" }.toSet()) }; _state.update { it.copy(discoveredApps = a) } }
+    fun updateBatteryThreshold(t: Int) { val safe = t.coerceIn(5, 90); persistSettings { putInt("batteryThreshold", safe) }; _state.update { it.copy(batteryThreshold = safe) } }
+    fun updateGaugeReference(setting: GaugeSetting, value: Int) { val safe = value.coerceIn(0, 1_000_000); persistSettings { putInt(setting.preferenceKey, safe) }; _state.update { it.copy(gaugeSettings = it.gaugeSettings + (setting to safe)) } }
+    fun updateBorderColor(c: Int) { persistSettings { putInt("borderColor", c) }; _state.update { it.copy(borderColor = c) } }
+    fun updateBorderThickness(t: Float) { persistSettings { putFloat("borderThickness", t) }; _state.update { it.copy(borderThickness = t) } }
+    fun updateBorderAlpha(a: Float) { persistSettings { putFloat("borderAlpha", a) }; _state.update { it.copy(borderAlpha = a) } }
+    fun updateProfile(g: String, h: Int, w: Float, a: Int) { persistSettings { putString("profileGender", g); putInt("profileHeightCm", h); putFloat("profileWeightKg", w); putInt("profileAgeYears", a) }; _state.update { it.copy(profileGender = g, profileHeightCm = h, profileWeightKg = w, profileAgeYears = a) } }
     fun saveFood(food: FoodEntity) {
         managerScope.launch {
             val sanitized = food.sanitized()
@@ -1377,34 +1401,38 @@ class WatchManager(private val context: Context) {
         }
     }
     fun updateEatSourceFilters(showHome: Boolean, showStore: Boolean, showFastFood: Boolean) {
-        prefs.edit {
+        persistSettings {
             putBoolean("eatShowHome", showHome)
             putBoolean("eatShowStore", showStore)
             putBoolean("eatShowFastFood", showFastFood)
         }
         _state.update { it.copy(eatShowHome = showHome, eatShowStore = showStore, eatShowFastFood = showFastFood) }
     }
+    fun updateEatCalorieTargetMode(mode: CalorieTargetMode) {
+        persistSettings { putString("eatCalorieTargetMode", mode.name) }
+        _state.update { it.copy(eatCalorieTargetMode = mode.name) }
+    }
     fun applyMealCalories(calories: Int) {
         val total = (_state.value.appliedMealCalories + calories.coerceAtLeast(0)).coerceIn(0, 100_000)
-        prefs.edit {
+        persistSettings {
             putInt("appliedMealCalories", total)
             putString("appliedMealCaloriesDay", mealDayKey())
         }
         _state.update { it.copy(appliedMealCalories = total) }
     }
     fun updateEatCaloriesIncremental(enabled: Boolean) {
-        prefs.edit {
+        persistSettings {
             putBoolean("eatCaloriesIncremental", enabled)
             putString("appliedMealCaloriesDay", mealDayKey())
         }
         if (!enabled) {
             calorieCarryOffset = 0
-            prefs.edit { putInt("calorieCarryOffset", 0) }
+            persistSettings { putInt("calorieCarryOffset", 0) }
         }
         _state.update { it.copy(eatCaloriesIncremental = enabled, calories = if (enabled) it.calories else lastRawCalories) }
     }
     fun resetAppliedMealCalories() {
-        prefs.edit {
+        persistSettings {
             putInt("appliedMealCalories", 0)
             putString("appliedMealCaloriesDay", mealDayKey())
         }
@@ -1412,7 +1440,7 @@ class WatchManager(private val context: Context) {
     }
     fun resetCalorieBaseline() {
         val baseline = _state.value.calories ?: _state.value.caloriesHistory.maxOfOrNull { it.value } ?: 0
-        prefs.edit { putInt("calorieBaseline", baseline) }
+        persistSettings { putInt("calorieBaseline", baseline) }
         _state.update { it.copy(calorieBaseline = baseline) }
     }
     private fun adjustedCalories(rawCalories: Int): Int {
@@ -1433,7 +1461,7 @@ class WatchManager(private val context: Context) {
     }
     fun setShoppingListChecked(id: Long, checked: Boolean) {
         val checkedIds = if (checked) _state.value.shoppingListCheckedIds + id else _state.value.shoppingListCheckedIds - id
-        prefs.edit { putStringSet("shoppingListCheckedIds", checkedIds.map { it.toString() }.toSet()) }
+        persistSettings { putStringSet("shoppingListCheckedIds", checkedIds.map { it.toString() }.toSet()) }
         _state.update { it.copy(shoppingListCheckedIds = checkedIds) }
     }
     fun deleteFood(id: Long) { managerScope.launch { foodDao.deleteById(id) } }
@@ -1469,12 +1497,12 @@ class WatchManager(private val context: Context) {
             }
         }
     }
-    fun updateProtocol(h: String, u: String, p: Boolean) { _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
-    fun updateVolumeSteps(s: Int) { prefs.edit { putInt("volumeSteps", s) }; _state.update { it.copy(volumeSteps = s) } }
-    fun toggleAutoSyncAlarm(e: Boolean) { prefs.edit { putBoolean("autoSyncAlarm", e) }; _state.update { it.copy(autoSyncAlarm = e) } }
-    fun toggleAutoSyncTime(e: Boolean) { prefs.edit { putBoolean("autoSyncTime", e) }; _state.update { it.copy(autoSyncTime = e) }; restartAutoSyncTime() }
-    fun updateSyncTimeInterval(h: Int) { prefs.edit { putInt("syncTimeIntervalHours", h) }; _state.update { it.copy(syncTimeIntervalHours = h) }; restartAutoSyncTime() }
-    fun toggleMuteAlarmSyncNotification(e: Boolean) { prefs.edit { putBoolean("muteAlarmSyncNotification", e) }; _state.update { it.copy(muteAlarmSyncNotification = e) } }
+    fun updateProtocol(h: String, u: String, p: Boolean) { persistSettings { putString("protocolHeader", h); putString("writeUuidShort", u); putBoolean("payloadLengthOnly", p) }; _state.update { it.copy(protocolHeader = h, writeUuidShort = u, payloadLengthOnly = p) } }
+    fun updateVolumeSteps(s: Int) { persistSettings { putInt("volumeSteps", s) }; _state.update { it.copy(volumeSteps = s) } }
+    fun toggleAutoSyncAlarm(e: Boolean) { persistSettings { putBoolean("autoSyncAlarm", e) }; _state.update { it.copy(autoSyncAlarm = e) } }
+    fun toggleAutoSyncTime(e: Boolean) { persistSettings { putBoolean("autoSyncTime", e) }; _state.update { it.copy(autoSyncTime = e) }; restartAutoSyncTime() }
+    fun updateSyncTimeInterval(h: Int) { persistSettings { putInt("syncTimeIntervalHours", h) }; _state.update { it.copy(syncTimeIntervalHours = h) }; restartAutoSyncTime() }
+    fun toggleMuteAlarmSyncNotification(e: Boolean) { persistSettings { putBoolean("muteAlarmSyncNotification", e) }; _state.update { it.copy(muteAlarmSyncNotification = e) } }
     fun setFindingPhone(active: Boolean) { _state.update { it.copy(isFindingPhone = active) } }
     fun setServiceRunning(r: Boolean) { _state.update { it.copy(isServiceRunning = r) } }
     private fun FoodEntity.sanitized(): FoodEntity {
@@ -1623,7 +1651,7 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob?.cancel()
         stopScan()
         lastConnectedDevice = device
-        prefs.edit { putString(LAST_DEVICE_ADDRESS_KEY, device.address) }
+        persistSettings { putString(LAST_DEVICE_ADDRESS_KEY, device.address) }
         _state.update { it.copy(connectionStatus = "Connecting...", connectionDetail = "Connecting to ${device.name ?: device.address}", reconnectAttempt = reconnectAttempt, deviceName = device.name) }
         bluetoothGatt?.close()
         bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
@@ -1870,13 +1898,13 @@ class WatchManager(private val context: Context) {
 
     fun updateHealthRetentionDays(days: Int) {
         val safe = days.coerceIn(7, 3650)
-        prefs.edit { putInt("healthRetentionDays", safe) }
+        persistSettings { putInt("healthRetentionDays", safe) }
         _state.update { it.copy(healthRetentionDays = safe) }
     }
 
     fun updateHealthWriteInterval(minutes: Int) {
         val safe = HealthSavePolicy.normalizeIntervalMinutes(minutes)
-        prefs.edit { putInt("healthWriteIntervalMinutes", safe) }
+        persistSettings { putInt("healthWriteIntervalMinutes", safe) }
         _state.update { it.copy(healthWriteIntervalMinutes = safe) }
         synchronized(healthWriteLock) {
             healthFlushJob?.cancel()

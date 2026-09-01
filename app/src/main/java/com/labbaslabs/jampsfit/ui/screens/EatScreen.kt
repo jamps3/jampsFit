@@ -100,7 +100,6 @@ import kotlin.math.roundToInt
 @Composable
 fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val viewModel = LocalMainViewModel.current
-    var targetModeName by rememberSaveable { mutableStateOf(CalorieTargetMode.TotalSoFar.name) }
     var lockedSuggestionId by rememberSaveable { mutableStateOf<String?>(null) }
     var lockedFoodId by rememberSaveable { mutableLongStateOf(0L) }
     var lockedAmount by rememberSaveable { mutableFloatStateOf(0f) }
@@ -120,7 +119,8 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var candySize by rememberSaveable { mutableStateOf("") }
     var candyHours by rememberSaveable { mutableStateOf("") }
 
-    val targetMode = CalorieTargetMode.valueOf(targetModeName)
+    val targetMode = CalorieTargetMode.entries.firstOrNull { it.name == state.eatCalorieTargetMode }
+        ?: CalorieTargetMode.TotalSoFar
     val rawTargetCalories = calculateEatCalorieTarget(state, targetMode)
     val targetCalories = (rawTargetCalories - state.appliedMealCalories).coerceAtLeast(0)
     val selectedSources = buildSet {
@@ -200,7 +200,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                 FilterChip(
                     selected = targetMode == CalorieTargetMode.TotalSoFar,
                     onClick = {
-                        targetModeName = CalorieTargetMode.TotalSoFar.name
+                        viewModel.updateEatCalorieTargetMode(CalorieTargetMode.TotalSoFar)
                         lockedSuggestionId = null
                     },
                     label = { Text("Total") }
@@ -208,7 +208,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
                 FilterChip(
                     selected = targetMode == CalorieTargetMode.ActiveBurned,
                     onClick = {
-                        targetModeName = CalorieTargetMode.ActiveBurned.name
+                        viewModel.updateEatCalorieTargetMode(CalorieTargetMode.ActiveBurned)
                         lockedSuggestionId = null
                     },
                     label = { Text("Active") }

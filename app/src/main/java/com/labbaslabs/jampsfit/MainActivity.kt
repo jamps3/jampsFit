@@ -296,17 +296,30 @@ class MainActivity : ComponentActivity() {
 
     fun requestFullScreenIntentPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val intent = Intent("android.settings.MANAGE_FULL_SCREEN_INTENT").apply {
-                data = Uri.fromParts("package", packageName, null)
+            val appUri = Uri.fromParts("package", packageName, null)
+            val settingsIntents = listOf(
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = appUri
+                },
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                },
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = appUri
+                },
+            )
+            val launched = settingsIntents.any { intent ->
+                runCatching { startActivity(intent) }.isSuccess
             }
-            try {
-                startActivity(intent)
-            } catch (_: Exception) {
-                try {
-                    startActivity(Intent("android.settings.MANAGE_FULL_SCREEN_INTENT"))
-                } catch (_: Exception) {}
+            if (!launched) {
+                Toast.makeText(this, "Unable to open full-screen intent settings", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        watchService?.watchManager?.checkFullScreenIntentPermission()
     }
 
     override fun onDestroy() {

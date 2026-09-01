@@ -2,10 +2,12 @@ package com.labbaslabs.jampsfit.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.labbaslabs.jampsfit.GaugeSetting
 import com.labbaslabs.jampsfit.WatchManager
 import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.database.FoodEntity
 import com.labbaslabs.jampsfit.database.SupplementEntity
+import com.labbaslabs.jampsfit.food.CalorieTargetMode
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,6 +93,7 @@ class MainViewModel : ViewModel() {
     fun saveFood(food: FoodEntity) = watchManager?.saveFood(food)
     fun updateEatSourceFilters(showHome: Boolean, showStore: Boolean, showFastFood: Boolean) =
         watchManager?.updateEatSourceFilters(showHome, showStore, showFastFood)
+    fun updateEatCalorieTargetMode(mode: CalorieTargetMode) = watchManager?.updateEatCalorieTargetMode(mode)
     fun applyMealCalories(calories: Int) = watchManager?.applyMealCalories(calories)
     fun updateEatCaloriesIncremental(enabled: Boolean) = watchManager?.updateEatCaloriesIncremental(enabled)
     fun resetAppliedMealCalories() = watchManager?.resetAppliedMealCalories()
@@ -104,6 +107,7 @@ class MainViewModel : ViewModel() {
         
     fun updateVolumeSteps(steps: Int) = watchManager?.updateVolumeSteps(steps)
     fun updateBatteryThreshold(threshold: Int) = watchManager?.updateBatteryThreshold(threshold)
+    fun updateGaugeReference(setting: GaugeSetting, value: Int) = watchManager?.updateGaugeReference(setting, value)
     
     fun setAutoLockSeconds(seconds: Int) = watchManager?.setAutoLockSeconds(seconds)
     fun setQuickViewWindow(startH: Int, startM: Int, endH: Int, em: Int) = 

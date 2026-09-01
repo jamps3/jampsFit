@@ -17,7 +17,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.labbaslabs.jampsfit.GaugeSetting
 import com.labbaslabs.jampsfit.LocalMainViewModel
 import com.labbaslabs.jampsfit.R
 import com.labbaslabs.jampsfit.WatchState
@@ -43,18 +43,8 @@ import androidx.compose.foundation.border
 @Composable
 fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val viewModel = LocalMainViewModel.current
-    var batteryLowReference by rememberSaveable { mutableStateOf("0") }
-    var batteryReference by rememberSaveable { mutableStateOf("100") }
-    var activityReference by rememberSaveable { mutableStateOf("100") }
-    var stepsReference by rememberSaveable { mutableStateOf("10000") }
-    var heartRateReference by rememberSaveable { mutableStateOf("75") }
-    var spo2Reference by rememberSaveable { mutableStateOf("98") }
-    var bloodPressureReference by rememberSaveable { mutableStateOf("120") }
-    var bloodPressureDiastolicReference by rememberSaveable { mutableStateOf("80") }
-    var distanceReference by rememberSaveable { mutableStateOf("5000") }
-    var caloriesBurnedReference by rememberSaveable { mutableStateOf("500") }
-    var totalCaloriesReference by rememberSaveable { mutableStateOf("2500") }
     var selectedGauge by remember { mutableStateOf<GaugeMetric?>(null) }
+    fun gauge(setting: GaugeSetting): Int = state.gaugeSettings[setting] ?: setting.defaultValue
 
     Column(
         modifier = Modifier
@@ -134,12 +124,12 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
         val totalCalories = adjustedCalories?.let { it + basalCaloriesSoFar }
         MetricGaugeGrid(
             metrics = listOf(
-                GaugeMetric("Battery", state.battery, "%", gaugeReference(batteryReference, 100), 100, Icons.Default.BatteryChargingFull, Color(0xFF4CAF50), state.batteryEstimation, lowReference = gaugeReference(batteryLowReference, 0), defaultLowReference = 0, onReferenceChange = { batteryReference = it.toString() }, onLowReferenceChange = { batteryLowReference = it.toString() }),
-                GaugeMetric("Activity", state.activityCount, "", gaugeReference(activityReference, 100), 100, Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFFFFC107), onReferenceChange = { activityReference = it.toString() }),
-                GaugeMetric("Steps", state.steps, "", gaugeReference(stepsReference, 10_000), 10_000, Icons.Default.Timeline, Color(0xFF8BC34A), onReferenceChange = { stepsReference = it.toString() }, action = {
+                GaugeMetric("Battery", state.battery, "%", gauge(GaugeSetting.BATTERY), 100, Icons.Default.BatteryChargingFull, Color(0xFF4CAF50), state.batteryEstimation, lowReference = gauge(GaugeSetting.BATTERY_LOW), defaultLowReference = 0, onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BATTERY, it) }, onLowReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BATTERY_LOW, it) }),
+                GaugeMetric("Activity", state.activityCount, "", gauge(GaugeSetting.ACTIVITY), 100, Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFFFFC107), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.ACTIVITY, it) }),
+                GaugeMetric("Steps", state.steps, "", gauge(GaugeSetting.STEPS), 10_000, Icons.Default.Timeline, Color(0xFF8BC34A), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.STEPS, it) }, action = {
                     MeasurementButton(isActive = false, enabled = state.isConnected, onClick = { viewModel.queryCurrentSteps() })
                 }),
-                GaugeMetric("Heart Rate", state.heartRate, " bpm", gaugeReference(heartRateReference, 75), 75, Icons.Default.Favorite, Color(0xFFE91E63), onReferenceChange = { heartRateReference = it.toString() }, action = {
+                GaugeMetric("Heart Rate", state.heartRate, " bpm", gauge(GaugeSetting.HEART_RATE), 75, Icons.Default.Favorite, Color(0xFFE91E63), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.HEART_RATE, it) }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "Heart Rate",
                         enabled = state.isConnected,
@@ -149,7 +139,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("SpO2", state.spo2, "%", gaugeReference(spo2Reference, 98), 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), onReferenceChange = { spo2Reference = it.toString() }, action = {
+                GaugeMetric("SpO2", state.spo2, "%", gauge(GaugeSetting.SPO2), 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.SPO2, it) }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "SpO2",
                         enabled = state.isConnected,
@@ -159,7 +149,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("Blood Pressure", state.systolic, " sys", gaugeReference(bloodPressureReference, 120), 120, Icons.Default.Speed, Color(0xFFFF5722), secondaryValue = state.diastolic, secondaryUnit = " dia", secondaryReference = gaugeReference(bloodPressureDiastolicReference, 80), defaultSecondaryReference = 80, secondaryColor = Color(0xFF03A9F4), onReferenceChange = { bloodPressureReference = it.toString() }, onSecondaryReferenceChange = { bloodPressureDiastolicReference = it.toString() }, action = {
+                GaugeMetric("Blood Pressure", state.systolic, " sys", gauge(GaugeSetting.BLOOD_PRESSURE_SYSTOLIC), 120, Icons.Default.Speed, Color(0xFFFF5722), secondaryValue = state.diastolic, secondaryUnit = " dia", secondaryReference = gauge(GaugeSetting.BLOOD_PRESSURE_DIASTOLIC), defaultSecondaryReference = 80, secondaryColor = Color(0xFF03A9F4), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BLOOD_PRESSURE_SYSTOLIC, it) }, onSecondaryReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BLOOD_PRESSURE_DIASTOLIC, it) }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "Blood Pressure",
                         enabled = state.isConnected,
@@ -169,9 +159,9 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("Distance", state.distance, " m", gaugeReference(distanceReference, 5_000), 5_000, Icons.Default.Straighten, Color(0xFF2196F3), onReferenceChange = { distanceReference = it.toString() }),
-                GaugeMetric("Calories Burned", adjustedCalories, " kcal", gaugeReference(caloriesBurnedReference, 500), 500, Icons.Default.LocalFireDepartment, Color(0xFFFF9800), onReferenceChange = { caloriesBurnedReference = it.toString() }),
-                GaugeMetric("Total Calories", totalCalories, " kcal", gaugeReference(totalCaloriesReference, 2500), 2500, Icons.Default.LocalFireDepartment, Color(0xFF00BCD4), supportingText = "Base + burned", onReferenceChange = { totalCaloriesReference = it.toString() })
+                GaugeMetric("Distance", state.distance, " m", gauge(GaugeSetting.DISTANCE), 5_000, Icons.Default.Straighten, Color(0xFF2196F3), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.DISTANCE, it) }),
+                GaugeMetric("Calories Burned", adjustedCalories, " kcal", gauge(GaugeSetting.CALORIES_BURNED), 500, Icons.Default.LocalFireDepartment, Color(0xFFFF9800), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.CALORIES_BURNED, it) }),
+                GaugeMetric("Total Calories", totalCalories, " kcal", gauge(GaugeSetting.TOTAL_CALORIES), 2500, Icons.Default.LocalFireDepartment, Color(0xFF00BCD4), supportingText = "Base + burned", onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.TOTAL_CALORIES, it) })
             ),
             onMetricClick = { selectedGauge = it }
         )
@@ -489,10 +479,6 @@ private fun currentLabel(metric: GaugeMetric): String {
     } else {
         metric.value?.let { "$it${metric.unit}" } ?: "--"
     }
-}
-
-private fun gaugeReference(value: String, default: Int): Int {
-    return value.toIntOrNull()?.takeIf { it > 0 } ?: default
 }
 
 private fun buildSleepSummary(state: WatchState): String {
