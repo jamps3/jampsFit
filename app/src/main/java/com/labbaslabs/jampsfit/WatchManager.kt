@@ -263,6 +263,8 @@ class WatchManager(private val context: Context) {
     private var lastConnectedDevice: BluetoothDevice? = null
     private val operationQueue: Queue<GattOperation> = LinkedList()
     private var isOperating = false
+    private var activeOperation: GattOperation? = null
+    private var operationAttempts = 0
     private var lastOpTime = 0L
     private var userRequestedDisconnect = false
     private var reconnectJob: Job? = null
@@ -621,6 +623,7 @@ class WatchManager(private val context: Context) {
         private const val TARGET_NAME = "TANK M1"
         private const val LAST_DEVICE_ADDRESS_KEY = "lastDeviceAddress"
         private const val OPERATION_TIMEOUT_MS = 10_000L
+        private const val MAX_OPERATION_ATTEMPTS = 3
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -1368,7 +1371,12 @@ class WatchManager(private val context: Context) {
     private fun enqueueOperation(op: GattOperation) { synchronized(operationQueue) { operationQueue.add(op); if (!isOperating) doNextOperation() } }
     private fun doNextOperation() {
         synchronized(operationQueue) {
-            if (isOperating) return; val op = operationQueue.poll() ?: return; isOperating = true; lastOpTime = System.currentTimeMillis()
+            if (isOperating) return
+            val op = activeOperation ?: operationQueue.poll() ?: return
+            activeOperation = op
+            isOperating = true
+            operationAttempts++
+            lastOpTime = System.currentTimeMillis()
             startOperationWatchdog()
             managerScope.launch {
                 val gatt = bluetoothGatt ?: run { finishOperation(); return@launch }
@@ -1377,10 +1385,17 @@ class WatchManager(private val context: Context) {
                     is GattOperation.ReadCharacteristic -> if (gatt.readCharacteristic(op.characteristic)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
                     is GattOperation.WriteCharacteristic -> {
                         val uuid = (op.charUuid?.toString()?.substring(4, 8) ?: _state.value.writeUuidShort).lowercase()
-                        gatt.services.flatMap { it.characteristics }.find { it.uuid.toString().substring(4, 8).lowercase() == uuid }?.let { gatt.writeCharacteristic(it, op.value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) } ?: BluetoothStatusCodes.ERROR_UNKNOWN
+                        gatt.services.flatMap { it.characteristics }.find { it.uuid.toString().substring(4, 8).lowercase() == uuid }?.let { characteristic ->
+                            val writeType = when {
+                                characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                                else -> return@let BluetoothStatusCodes.ERROR_UNKNOWN
+                            }
+                            gatt.writeCharacteristic(characteristic, op.value, writeType)
+                        } ?: BluetoothStatusCodes.ERROR_UNKNOWN
                     }
                 }
-                if (code != BluetoothStatusCodes.SUCCESS) finishOperation()
+                if (code != BluetoothStatusCodes.SUCCESS) retryOrFinish("start failed ($code)")
             }
         }
     }
@@ -1460,7 +1475,7 @@ class WatchManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
             if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1472,9 +1487,9 @@ class WatchManager(private val context: Context) {
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
             } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateReactivation()
         }
-        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { finishOperation() }
-        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { finishOperation() }
-        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); finishOperation() }
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { if (matchesActiveOperation(g, d)) completeOperation(s, "descriptor ${d.uuid}") }
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { if (matchesActiveOperation(g, c)) completeOperation(s, "write ${c.uuid}") }
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (!matchesActiveOperation(g, c)) return; if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); completeOperation(s, "read ${c.uuid}") }
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray) { logIncomingPacket(c.uuid, v); decoder.decode(c.uuid, v) }
     }
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
@@ -1647,9 +1662,40 @@ class WatchManager(private val context: Context) {
         return hour in 5..12
     }
     private fun finishOperation() {
-        synchronized(operationQueue) { isOperating = false }
+        synchronized(operationQueue) { isOperating = false; activeOperation = null; operationAttempts = 0 }
         operationWatchdogJob?.cancel()
         doNextOperation()
+    }
+    private fun matchesActiveOperation(gatt: BluetoothGatt, target: Any): Boolean {
+        if (gatt !== bluetoothGatt) return false
+        return synchronized(operationQueue) {
+            when (val op = activeOperation) {
+                is GattOperation.WriteDescriptor -> target === op.descriptor
+                is GattOperation.ReadCharacteristic -> target === op.characteristic
+                is GattOperation.WriteCharacteristic -> target is BluetoothGattCharacteristic &&
+                    target.uuid.toString().substring(4, 8).equals(op.charUuid?.toString()?.substring(4, 8) ?: _state.value.writeUuidShort, true)
+                null -> false
+            }
+        }
+    }
+    private fun completeOperation(status: Int, description: String) {
+        if (status == BluetoothGatt.GATT_SUCCESS) finishOperation()
+        else retryOrFinish("$description failed ($status)")
+    }
+    private fun retryOrFinish(reason: String) {
+        operationWatchdogJob?.cancel()
+        val shouldRetry = synchronized(operationQueue) { isOperating && operationAttempts < MAX_OPERATION_ATTEMPTS }
+        if (!shouldRetry) {
+            updateDebugLog("GATT $reason; operation dropped")
+            finishOperation()
+            return
+        }
+        updateDebugLog("GATT $reason; retry $operationAttempts/$MAX_OPERATION_ATTEMPTS")
+        managerScope.launch {
+            delay(250L * operationAttempts)
+            synchronized(operationQueue) { isOperating = false }
+            doNextOperation()
+        }
     }
     private fun startOperationWatchdog() {
         operationWatchdogJob?.cancel()
@@ -1657,10 +1703,8 @@ class WatchManager(private val context: Context) {
             delay(OPERATION_TIMEOUT_MS)
             synchronized(operationQueue) {
                 if (!isOperating || System.currentTimeMillis() - lastOpTime < OPERATION_TIMEOUT_MS) return@launch
-                isOperating = false
             }
-            updateDebugLog("GATT operation timed out; continuing queue.")
-            doNextOperation()
+            retryOrFinish("operation timed out")
         }
     }
     private fun rememberRecentPayload(k: String, q: ArrayDeque<String>, s: MutableSet<String>): Boolean = synchronized(q) { if (!s.add(k)) true else { q.addLast(k); while (q.size > 32) s.remove(q.removeFirst()); false } }
