@@ -30,6 +30,10 @@ data class GamificationSummary(
     val weeklySleepNights: Int,
     val bestSteps: Int,
     val bestSleepMinutes: Int
+    ,val questTitle: String,
+    val questValue: Int,
+    val questTarget: Int,
+    val milestones: List<String>
 )
 
 data class GoalProgress(
@@ -115,7 +119,15 @@ fun calculateGamificationSummary(state: WatchState): GamificationSummary {
         weeklySteps = weekEntries.sumOf { it.steps ?: 0 },
         weeklySleepNights = weekEntries.count { (it.sleepMinutes ?: 0) >= DEFAULT_SLEEP_GOAL_MINUTES },
         bestSteps = bestSteps,
-        bestSleepMinutes = state.dailyStats.maxOfOrNull { it.sleepMinutes ?: 0 } ?: todaySleep
+        bestSleepMinutes = state.dailyStats.maxOfOrNull { it.sleepMinutes ?: 0 } ?: todaySleep,
+        questTitle = if (Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % 2 == 0) "Reach 7,500 steps today" else "Capture a heart-rate reading",
+        questValue = if (Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % 2 == 0) todaySteps else if (hasHeartRate) 1 else 0,
+        questTarget = if (Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % 2 == 0) 7_500 else 1,
+        milestones = buildList {
+            if (bestSteps >= 5_000) add("5k steps reached")
+            if (streak >= 3) add("3-day step streak")
+            state.recentEvents.filter { it.endTime != null }.take(3).forEach { add("${it.name} completed") }
+        }.take(5)
     )
 }
 

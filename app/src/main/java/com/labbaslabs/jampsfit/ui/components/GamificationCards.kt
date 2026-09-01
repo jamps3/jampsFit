@@ -96,6 +96,18 @@ fun GamificationCard(state: WatchState) {
             style = MaterialTheme.typography.bodySmall,
             color = Color.LightGray
         )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Today's quest: ${summary.questTitle}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        LinearProgressIndicator(
+            progress = { (summary.questValue.toFloat() / summary.questTarget).coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(6.dp),
+            color = Color(0xFF03A9F4),
+            trackColor = Color.DarkGray.copy(alpha = 0.6f)
+        )
+        Text("${summary.questValue}/${summary.questTarget}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        if (summary.milestones.isNotEmpty()) {
+            Text("Recent milestones: ${summary.milestones.joinToString(" • ")}", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
