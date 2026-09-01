@@ -95,6 +95,7 @@ data class WatchState(
     val pendingHealthSyncCount: Int = 0,
     val lastHealthSyncError: String? = null,
     val lastHealthSyncTime: Long? = null,
+    val healthRetentionDays: Int = 180,
     val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
@@ -242,6 +243,7 @@ class WatchManager(private val context: Context) {
             ?.toSet()
             ?: emptySet(),
         lastHealthSyncTime = initialLastHealthSyncTime
+        ,healthRetentionDays = prefs.getInt("healthRetentionDays", 180)
     ))
     val state = _state.asStateFlow()
 
@@ -406,9 +408,10 @@ class WatchManager(private val context: Context) {
     private fun cleanupSeenNotifications() {
         managerScope.launch {
             val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-            val sixMonthsAgo = System.currentTimeMillis() - (180L * 24 * 60 * 60 * 1000)
+            val retentionDays = prefs.getInt("healthRetentionDays", 180).coerceIn(7, 3650)
+            val retentionThreshold = System.currentTimeMillis() - (retentionDays.toLong() * 24 * 60 * 60 * 1000)
             healthDao.cleanupOldNotifications(oneMonthAgo)
-            healthDao.cleanupOldHealthData(sixMonthsAgo)
+            healthDao.cleanupOldHealthData(retentionThreshold)
             healthDao.trimUnknownPackets(500)
         }
     }
@@ -1545,6 +1548,12 @@ class WatchManager(private val context: Context) {
             _state.update { it.copy(lastHealthSyncError = null) }
             updateDebugLog("Health sync retry requested.")
         }
+    }
+
+    fun updateHealthRetentionDays(days: Int) {
+        val safe = days.coerceIn(7, 3650)
+        prefs.edit { putInt("healthRetentionDays", safe) }
+        _state.update { it.copy(healthRetentionDays = safe) }
     }
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {

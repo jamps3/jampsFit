@@ -108,6 +108,15 @@ private fun WatchSettingsControls(
             Spacer(modifier = Modifier.width(8.dp))
             Text("Find My Watch")
         }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Health history retention: ${state.healthRetentionDays} days", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Slider(
+            value = state.healthRetentionDays.toFloat(),
+            onValueChange = { viewModel.updateHealthRetentionDays(it.toInt()) },
+            valueRange = 7f..3650f,
+            steps = 20
+        )
+        Text("Older health samples are removed during startup cleanup.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
     }
 
     SleekCard {

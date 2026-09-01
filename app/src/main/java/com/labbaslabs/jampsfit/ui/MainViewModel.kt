@@ -121,6 +121,7 @@ class MainViewModel : ViewModel() {
     fun readBattery() = watchManager?.readBattery()
     fun clearQueue() = watchManager?.clearQueue()
     fun retryPendingHealthSync() = watchManager?.retryPendingHealthSync()
+    fun updateHealthRetentionDays(days: Int) = watchManager?.updateHealthRetentionDays(days)
     fun sendRawTest(h: String, u: Boolean) = watchManager?.sendRawTest(h, u)
     fun sendGadgetbridgeProbe(k: String) = watchManager?.sendGadgetbridgeProbe(k)
     fun setAlarm(s: Int, e: Boolean, h: Int, m: Int, r: Int) = watchManager?.setAlarm(s, e, h, m, r)
