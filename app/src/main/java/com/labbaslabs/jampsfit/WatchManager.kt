@@ -283,6 +283,10 @@ class WatchManager(private val context: Context) {
     private var activeEventSummaryJob: Job? = null
     private var lastEventSummaryTime = 0L
     private var lastPersistedHealthEntry: HealthEntry? = null
+    private val healthWriteLock = Any()
+    private var pendingHealthEntry: HealthEntry? = null
+    private var healthFlushJob: Job? = null
+    private var lastHealthWriteTime = 0L
     private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -625,6 +629,7 @@ class WatchManager(private val context: Context) {
         private const val LAST_DEVICE_ADDRESS_KEY = "lastDeviceAddress"
         private const val OPERATION_TIMEOUT_MS = 10_000L
         private const val MAX_OPERATION_ATTEMPTS = 3
+        private const val HEALTH_WRITE_INTERVAL_MS = 60_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -976,6 +981,7 @@ class WatchManager(private val context: Context) {
         scanWatchdogJob?.cancel()
         connectWatchdogJob?.cancel()
         operationWatchdogJob?.cancel()
+        healthFlushJob?.cancel()
         autoStepFetchJob?.cancel()
         autoSyncTimeJob?.cancel()
         autoSleepFetchJob?.cancel()
@@ -1626,12 +1632,63 @@ class WatchManager(private val context: Context) {
         }
     }
     private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null, sleepSegments: List<SleepSegment>? = null) {
-        managerScope.launch {
-            val entry = HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes, sleepSegmentsJson = sleepSegments?.let(::encodeSleepSegments))
-            if (shouldSkipHealthEntry(entry)) return@launch
+        val incoming = HealthEntry(
+            battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic,
+            diastolic = diastolic, steps = steps, activityCount = activityCount,
+            distance = distance, calories = calories, sleepMinutes = sleepMinutes,
+            deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes,
+            sleepSegmentsJson = sleepSegments?.let(::encodeSleepSegments)
+        )
+        synchronized(healthWriteLock) {
+            val previous = pendingHealthEntry
+            pendingHealthEntry = if (previous == null) incoming else previous.copy(
+                timestamp = incoming.timestamp,
+                battery = incoming.battery ?: previous.battery,
+                heartRate = incoming.heartRate ?: previous.heartRate,
+                spo2 = incoming.spo2 ?: previous.spo2,
+                systolic = incoming.systolic ?: previous.systolic,
+                diastolic = incoming.diastolic ?: previous.diastolic,
+                steps = incoming.steps ?: previous.steps,
+                activityCount = incoming.activityCount ?: previous.activityCount,
+                distance = incoming.distance ?: previous.distance,
+                calories = incoming.calories ?: previous.calories,
+                sleepMinutes = incoming.sleepMinutes ?: previous.sleepMinutes,
+                deepSleepMinutes = incoming.deepSleepMinutes ?: previous.deepSleepMinutes,
+                lightSleepMinutes = incoming.lightSleepMinutes ?: previous.lightSleepMinutes,
+                sleepSegmentsJson = incoming.sleepSegmentsJson ?: previous.sleepSegmentsJson
+            )
+            if (healthFlushJob?.isActive != true) {
+                val waitMs = (lastHealthWriteTime + HEALTH_WRITE_INTERVAL_MS - System.currentTimeMillis()).coerceAtLeast(0L)
+                healthFlushJob = managerScope.launch {
+                    delay(waitMs)
+                    flushPendingHealthEntry()
+                }
+            }
+        }
+    }
+
+    private suspend fun flushPendingHealthEntry() {
+        val entry = synchronized(healthWriteLock) {
+            val value = pendingHealthEntry
+            pendingHealthEntry = null
+            healthFlushJob = null
+            if (value != null) lastHealthWriteTime = System.currentTimeMillis()
+            value
+        } ?: return
+
+        if (!shouldSkipHealthEntry(entry)) {
             val key = healthSyncKey(entry)
             healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, sleepSegmentsJson = entry.sleepSegmentsJson, dedupeKey = key))
             scheduleActiveEventSummary()
+        }
+
+        synchronized(healthWriteLock) {
+            if (pendingHealthEntry != null && healthFlushJob?.isActive != true) {
+                healthFlushJob = managerScope.launch {
+                    delay((lastHealthWriteTime + HEALTH_WRITE_INTERVAL_MS - System.currentTimeMillis()).coerceAtLeast(0L))
+                    flushPendingHealthEntry()
+                }
+            }
         }
     }
 
