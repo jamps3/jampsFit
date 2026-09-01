@@ -347,7 +347,7 @@ class WatchManager(private val context: Context) {
             }
             is ProtocolDecoder.DecodedResult.SleepBoundaries -> {
                 _state.update { it.copy(sleepMinutes = result.total, deepSleepMinutes = result.deep, lightSleepMinutes = result.light, sleepSegments = result.segments) }
-                saveToDb(sleepMinutes = result.total, deepSleepMinutes = result.deep, lightSleepMinutes = result.light)
+                saveToDb(sleepMinutes = result.total, deepSleepMinutes = result.deep, lightSleepMinutes = result.light, sleepSegments = result.segments)
                 updateDebugLog("Sleep boundaries: total=${result.total}m deep=${result.deep}m light=${result.light}m")
             }
             is ProtocolDecoder.DecodedResult.DeviceInfo -> {
@@ -415,6 +415,13 @@ class WatchManager(private val context: Context) {
 
     private fun observeHistory() {
         managerScope.launch { healthDao.getHeartRateHistory().collect { h -> _state.update { it.copy(heartRateHistory = h.reversed()) } } }
+        managerScope.launch {
+            healthDao.observeLatestSleepSegments().collect { entry ->
+                entry?.sleepSegmentsJson?.let { encoded ->
+                    _state.update { it.copy(sleepSegments = decodeSleepSegments(encoded)) }
+                }
+            }
+        }
     }
 
     private fun observeHealthSyncQueue() {
@@ -1501,12 +1508,12 @@ class WatchManager(private val context: Context) {
             else -> 10 * 60_000L
         }
     }
-    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null) {
+    private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null, sleepSegments: List<SleepSegment>? = null) {
         managerScope.launch {
-            val entry = HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes)
+            val entry = HealthEntry(battery = battery, heartRate = heartRate, spo2 = spo2, systolic = systolic, diastolic = diastolic, steps = steps, activityCount = activityCount, distance = distance, calories = calories, sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes, sleepSegmentsJson = sleepSegments?.let(::encodeSleepSegments))
             if (shouldSkipHealthEntry(entry)) return@launch
             val key = healthSyncKey(entry)
-            healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, dedupeKey = key))
+            healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, sleepSegmentsJson = entry.sleepSegmentsJson, dedupeKey = key))
             scheduleActiveEventSummary()
         }
     }
@@ -1515,8 +1522,22 @@ class WatchManager(private val context: Context) {
         entry.timestamp / 10_000L, entry.battery, entry.heartRate, entry.spo2,
         entry.systolic, entry.diastolic, entry.steps, entry.activityCount,
         entry.distance, entry.calories, entry.sleepMinutes, entry.deepSleepMinutes,
-        entry.lightSleepMinutes
+        entry.lightSleepMinutes, entry.sleepSegmentsJson
     ).joinToString(":")
+
+    private fun encodeSleepSegments(segments: List<SleepSegment>): String = segments.joinToString(";") {
+        listOf(it.startMinutes, it.endMinutes, it.stateId, it.label.replace(";", "")).joinToString(",")
+    }
+
+    private fun decodeSleepSegments(encoded: String): List<SleepSegment> = encoded.split(';').mapNotNull { row ->
+        val parts = row.split(',', limit = 4)
+        if (parts.size < 4) null else SleepSegment(
+            startMinutes = parts[0].toIntOrNull() ?: return@mapNotNull null,
+            endMinutes = parts[1].toIntOrNull() ?: return@mapNotNull null,
+            stateId = parts[2].toIntOrNull() ?: return@mapNotNull null,
+            label = parts[3]
+        )
+    }
 
     fun retryPendingHealthSync() {
         managerScope.launch {

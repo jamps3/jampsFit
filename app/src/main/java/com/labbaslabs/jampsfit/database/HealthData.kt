@@ -18,7 +18,8 @@ data class HealthEntry(
     val calories: Int? = null,
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
-    val lightSleepMinutes: Int? = null
+    val lightSleepMinutes: Int? = null,
+    val sleepSegmentsJson: String? = null
 )
 
 @Entity(
@@ -40,6 +41,7 @@ data class HealthSyncQueueEntry(
     val sleepMinutes: Int? = null,
     val deepSleepMinutes: Int? = null,
     val lightSleepMinutes: Int? = null,
+    val sleepSegmentsJson: String? = null,
     val dedupeKey: String,
     val attempts: Int = 0,
     val nextAttemptAt: Long = timestamp,
@@ -50,7 +52,7 @@ data class HealthSyncQueueEntry(
         systolic = systolic, diastolic = diastolic, steps = steps,
         activityCount = activityCount, distance = distance, calories = calories,
         sleepMinutes = sleepMinutes, deepSleepMinutes = deepSleepMinutes,
-        lightSleepMinutes = lightSleepMinutes
+        lightSleepMinutes = lightSleepMinutes, sleepSegmentsJson = sleepSegmentsJson
     )
 }
 
@@ -84,6 +86,9 @@ interface HealthDao {
 
     @Query("SELECT COUNT(*) FROM health_sync_queue")
     fun observePendingHealthSync(): Flow<Int>
+
+    @Query("SELECT * FROM health_data WHERE sleepSegmentsJson IS NOT NULL ORDER BY timestamp DESC LIMIT 1")
+    fun observeLatestSleepSegments(): Flow<HealthEntry?>
 
     @Query("UPDATE health_sync_queue SET nextAttemptAt = :now, lastError = NULL WHERE nextAttemptAt > :now")
     suspend fun retryPendingHealthSync(now: Long)
@@ -139,7 +144,8 @@ interface HealthDao {
             MAX(activityCount) as activityCount,
             MAX(sleepMinutes) as sleepMinutes,
             MAX(deepSleepMinutes) as deepSleepMinutes,
-            MAX(lightSleepMinutes) as lightSleepMinutes
+            MAX(lightSleepMinutes) as lightSleepMinutes,
+            MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data 
         WHERE timestamp > (strftime('%s', 'now') - 86400) * 1000
         GROUP BY strftime('%Y-%m-%d %H', timestamp / 1000, 'unixepoch', 'localtime') 
@@ -162,7 +168,8 @@ interface HealthDao {
             MAX(activityCount) as activityCount,
             MAX(sleepMinutes) as sleepMinutes,
             MAX(deepSleepMinutes) as deepSleepMinutes,
-            MAX(lightSleepMinutes) as lightSleepMinutes
+            MAX(lightSleepMinutes) as lightSleepMinutes,
+            MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data 
         GROUP BY date(timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC 
@@ -185,7 +192,8 @@ interface HealthDao {
             MAX(activityCount) as activityCount,
             MAX(sleepMinutes) as sleepMinutes,
             MAX(deepSleepMinutes) as deepSleepMinutes,
-            MAX(lightSleepMinutes) as lightSleepMinutes
+            MAX(lightSleepMinutes) as lightSleepMinutes,
+            MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data 
         GROUP BY strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC 
@@ -208,7 +216,8 @@ interface HealthDao {
             MAX(activityCount) as activityCount,
             MAX(sleepMinutes) as sleepMinutes,
             MAX(deepSleepMinutes) as deepSleepMinutes,
-            MAX(lightSleepMinutes) as lightSleepMinutes
+            MAX(lightSleepMinutes) as lightSleepMinutes,
+            MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data
         GROUP BY strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC
