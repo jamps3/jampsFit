@@ -108,7 +108,13 @@ data class WatchState(
     val lastHealthSyncError: String? = null,
     val lastHealthSyncTime: Long? = null,
     val healthRetentionDays: Int = 180,
-    val healthWriteIntervalMinutes: Int = 60,
+    val healthWriteIntervalMinutes: Int = HealthSavePolicy.DEFAULT_INTERVAL_MINUTES,
+    val diagnosticsReceivedPackets: Long = 0,
+    val diagnosticsSentOperations: Long = 0,
+    val diagnosticsHealthWrites: Long = 0,
+    val diagnosticsPacketBatches: Long = 0,
+    val diagnosticsConnectedMs: Long = 0,
+    val diagnosticsScanStarts: Long = 0,
     val activityHistory: List<HistoryPoint> = emptyList(),
     val last24hStats: List<HealthEntry> = emptyList(),
     val dailyStats: List<HealthEntry> = emptyList(),
@@ -257,7 +263,7 @@ class WatchManager(private val context: Context) {
             ?: emptySet(),
         lastHealthSyncTime = initialLastHealthSyncTime
         ,healthRetentionDays = prefs.getInt("healthRetentionDays", 180)
-        ,healthWriteIntervalMinutes = prefs.getInt("healthWriteIntervalMinutes", 60).coerceIn(1, 1440)
+        ,healthWriteIntervalMinutes = HealthSavePolicy.normalizeIntervalMinutes(prefs.getInt("healthWriteIntervalMinutes", HealthSavePolicy.DEFAULT_INTERVAL_MINUTES))
     ))
     val state = _state.asStateFlow()
 
@@ -292,6 +298,7 @@ class WatchManager(private val context: Context) {
     private val packetLogLock = Any()
     private val pendingPacketLogs = mutableListOf<String>()
     private var packetLogFlushJob: Job? = null
+    private var connectedSince = 0L
     private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -1445,6 +1452,7 @@ class WatchManager(private val context: Context) {
             operationAttempts++
             lastOpTime = System.currentTimeMillis()
             startOperationWatchdog()
+            _state.update { it.copy(diagnosticsSentOperations = it.diagnosticsSentOperations + 1) }
             managerScope.launch {
                 val gatt = bluetoothGatt ?: run { finishOperation(); return@launch }
                 val code = when (op) {
@@ -1501,6 +1509,7 @@ class WatchManager(private val context: Context) {
             return
         }
         stopScan()
+        _state.update { it.copy(diagnosticsScanStarts = it.diagnosticsScanStarts + 1) }
         _state.update { it.copy(connectionStatus = "Scanning...", connectionDetail = "Looking for ${TARGET_NAME}", reconnectAttempt = reconnectAttempt) }
         scanner?.startScan(
             null,
@@ -1541,8 +1550,8 @@ class WatchManager(private val context: Context) {
     }
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
-            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
+            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectedSince = System.currentTimeMillis(); connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1561,6 +1570,7 @@ class WatchManager(private val context: Context) {
     }
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
         val short = uuid.toString().substring(4, 8).uppercase(); val hex = data.joinToString(" ") { "%02X".format(it) }
+        _state.update { it.copy(diagnosticsReceivedPackets = it.diagnosticsReceivedPackets + 1) }
         updateDebugLog("RX $short raw=$hex")
         addUnknownMessage("RX $short raw=$hex")
     }
@@ -1585,6 +1595,7 @@ class WatchManager(private val context: Context) {
         }
         if (batch.isNotEmpty()) {
             healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = batch.joinToString("\n")))
+            _state.update { it.copy(diagnosticsPacketBatches = it.diagnosticsPacketBatches + 1) }
         }
         synchronized(packetLogLock) {
             if (pendingPacketLogs.isNotEmpty() && packetLogFlushJob?.isActive != true) {
@@ -1696,7 +1707,7 @@ class WatchManager(private val context: Context) {
                 sleepSegmentsJson = incoming.sleepSegmentsJson ?: previous.sleepSegmentsJson
             )
             if (healthFlushJob?.isActive != true) {
-                val waitMs = (lastHealthWriteTime + healthWriteIntervalMs() - System.currentTimeMillis()).coerceAtLeast(0L)
+                val waitMs = HealthSavePolicy.delayUntilNextWrite(lastHealthWriteTime, System.currentTimeMillis(), _state.value.healthWriteIntervalMinutes)
                 healthFlushJob = managerScope.launch {
                     delay(waitMs)
                     flushPendingHealthEntry()
@@ -1717,13 +1728,14 @@ class WatchManager(private val context: Context) {
         if (!shouldSkipHealthEntry(entry)) {
             val key = healthSyncKey(entry)
             healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, sleepSegmentsJson = entry.sleepSegmentsJson, dedupeKey = key))
+            _state.update { it.copy(diagnosticsHealthWrites = it.diagnosticsHealthWrites + 1) }
             scheduleActiveEventSummary()
         }
 
         synchronized(healthWriteLock) {
             if (pendingHealthEntry != null && healthFlushJob?.isActive != true) {
                 healthFlushJob = managerScope.launch {
-                    delay((lastHealthWriteTime + healthWriteIntervalMs() - System.currentTimeMillis()).coerceAtLeast(0L))
+                    delay(HealthSavePolicy.delayUntilNextWrite(lastHealthWriteTime, System.currentTimeMillis(), _state.value.healthWriteIntervalMinutes))
                     flushPendingHealthEntry()
                 }
             }
@@ -1766,12 +1778,10 @@ class WatchManager(private val context: Context) {
     }
 
     fun updateHealthWriteInterval(minutes: Int) {
-        val safe = minutes.coerceIn(1, 1440)
+        val safe = HealthSavePolicy.normalizeIntervalMinutes(minutes)
         prefs.edit { putInt("healthWriteIntervalMinutes", safe) }
         _state.update { it.copy(healthWriteIntervalMinutes = safe) }
     }
-
-    private fun healthWriteIntervalMs(): Long = _state.value.healthWriteIntervalMinutes.coerceIn(1, 1440) * 60_000L
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
         val last = lastPersistedHealthEntry ?: return false

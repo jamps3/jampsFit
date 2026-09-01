@@ -438,6 +438,7 @@ private fun AppSettingsControls(
     }
 
     EatSettingsLauncher(state)
+    BatteryDiagnosticsCard(state)
 
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -724,6 +725,30 @@ private fun formatAutoHrReactivationLabel(minutes: Int): String = when {
     minutes == 0 -> "Off"
     minutes < 60 -> "${minutes}m"
     else -> "${minutes / 60}h"
+}
+
+@Composable
+private fun BatteryDiagnosticsCard(state: WatchState) {
+    SleekCard {
+        Text(text = "Battery Diagnostics", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Session activity used to estimate background battery cost.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("BLE connected: ${formatDiagnosticDuration(state.diagnosticsConnectedMs)}")
+        Text("Packets received: ${state.diagnosticsReceivedPackets}")
+        Text("GATT operations sent: ${state.diagnosticsSentOperations}")
+        Text("Health database writes: ${state.diagnosticsHealthWrites}")
+        Text("Packet database batches: ${state.diagnosticsPacketBatches}")
+        Text("Scan starts: ${state.diagnosticsScanStarts}")
+    }
+}
+
+private fun formatDiagnosticDuration(durationMs: Long): String {
+    val totalSeconds = durationMs.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return "%02d:%02d:%02d".format(hours, minutes, seconds)
 }
 
 @Composable
