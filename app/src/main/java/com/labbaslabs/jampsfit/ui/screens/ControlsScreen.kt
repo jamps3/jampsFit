@@ -130,7 +130,7 @@ private fun WatchSettingsControls(
         Spacer(modifier = Modifier.height(12.dp))
         Text("Health database save interval: ${formatHealthInterval(state.healthWriteIntervalMinutes)}", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            listOf(60, 120, 360, 720, 1440).forEach { minutes ->
+            listOf(1, 60, 120, 360, 720, 1440).forEach { minutes ->
                 FilterChip(
                     selected = state.healthWriteIntervalMinutes == minutes,
                     onClick = { viewModel.updateHealthWriteInterval(minutes) },
@@ -138,7 +138,7 @@ private fun WatchSettingsControls(
                 )
             }
         }
-        Text("Minimum interval is 1 hour.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Text("Default is 1 hour; minimum interval is 1 minute.", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
     }
 
     SleekCard {

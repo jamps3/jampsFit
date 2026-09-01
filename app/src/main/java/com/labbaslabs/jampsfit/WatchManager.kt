@@ -257,7 +257,7 @@ class WatchManager(private val context: Context) {
             ?: emptySet(),
         lastHealthSyncTime = initialLastHealthSyncTime
         ,healthRetentionDays = prefs.getInt("healthRetentionDays", 180)
-        ,healthWriteIntervalMinutes = prefs.getInt("healthWriteIntervalMinutes", 60).coerceIn(60, 1440)
+        ,healthWriteIntervalMinutes = prefs.getInt("healthWriteIntervalMinutes", 60).coerceIn(1, 1440)
     ))
     val state = _state.asStateFlow()
 
@@ -1766,12 +1766,12 @@ class WatchManager(private val context: Context) {
     }
 
     fun updateHealthWriteInterval(minutes: Int) {
-        val safe = minutes.coerceIn(60, 1440)
+        val safe = minutes.coerceIn(1, 1440)
         prefs.edit { putInt("healthWriteIntervalMinutes", safe) }
         _state.update { it.copy(healthWriteIntervalMinutes = safe) }
     }
 
-    private fun healthWriteIntervalMs(): Long = _state.value.healthWriteIntervalMinutes.coerceIn(60, 1440) * 60_000L
+    private fun healthWriteIntervalMs(): Long = _state.value.healthWriteIntervalMinutes.coerceIn(1, 1440) * 60_000L
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {
         val last = lastPersistedHealthEntry ?: return false
