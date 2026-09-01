@@ -287,6 +287,9 @@ class WatchManager(private val context: Context) {
     private var pendingHealthEntry: HealthEntry? = null
     private var healthFlushJob: Job? = null
     private var lastHealthWriteTime = 0L
+    private val packetLogLock = Any()
+    private val pendingPacketLogs = mutableListOf<String>()
+    private var packetLogFlushJob: Job? = null
     private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -430,7 +433,6 @@ class WatchManager(private val context: Context) {
             val retentionThreshold = System.currentTimeMillis() - (retentionDays.toLong() * 24 * 60 * 60 * 1000)
             healthDao.cleanupOldNotifications(oneMonthAgo)
             healthDao.cleanupOldHealthData(retentionThreshold)
-            healthDao.trimUnknownPackets(500)
         }
     }
 
@@ -630,6 +632,7 @@ class WatchManager(private val context: Context) {
         private const val OPERATION_TIMEOUT_MS = 10_000L
         private const val MAX_OPERATION_ATTEMPTS = 3
         private const val HEALTH_WRITE_INTERVAL_MS = 60_000L
+        private const val PACKET_LOG_INTERVAL_MS = 60_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -982,6 +985,7 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob?.cancel()
         operationWatchdogJob?.cancel()
         healthFlushJob?.cancel()
+        packetLogFlushJob?.cancel()
         autoStepFetchJob?.cancel()
         autoSyncTimeJob?.cancel()
         autoSleepFetchJob?.cancel()
@@ -1119,7 +1123,9 @@ class WatchManager(private val context: Context) {
     }
 
     fun setStepGoal(goal: Int) { val safe = (goal / 1000).coerceIn(2, 35) * 1000; enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x16, 0x00, (safe shr 8) and 0xFF, safe and 0xFF))); _state.update { it.copy(stepGoalSetting = safe) } }
-    fun queryCurrentSteps() { managerScope.launch { sendFee2NativeRaw(nativePacket(0x59, 0x00)); delay(180); sendFee2NativeRaw(nativePacket(0x59, 0x01)) } }
+    fun queryCurrentSteps() {
+        enqueueOperations(listOf(nativePacket(0x59, 0x00), nativePacket(0x59, 0x01)))
+    }
     fun querySleepBoundaries() = sendFee2NativeRaw(nativePacket(0x32))
 
     private fun restartAutoStepFetch() {
@@ -1128,7 +1134,7 @@ class WatchManager(private val context: Context) {
             while (isActive) {
                 queryCurrentSteps()
                 val interval = _state.value.stepFetchIntervalMinutes.coerceIn(5, 1440) * 60_000L
-                delay(if (appForegrounded) interval else maxOf(interval, 30 * 60_000L))
+                delay(if (appForegrounded) interval else maxOf(interval, 60 * 60_000L))
             }
         }
     }
@@ -1139,7 +1145,7 @@ class WatchManager(private val context: Context) {
             while (isActive) {
                 syncTime()
                 val interval = _state.value.syncTimeIntervalHours.coerceIn(1, 24) * 3600_000L
-                delay(if (appForegrounded) interval else maxOf(interval, 12 * 3600_000L))
+                delay(if (appForegrounded) interval else maxOf(interval, 24 * 3600_000L))
             }
         }
     }
@@ -1155,7 +1161,7 @@ class WatchManager(private val context: Context) {
                     querySleepBoundaries()
                     sleepFetchedDayKey = today
                 }
-                delay(if (appForegrounded) 30 * 60_000L else 6 * 3600_000L)
+                delay(if (appForegrounded) 60 * 60_000L else 12 * 3600_000L)
             }
         }
     }
@@ -1190,7 +1196,7 @@ class WatchManager(private val context: Context) {
         autoHeartRateReactivationJob = managerScope.launch {
             val intervalMs = reactivationMinutes * 60_000L
             while (isActive) {
-                delay(if (appForegrounded) intervalMs else maxOf(intervalMs, 6 * 3600_000L))
+                delay(if (appForegrounded) intervalMs else maxOf(intervalMs, 12 * 3600_000L))
                 if (_state.value.isConnected && _state.value.autoHeartRateIntervalMinutes == intervalMinutes) {
                     sendFee2NativeRaw(nativePacket(0x1F, commandCode))
                     updateDebugLog("Auto HR ${intervalMinutes}m re-sent")
@@ -1423,6 +1429,12 @@ class WatchManager(private val context: Context) {
     }
     private fun updateDebugLog(msg: String) { Log.d(TAG, msg); val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); synchronized(logBuffer) { logBuffer.add("[$t] $msg"); while (logBuffer.size > 100) logBuffer.removeAt(0); _state.update { it.copy(debugLog = logBuffer.joinToString("\n")) } } }
     private fun enqueueOperation(op: GattOperation) { synchronized(operationQueue) { operationQueue.add(op); if (!isOperating) doNextOperation() } }
+    private fun enqueueOperations(packets: List<ByteArray>) {
+        synchronized(operationQueue) {
+            packets.forEach { packet -> operationQueue.add(GattOperation.WriteCharacteristic(FEE2_WRITE, packet)) }
+            if (!isOperating) doNextOperation()
+        }
+    }
     private fun doNextOperation() {
         synchronized(operationQueue) {
             if (isOperating) return
@@ -1548,15 +1560,40 @@ class WatchManager(private val context: Context) {
     }
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
         val short = uuid.toString().substring(4, 8).uppercase(); val hex = data.joinToString(" ") { "%02X".format(it) }
-        if (isKnownNonUnknownPacket(uuid, data)) { updateDebugLog("RX $short raw=$hex"); return }
-        updateDebugLog("RX $short raw=$hex"); addUnknownMessage("RX $short raw=$hex")
+        updateDebugLog("RX $short raw=$hex")
+        addUnknownMessage("RX $short raw=$hex")
     }
-    private fun isKnownNonUnknownPacket(uuid: UUID, data: ByteArray): Boolean {
-        if (uuid == BATTERY_CHAR || uuid == FEE3_NOTIFY || uuid == FEE1_CHAR || uuid == FEA1_CHAR) return true
-        if (uuid == ProtocolDecoder.UUID_HEART_RATE) return true
-        return false
+    private fun addUnknownMessage(msg: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
+        synchronized(packetLogLock) {
+            pendingPacketLogs += "[$t] $msg"
+            if (packetLogFlushJob?.isActive != true) {
+                packetLogFlushJob = managerScope.launch {
+                    delay(PACKET_LOG_INTERVAL_MS)
+                    flushPacketLogs()
+                }
+            }
+        }
     }
-    private fun addUnknownMessage(msg: String) { val t = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()); managerScope.launch { healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = "[$t] $msg")) } }
+    private suspend fun flushPacketLogs() {
+        val batch = synchronized(packetLogLock) {
+            val value = pendingPacketLogs.toList()
+            pendingPacketLogs.clear()
+            packetLogFlushJob = null
+            value
+        }
+        if (batch.isNotEmpty()) {
+            healthDao.insertUnknown(com.labbaslabs.jampsfit.database.UnknownPacket(message = batch.joinToString("\n")))
+        }
+        synchronized(packetLogLock) {
+            if (pendingPacketLogs.isNotEmpty() && packetLogFlushJob?.isActive != true) {
+                packetLogFlushJob = managerScope.launch {
+                    delay(PACKET_LOG_INTERVAL_MS)
+                    flushPacketLogs()
+                }
+            }
+        }
+    }
     fun ensureAutoConnect() {
         if (userRequestedDisconnect || !_state.value.autoConnect || _state.value.isConnected) return
         if (_state.value.connectionStatus == "Scanning..." || _state.value.connectionStatus == "Connecting...") return
@@ -1626,9 +1663,9 @@ class WatchManager(private val context: Context) {
         _state.update { it.copy(reconnectAttempt = reconnectAttempt) }
         return when {
             appForegrounded && reconnectAttempt <= 5 -> 3_000L
-            reconnectAttempt <= 5 -> 30_000L
-            reconnectAttempt <= 10 -> 2 * 60_000L
-            else -> 10 * 60_000L
+            !appForegrounded && reconnectAttempt <= 5 -> 60_000L
+            reconnectAttempt <= 10 -> 5 * 60_000L
+            else -> 15 * 60_000L
         }
     }
     private fun saveToDb(battery: Int? = null, heartRate: Int? = null, spo2: Int? = null, systolic: Int? = null, diastolic: Int? = null, steps: Int? = null, activityCount: Int? = null, distance: Int? = null, calories: Int? = null, sleepMinutes: Int? = null, deepSleepMinutes: Int? = null, lightSleepMinutes: Int? = null, sleepSegments: List<SleepSegment>? = null) {
