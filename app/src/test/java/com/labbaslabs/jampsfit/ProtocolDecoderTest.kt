@@ -95,6 +95,44 @@ class ProtocolDecoderTest {
     }
 
     @Test
+    fun decodesCurrentAutoHeartRateIntervalQuery() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(
+            ProtocolDecoder.UUID_FEE3,
+            byteArrayOf(0xFE.toByte(), 0xEA.toByte(), 0x20, 0x06, 0x2F, 0x01),
+        )
+
+        assertEquals(ProtocolDecoder.DecodedResult.AutoHeartRate(5), results.single())
+    }
+
+    @Test
+    fun reassemblesAndDecodesHeartRateHistoryPage() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+        val values = List(DaFitHeartRateHistory.SAMPLES_PER_PAGE) { 60 + it % 40 }
+        val packet = ByteArray(6 + values.size).apply {
+            this[0] = 0xFE.toByte()
+            this[1] = 0xEA.toByte()
+            this[2] = 0x20
+            this[3] = size.toByte()
+            this[4] = 0x35
+            this[5] = 0x03
+            values.forEachIndexed { index, value -> this[index + 6] = value.toByte() }
+        }
+
+        packet.asList().chunked(20).forEach { fragment ->
+            decoder.decode(ProtocolDecoder.UUID_FEE3, fragment.toByteArray())
+        }
+
+        assertEquals(
+            ProtocolDecoder.DecodedResult.HeartRateHistoryPage(page = 3, values = values),
+            results.single(),
+        )
+    }
+
+    @Test
     fun decodesWatchExerciseSummaryPacket() {
         val results = mutableListOf<ProtocolDecoder.DecodedResult>()
         val decoder = ProtocolDecoder(results::add)

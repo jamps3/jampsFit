@@ -66,23 +66,56 @@ interface HealthDao {
     @Insert
     suspend fun insert(entry: HealthEntry)
 
+    @Insert
+    suspend fun insert(entries: List<HealthEntry>)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun enqueueHealth(entry: HealthSyncQueueEntry): Long
 
-    @Query("SELECT * FROM health_sync_queue WHERE nextAttemptAt <= :now ORDER BY id ASC LIMIT 1")
-    suspend fun getNextQueuedHealth(now: Long): HealthSyncQueueEntry?
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun enqueueHealth(entries: List<HealthSyncQueueEntry>): List<Long>
 
-    @Query("DELETE FROM health_sync_queue WHERE id = :id")
-    suspend fun deleteQueuedHealth(id: Long)
+    @Query("SELECT * FROM health_sync_queue WHERE nextAttemptAt <= :now ORDER BY id ASC LIMIT 500")
+    suspend fun getQueuedHealthBatch(now: Long): List<HealthSyncQueueEntry>
+
+    @Query("DELETE FROM health_sync_queue WHERE id IN (:ids)")
+    suspend fun deleteQueuedHealth(ids: List<Long>)
 
     @Transaction
-    suspend fun drainQueuedHealth(entry: HealthSyncQueueEntry) {
-        insert(entry.toHealthEntry())
-        deleteQueuedHealth(entry.id)
+    suspend fun drainQueuedHealth(entries: List<HealthSyncQueueEntry>) {
+        if (entries.isEmpty()) return
+        insert(entries.map(HealthSyncQueueEntry::toHealthEntry))
+        deleteQueuedHealth(entries.map { it.id })
     }
 
-    @Query("UPDATE health_sync_queue SET attempts = :attempts, nextAttemptAt = :nextAttemptAt, lastError = :error WHERE id = :id")
-    suspend fun retryQueuedHealth(id: Long, attempts: Int, nextAttemptAt: Long, error: String?)
+    @Query("UPDATE health_sync_queue SET attempts = attempts + 1, nextAttemptAt = :nextAttemptAt, lastError = :error WHERE id IN (:ids)")
+    suspend fun retryQueuedHealth(ids: List<Long>, nextAttemptAt: Long, error: String?)
+
+    @Query("""
+        SELECT timestamp FROM health_data
+        WHERE heartRate IS NOT NULL AND timestamp BETWEEN :startTime AND :endTime
+        UNION
+        SELECT timestamp FROM health_sync_queue
+        WHERE heartRate IS NOT NULL AND timestamp BETWEEN :startTime AND :endTime
+    """)
+    suspend fun getStoredOrQueuedHeartRateTimestamps(startTime: Long, endTime: Long): List<Long>
+
+    @Transaction
+    suspend fun enqueueHealthBatch(entries: List<HealthSyncQueueEntry>): Int {
+        if (entries.isEmpty()) return 0
+        val historyEntries = entries.filter { it.dedupeKey.startsWith("auto-hr:") }
+        val existingTimestamps = if (historyEntries.isEmpty()) {
+            emptySet()
+        } else {
+            getStoredOrQueuedHeartRateTimestamps(
+                historyEntries.minOf { it.timestamp },
+                historyEntries.maxOf { it.timestamp },
+            ).toSet()
+        }
+        val filtered = entries.filterNot { it.dedupeKey.startsWith("auto-hr:") && it.timestamp in existingTimestamps }
+        if (filtered.isEmpty()) return 0
+        return enqueueHealth(filtered).count { it != -1L }
+    }
 
     @Query("SELECT COUNT(*) FROM health_sync_queue")
     fun observePendingHealthSync(): Flow<Int>

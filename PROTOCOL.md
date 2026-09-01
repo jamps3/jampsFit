@@ -7,6 +7,7 @@ Current status: **passive main-screen data is restored** when the app skips MTU 
 
 ## Development Gotchas
 - **MTU Negotiation**: **Do NOT call `requestMtu()`**. The watch may hang or reboot. Subscribing to characteristics should be done with the default MTU.
+- **Response Fragmentation**: With the default MTU, long `FEE3` frames are split across notifications. Reassemble to the length encoded by bytes `2..3` before decoding.
 - **Characteristic Routing**: Always use `FEE2` for writes. Sending Series 20 commands to `6387` often causes reboots.
 - **Packet Padding**: Do NOT pad packets to 20 bytes. Commands must be sent with their **exact length**.
 - **Timing**: When sending sequences (like weather), include a `~180ms` delay between packets to prevent buffer overflow or reboots.
@@ -39,6 +40,7 @@ Current status: **passive main-screen data is restored** when the app skips MTU 
 | 20 | `17` | **Time Format** | ✅ Verified | `00` (12h), `01` (24h) |
 | 20 | `18` | **Quick View** | ✅ Verified | `00` (Off), `01` (On) |
 | 20 | `1F` | **Auto HR** | ✅ Verified | `00` (Off), `01` (5m), `02` (10m), `05` (60m) |
+| 20 | `2F` | **Get Auto HR** | ✅ Verified | No payload. Response uses the same interval codes as `0x1F`. |
 | 20 | `21` | **Get Alarms** | ✅ Verified | Returns 8-byte records per slot. |
 | 20 | `26` | **Get Step Goal** | ✅ Verified | Returns `00 00 [hi] [lo]` or `00 [hi] [lo] 00`. |
 | 20 | `32` | **Sleep Sync** | ✅ Verified | Payload is 3-byte markers `[state] [hour] [minute]`. |
@@ -59,6 +61,7 @@ Current status: **passive main-screen data is restored** when the app skips MTU 
 | 20 | `8D` | **Get Auto-lock** | ✅ Verified | Query current auto-lock duration. |
 | 20 | `A4` | **DND / Pwr Save**| ✅ Verified | `00` (Off), `01` (On). |
 | 20 | `33` | Daily Totals | 🧪 Exp | Steps, Distance, Calories snapshots. |
+| 20 | `35` | **5m HR History** | ✅ Verified | Query pages `00..07`; each response contains `[page] [72 BPM bytes]`. Pages `0..3` are today and `4..7` yesterday. |
 | 20 | `B4` | Buffer Alloc | 🧪 Exp | Part of handshake: `00, 12, 10, 20`. |
 | 20 | `F1` | Handshake Ready| 🧪 Exp | Final signal before extended data push. |
 | 20 | `B9` | Adv. Namespace | 🧪 Exp | Used for Weather/eCard (`19 00` for weather). |
@@ -84,7 +87,9 @@ Decoder policy: jampsFit should decode, persist, and surface every watch value o
 
 Workout note: the attached Dancing exercise capture lasted 3m48s, burned 15 kcal, and showed 94 average BPM on-watch. The unknown log only contained the `2A37` heart-rate stream, so jampsFit can already decode and persist the BPM samples. No duration, sport type, or calorie summary packet was present in that log; workout summaries remain a future sync target unless another characteristic emits those fields. Until then, the app infers short workout summaries from contiguous `2A37` samples: stream duration, average/min/max BPM, and estimated active calories. During watch workouts, the watch-face step counter may stay flat while streamed distance/calories move; Dancing Event therefore falls back to estimated steps from distance when no explicit step delta is available.
 
-Auto-HR interval capture note: the 2026-07-08 bugreport HCI log spans local `02:14:30` to `04:15:14` and includes the Da Fit setting changes. Da Fit wrote `FE EA 20 06 1F 02` to ATT handle `0x0047` at `02:14:57.298` for 10 minutes, then wrote `FE EA 20 06 1F 01` at `02:15:03.807` for 5 minutes. Later FEE3 HR-history-looking clusters (`35 xx` pages and `37`) were not a stable passive 5-minute push stream: observed cluster gaps included about 5.2, 9.8, 15, 30, and 45 minutes. Treat the 5m/10m setting writes as confirmed, but keep the delivery cadence hypothesis open. jampsFit exposes an optional app-side re-send cadence for the selected 5m/10m command so we can test whether the watch setting expires or becomes less frequent over time.
+Auto-HR interval capture note: the 2026-07-08 bugreport HCI log confirms the complete path. On connection Da Fit queried `FE EA 20 05 2F` and received `FE EA 20 06 2F 01`, meaning 5 minutes. It wrote `FE EA 20 06 1F 02` for 10 minutes and then `FE EA 20 06 1F 01` for 5 minutes. The watch does not passively push these scheduled samples through `2A37`; Da Fit actively queries `0x35` pages. Each `0x35` response has a page byte followed by 72 BPM values. Four pages form today's 288 five-minute slots and four form yesterday's slots. The capture shows full page sweeps on quarter-hour boundaries, with extra sweeps when the app refreshes.
+
+The current-day pages are a reused ring and contain stale non-zero values in future slots until those slots are measured. Decode only completed local-time slots, apply the configured measurement interval, and keep a short completion lag. jampsFit polls all eight pages every 15 minutes in the foreground and hourly in the background, then batches newly timestamped samples through the configured Room write interval.
 
 ### `FEE1` Live Activity Packet Breakdown
 

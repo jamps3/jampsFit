@@ -194,6 +194,16 @@ class WatchManager(private val context: Context) {
     private val foodDao = db.foodDao()
     private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
+    private val initialAutoHeartRateInterval = prefs.getInt("autoHeartRateIntervalMinutes", 0)
+    private var autoHeartRateTrackingStartedAt = prefs.getLong(AUTO_HR_TRACKING_STARTED_AT_KEY, 0L)
+        .takeIf { it > 0L }
+        ?: if (initialAutoHeartRateInterval > 0) {
+            (System.currentTimeMillis() - AUTO_HR_INITIAL_BACKFILL_MS).also { startedAt ->
+                prefs.edit { putLong(AUTO_HR_TRACKING_STARTED_AT_KEY, startedAt) }
+            }
+        } else {
+            0L
+        }
     private val initialMealDay = mealDayKey()
     private val initialLastHealthSyncTime = prefs.getLong("lastHealthSyncTime", 0L).takeIf { it > 0L }
     private val initialEatCaloriesIncremental = prefs.getBoolean("eatCaloriesIncremental", false)
@@ -213,7 +223,7 @@ class WatchManager(private val context: Context) {
         autoFetchBattery = prefs.getBoolean("autoFetchBattery", false),
         autoFetchSleep = prefs.getBoolean("autoFetchSleep", true),
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
-        autoHeartRateIntervalMinutes = prefs.getInt("autoHeartRateIntervalMinutes", 0),
+        autoHeartRateIntervalMinutes = initialAutoHeartRateInterval,
         autoHeartRateReactivationMinutes = prefs.getInt("autoHeartRateReactivationMinutes", 0),
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
@@ -285,6 +295,7 @@ class WatchManager(private val context: Context) {
     private var autoSleepFetchJob: Job? = null
     private var hrReminderJob: Job? = null
     private var autoHeartRateReactivationJob: Job? = null
+    private var autoHeartRateHistoryFetchJob: Job? = null
     private val heavyObserverJobs = mutableListOf<Job>()
     private var appForegrounded = false
     private var reconnectAttempt = 0
@@ -293,12 +304,14 @@ class WatchManager(private val context: Context) {
     private var lastPersistedHealthEntry: HealthEntry? = null
     private val healthWriteLock = Any()
     private var pendingHealthEntry: HealthEntry? = null
+    private val pendingAutoHeartRateSamples = mutableMapOf<Long, Int>()
     private var healthFlushJob: Job? = null
     private var lastHealthWriteTime = 0L
     private val packetLogLock = Any()
     private val pendingPacketLogs = mutableListOf<String>()
     private var packetLogFlushJob: Job? = null
     private var connectedSince = 0L
+    private var latestDisplayedHeartRateTime = 0L
     private var sleepFetchedDayKey: String? = null
     private var logBuffer = mutableListOf<String>()
     private val recentActivityPayloads = ArrayDeque<String>()
@@ -338,7 +351,9 @@ class WatchManager(private val context: Context) {
             }
             is ProtocolDecoder.DecodedResult.HeartRate -> {
                 reconnectAttempt = 0
-                _state.update { it.copy(heartRate = result.bpm, lastWatchSeenTime = System.currentTimeMillis()) }
+                val now = System.currentTimeMillis()
+                latestDisplayedHeartRateTime = now
+                _state.update { it.copy(heartRate = result.bpm, lastWatchSeenTime = now) }
                 saveToDb(heartRate = result.bpm)
                 persistWatchExerciseFromHeartRate()
                 updateDebugLog("Heart Rate: ${result.bpm} bpm")
@@ -408,8 +423,11 @@ class WatchManager(private val context: Context) {
                 managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
             }
             is ProtocolDecoder.DecodedResult.AutoHeartRate -> {
-                _state.update { it.copy(autoHeartRateIntervalMinutes = result.minutes) }
+                updateAutoHeartRateState(result.minutes)
                 updateDebugLog("Auto HR: ${result.minutes}m")
+            }
+            is ProtocolDecoder.DecodedResult.HeartRateHistoryPage -> {
+                handleAutoHeartRateHistoryPage(result)
             }
             is ProtocolDecoder.DecodedResult.PowerSave -> {
                 updateDebugLog("Power save: ${if (result.enabled) "enabled" else "disabled"}")
@@ -424,6 +442,49 @@ class WatchManager(private val context: Context) {
                 managerScope.launch { delay(100); _state.update { it.copy(lastRemoteEvent = null) } }
             }
             else -> {}
+        }
+    }
+
+    private fun updateAutoHeartRateState(minutes: Int) {
+        if (minutes > 0 && autoHeartRateTrackingStartedAt == 0L) {
+            autoHeartRateTrackingStartedAt = System.currentTimeMillis() - AUTO_HR_INITIAL_BACKFILL_MS
+        } else if (minutes == 0) {
+            autoHeartRateTrackingStartedAt = 0L
+        }
+        prefs.edit {
+            putInt("autoHeartRateIntervalMinutes", minutes)
+            if (autoHeartRateTrackingStartedAt > 0L) {
+                putLong(AUTO_HR_TRACKING_STARTED_AT_KEY, autoHeartRateTrackingStartedAt)
+            } else {
+                remove(AUTO_HR_TRACKING_STARTED_AT_KEY)
+            }
+        }
+        _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
+        restartAutoHeartRateHistoryFetch()
+        restartAutoHeartRateReactivation()
+    }
+
+    private fun handleAutoHeartRateHistoryPage(result: ProtocolDecoder.DecodedResult.HeartRateHistoryPage) {
+        val now = System.currentTimeMillis()
+        _state.update { it.copy(lastWatchSeenTime = now) }
+        val interval = _state.value.autoHeartRateIntervalMinutes
+        val samples = DaFitHeartRateHistory.decodePage(
+            page = result.page,
+            values = result.values,
+            nowMillis = now,
+            trackingStartedAtMillis = autoHeartRateTrackingStartedAt,
+            measurementIntervalMinutes = interval,
+        )
+        if (samples.isEmpty()) return
+
+        synchronized(healthWriteLock) {
+            samples.forEach { sample -> pendingAutoHeartRateSamples[sample.timestamp] = sample.bpm }
+            scheduleHealthFlushLocked(now)
+        }
+        val latest = samples.maxBy { it.timestamp }
+        if (latest.timestamp > latestDisplayedHeartRateTime) {
+            latestDisplayedHeartRateTime = latest.timestamp
+            _state.update { it.copy(heartRate = latest.bpm) }
         }
     }
 
@@ -467,22 +528,22 @@ class WatchManager(private val context: Context) {
     private fun startHealthSyncWorker() {
         managerScope.launch {
             while (isActive) {
-                val queued = healthDao.getNextQueuedHealth(System.currentTimeMillis())
-                if (queued == null) {
+                val queued = healthDao.getQueuedHealthBatch(System.currentTimeMillis())
+                if (queued.isEmpty()) {
                     delay(2_000L)
                     continue
                 }
                 try {
                     healthDao.drainQueuedHealth(queued)
-                    lastPersistedHealthEntry = queued.toHealthEntry()
+                    lastPersistedHealthEntry = queued.last().toHealthEntry()
                     val syncedAt = System.currentTimeMillis()
                     prefs.edit { putLong("lastHealthSyncTime", syncedAt) }
                     _state.update { it.copy(lastHealthSyncError = null, lastHealthSyncTime = syncedAt) }
                 } catch (error: Exception) {
-                    val attempts = queued.attempts + 1
+                    val attempts = queued.maxOf { it.attempts } + 1
                     val delayMs = (1L shl attempts.coerceAtMost(8)) * 1_000L
                     val message = error.message ?: error::class.simpleName ?: "Unknown database error"
-                    healthDao.retryQueuedHealth(queued.id, attempts, System.currentTimeMillis() + delayMs, message)
+                    healthDao.retryQueuedHealth(queued.map { it.id }, System.currentTimeMillis() + delayMs, message)
                     _state.update { it.copy(lastHealthSyncError = message) }
                     delay(delayMs.coerceAtMost(60_000L))
                 }
@@ -522,6 +583,7 @@ class WatchManager(private val context: Context) {
         restartAutoStepFetch()
         restartAutoSyncTime()
         restartAutoSleepFetch()
+        restartAutoHeartRateHistoryFetch()
         restartAutoHeartRateReactivation()
     }
 
@@ -641,6 +703,11 @@ class WatchManager(private val context: Context) {
         private const val OPERATION_TIMEOUT_MS = 10_000L
         private const val MAX_OPERATION_ATTEMPTS = 3
         private const val PACKET_LOG_INTERVAL_MS = 60_000L
+        private const val HEALTH_BATCH_DEBOUNCE_MS = 4_000L
+        private const val AUTO_HR_TRACKING_STARTED_AT_KEY = "autoHeartRateTrackingStartedAt"
+        private const val AUTO_HR_INITIAL_BACKFILL_MS = 60 * 60_000L
+        private const val AUTO_HR_FOREGROUND_FETCH_MS = 15 * 60_000L
+        private const val AUTO_HR_BACKGROUND_FETCH_MS = 60 * 60_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -999,6 +1066,7 @@ class WatchManager(private val context: Context) {
         autoSleepFetchJob?.cancel()
         hrReminderJob?.cancel()
         autoHeartRateReactivationJob?.cancel()
+        autoHeartRateHistoryFetchJob?.cancel()
         activeEventSummaryJob?.cancel()
         stopHeavyObservers()
         synchronized(operationQueue) {
@@ -1194,6 +1262,18 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun restartAutoHeartRateHistoryFetch() {
+        autoHeartRateHistoryFetchJob?.cancel()
+        if (!_state.value.isConnected || _state.value.autoHeartRateIntervalMinutes <= 0) return
+        autoHeartRateHistoryFetchJob = managerScope.launch {
+            while (isActive) {
+                enqueueOperations((0 until DaFitHeartRateHistory.PAGE_COUNT).map { page -> nativePacket(0x35, page) })
+                updateDebugLog("Auto HR history requested")
+                delay(if (appForegrounded) AUTO_HR_FOREGROUND_FETCH_MS else AUTO_HR_BACKGROUND_FETCH_MS)
+            }
+        }
+    }
+
     private fun restartAutoHeartRateReactivation() {
         autoHeartRateReactivationJob?.cancel()
         val reactivationMinutes = _state.value.autoHeartRateReactivationMinutes
@@ -1246,8 +1326,8 @@ class WatchManager(private val context: Context) {
 
     fun setAutoHeartRateInterval(minutes: Int) {
         val code = autoHeartRateIntervalCode(minutes) ?: return
-        sendFee2NativeRaw(nativePacket(0x1F, code)); prefs.edit { putInt("autoHeartRateIntervalMinutes", minutes) }; _state.update { it.copy(autoHeartRateIntervalMinutes = minutes) }
-        restartAutoHeartRateReactivation()
+        enqueueOperations(listOf(nativePacket(0x1F, code), nativePacket(0x2F)))
+        updateAutoHeartRateState(minutes)
     }
 
     private fun autoHeartRateIntervalCode(minutes: Int): Int? = when (minutes) { 0 -> 0x00; 5 -> 0x01; 10 -> 0x02; else -> null }
@@ -1528,6 +1608,7 @@ class WatchManager(private val context: Context) {
         reconnectJob?.cancel()
         connectWatchdogJob?.cancel()
         autoSleepFetchJob?.cancel()
+        autoHeartRateHistoryFetchJob?.cancel()
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
@@ -1551,7 +1632,7 @@ class WatchManager(private val context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
             if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectedSince = System.currentTimeMillis(); connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); autoHeartRateHistoryFetchJob?.cancel(); val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1561,7 +1642,9 @@ class WatchManager(private val context: Context) {
                     c.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { enqueueOperation(GattOperation.WriteDescriptor(it, if ((c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) }
                 }
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
-            } }; restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateReactivation()
+            } }
+            enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x2F)))
+            restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateHistoryFetch(); restartAutoHeartRateReactivation()
         }
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { if (matchesActiveOperation(g, d)) completeOperation(s, "descriptor ${d.uuid}") }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { if (matchesActiveOperation(g, c)) completeOperation(s, "write ${c.uuid}") }
@@ -1706,39 +1789,53 @@ class WatchManager(private val context: Context) {
                 lightSleepMinutes = incoming.lightSleepMinutes ?: previous.lightSleepMinutes,
                 sleepSegmentsJson = incoming.sleepSegmentsJson ?: previous.sleepSegmentsJson
             )
-            if (healthFlushJob?.isActive != true) {
-                val waitMs = HealthSavePolicy.delayUntilNextWrite(lastHealthWriteTime, System.currentTimeMillis(), _state.value.healthWriteIntervalMinutes)
-                healthFlushJob = managerScope.launch {
-                    delay(waitMs)
-                    flushPendingHealthEntry()
-                }
-            }
+            scheduleHealthFlushLocked(System.currentTimeMillis())
+        }
+    }
+
+    private fun scheduleHealthFlushLocked(now: Long) {
+        if (healthFlushJob?.isActive == true || (pendingHealthEntry == null && pendingAutoHeartRateSamples.isEmpty())) return
+        val waitMs = maxOf(
+            HEALTH_BATCH_DEBOUNCE_MS,
+            HealthSavePolicy.delayUntilNextWrite(lastHealthWriteTime, now, _state.value.healthWriteIntervalMinutes),
+        )
+        healthFlushJob = managerScope.launch {
+            delay(waitMs)
+            flushPendingHealthEntry()
         }
     }
 
     private suspend fun flushPendingHealthEntry() {
-        val entry = synchronized(healthWriteLock) {
-            val value = pendingHealthEntry
+        val pending = synchronized(healthWriteLock) {
+            val entry = pendingHealthEntry
+            val heartRates = pendingAutoHeartRateSamples.map { (timestamp, bpm) -> TimedHeartRateSample(bpm, timestamp) }
             pendingHealthEntry = null
+            pendingAutoHeartRateSamples.clear()
             healthFlushJob = null
-            if (value != null) lastHealthWriteTime = System.currentTimeMillis()
-            value
-        } ?: return
+            if (entry != null || heartRates.isNotEmpty()) lastHealthWriteTime = System.currentTimeMillis()
+            entry to heartRates
+        }
+        val entry = pending.first
+        val heartRates = pending.second
+        if (entry == null && heartRates.isEmpty()) return
 
-        if (!shouldSkipHealthEntry(entry)) {
-            val key = healthSyncKey(entry)
-            healthDao.enqueueHealth(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, sleepSegmentsJson = entry.sleepSegmentsJson, dedupeKey = key))
+        val queuedEntries = buildList {
+            if (entry != null && !shouldSkipHealthEntry(entry)) {
+                add(HealthSyncQueueEntry(timestamp = entry.timestamp, battery = entry.battery, heartRate = entry.heartRate, spo2 = entry.spo2, systolic = entry.systolic, diastolic = entry.diastolic, steps = entry.steps, activityCount = entry.activityCount, distance = entry.distance, calories = entry.calories, sleepMinutes = entry.sleepMinutes, deepSleepMinutes = entry.deepSleepMinutes, lightSleepMinutes = entry.lightSleepMinutes, sleepSegmentsJson = entry.sleepSegmentsJson, dedupeKey = healthSyncKey(entry)))
+            }
+            heartRates.forEach { sample ->
+                add(HealthSyncQueueEntry(timestamp = sample.timestamp, heartRate = sample.bpm, dedupeKey = "auto-hr:${sample.timestamp}"))
+            }
+        }
+        val inserted = healthDao.enqueueHealthBatch(queuedEntries)
+        if (inserted > 0) {
             _state.update { it.copy(diagnosticsHealthWrites = it.diagnosticsHealthWrites + 1) }
             scheduleActiveEventSummary()
+            if (heartRates.isNotEmpty()) updateDebugLog("Auto HR history queued: ${heartRates.size} samples")
         }
 
         synchronized(healthWriteLock) {
-            if (pendingHealthEntry != null && healthFlushJob?.isActive != true) {
-                healthFlushJob = managerScope.launch {
-                    delay(HealthSavePolicy.delayUntilNextWrite(lastHealthWriteTime, System.currentTimeMillis(), _state.value.healthWriteIntervalMinutes))
-                    flushPendingHealthEntry()
-                }
-            }
+            scheduleHealthFlushLocked(System.currentTimeMillis())
         }
     }
 
@@ -1781,6 +1878,11 @@ class WatchManager(private val context: Context) {
         val safe = HealthSavePolicy.normalizeIntervalMinutes(minutes)
         prefs.edit { putInt("healthWriteIntervalMinutes", safe) }
         _state.update { it.copy(healthWriteIntervalMinutes = safe) }
+        synchronized(healthWriteLock) {
+            healthFlushJob?.cancel()
+            healthFlushJob = null
+            scheduleHealthFlushLocked(System.currentTimeMillis())
+        }
     }
 
     private fun shouldSkipHealthEntry(entry: HealthEntry): Boolean {

@@ -8,6 +8,8 @@ private val SLEEP_STAGES = setOf(0x01, 0x02, 0x03)
 
 class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
 
+    private val fee3PacketReassembler = Fee3PacketReassembler()
+
     sealed class DecodedResult {
         data class Battery(val level: Int) : DecodedResult()
         data class HeartRate(val bpm: Int) : DecodedResult()
@@ -24,6 +26,7 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         data class AutoLock(val seconds: Int) : DecodedResult()
         data class RemoteEvent(val event: String) : DecodedResult()
         data class AutoHeartRate(val minutes: Int) : DecodedResult()
+        data class HeartRateHistoryPage(val page: Int, val values: List<Int>) : DecodedResult()
         data class PowerSave(val enabled: Boolean) : DecodedResult()
         data class WatchExerciseSummary(
             val sportType: Int,
@@ -50,7 +53,7 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
                 parseActivityPacket(data)?.let { onResult(it) }
             }
             UUID_FEE3 -> {
-                parseFee3Packet(data)
+                fee3PacketReassembler.accept(data)?.let(::parseFee3Packet)
             }
         }
     }
@@ -59,18 +62,13 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         if (data.size < 5 || data[0] != 0xFE.toByte() || data[1] != 0xEA.toByte() || data[2] != 0x20.toByte()) return
         
         when (data[4].toInt() and 0xFF) {
-            0x1F -> {
-                val value = data.getOrNull(5)?.toInt()?.and(0xFF)
-                val interval = when (value) {
-                    0x00 -> 0; 0x01 -> 5; 0x02 -> 10; 0x03 -> 15; 0x04 -> 30; 0x05 -> 60; else -> null
-                }
-                if (interval != null) onResult(DecodedResult.AutoHeartRate(interval))
-            }
+            0x1F, 0x2F -> parseAutoHeartRate(data)
             0x21 -> parseAlarmQueryResponse(data)
             0x26 -> parseStepGoalResponse(data)
             0x32 -> if (data.size >= 8) parseSleepBoundaryPacket(data)
             0x33 -> if (data.size >= 15) parseDailyTotalsPacket(data)
             0x34 -> if (data.size >= 19) parseWatchExerciseSummaryPacket(data)
+            0x35 -> parseHeartRateHistoryPage(data)
             0x59 -> if (data.size >= 54) parseHourlyActivityPacket(data)
             0x5A -> parseDeviceInfoPacket(data)
             0x8D -> data.getOrNull(5)?.toInt()?.and(0xFF)?.let { onResult(DecodedResult.AutoLock(it)) }
@@ -93,6 +91,26 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             }
             0xA4 -> if (data.size > 6) onResult(DecodedResult.PowerSave(data[5].toInt() == 0x01))
         }
+    }
+
+    private fun parseAutoHeartRate(data: ByteArray) {
+        val interval = when (data.getOrNull(5)?.toInt()?.and(0xFF)) {
+            0x00 -> 0
+            0x01 -> 5
+            0x02 -> 10
+            0x03 -> 15
+            0x04 -> 30
+            0x05 -> 60
+            else -> null
+        }
+        interval?.let { onResult(DecodedResult.AutoHeartRate(it)) }
+    }
+
+    private fun parseHeartRateHistoryPage(data: ByteArray) {
+        val page = data.getOrNull(5)?.toInt()?.and(0xFF) ?: return
+        if (page !in 0 until DaFitHeartRateHistory.PAGE_COUNT || data.size < 6 + DaFitHeartRateHistory.SAMPLES_PER_PAGE) return
+        val values = data.copyOfRange(6, 6 + DaFitHeartRateHistory.SAMPLES_PER_PAGE).map { it.toInt() and 0xFF }
+        onResult(DecodedResult.HeartRateHistoryPage(page, values))
     }
 
     private fun parseActivityPacket(data: ByteArray): DecodedResult.Activity? {
@@ -264,5 +282,52 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         val UUID_FEE1 = UUID.fromString("0000fee1-0000-1000-8000-00805f9b34fb")
         val UUID_FEA1 = UUID.fromString("0000fea1-0000-1000-8000-00805f9b34fb")
         val UUID_FEE3 = UUID.fromString("0000fee3-0000-1000-8000-00805f9b34fb")
+    }
+}
+
+private class Fee3PacketReassembler {
+    private var packet: ByteArray? = null
+    private var position = 0
+
+    fun accept(fragment: ByteArray): ByteArray? {
+        if (fragment.isEmpty()) return null
+        if (fragment.startsWithDaFitHeader()) reset(fragment)
+
+        val current = packet ?: return null
+        val copyLength = minOf(fragment.size, current.size - position)
+        fragment.copyInto(current, destinationOffset = position, endIndex = copyLength)
+        position += copyLength
+
+        return if (position == current.size) current.also { clear() } else null
+    }
+
+    private fun reset(firstFragment: ByteArray) {
+        clear()
+        val packetLength = firstFragment.daFitPacketLength() ?: return
+        if (packetLength !in 5..MAX_PACKET_LENGTH) return
+        packet = ByteArray(packetLength)
+    }
+
+    private fun clear() {
+        packet = null
+        position = 0
+    }
+
+    private fun ByteArray.startsWithDaFitHeader(): Boolean =
+        size >= 2 && this[0] == 0xFE.toByte() && this[1] == 0xEA.toByte()
+
+    private fun ByteArray.daFitPacketLength(): Int? {
+        if (size < 4) return null
+        val high = this[2].toInt() and 0xFF
+        val low = this[3].toInt() and 0xFF
+        return when {
+            high == 0x10 -> low
+            high >= 0x20 -> ((high - 0x20) shl 8) or low
+            else -> null
+        }
+    }
+
+    companion object {
+        private const val MAX_PACKET_LENGTH = 4 * 1024
     }
 }
