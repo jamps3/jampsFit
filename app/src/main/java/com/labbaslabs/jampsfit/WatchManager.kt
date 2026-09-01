@@ -31,6 +31,7 @@ import com.labbaslabs.jampsfit.database.toHealthEntry
 import com.labbaslabs.jampsfit.database.toJson
 import com.labbaslabs.jampsfit.database.toMeal
 import com.labbaslabs.jampsfit.database.toSupplement
+import com.labbaslabs.jampsfit.database.toSupplementEntry
 import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.database.MealEntity
 import com.labbaslabs.jampsfit.database.SupplementEntity
@@ -913,15 +914,23 @@ class WatchManager(private val context: Context) {
                 id = existing?.id ?: 0L,
                 festivalId = existing?.festivalId ?: festivalId,
                 type = EVENT_TYPE_WATCH_EXERCISE,
-                name = DEFAULT_WATCH_EXERCISE_NAME,
+                name = existing?.name ?: DEFAULT_WATCH_EXERCISE_NAME,
                 startTime = startTime,
                 endTime = endTime,
+                startSteps = existing?.startSteps,
+                startActivityCount = existing?.startActivityCount,
+                startDistance = existing?.startDistance,
+                startCalories = existing?.startCalories,
                 durationSeconds = durationSeconds,
+                stepDelta = existing?.stepDelta ?: 0,
+                activityDelta = existing?.activityDelta ?: 0,
+                distanceDelta = existing?.distanceDelta ?: 0,
+                calorieDelta = existing?.calorieDelta ?: 0,
                 heartRateSamples = maxOf(existing?.heartRateSamples ?: 0, workout.sampleCount),
-                averageBpm = workout.averageBpm,
+                averageBpm = existing?.averageBpm ?: workout.averageBpm,
                 minBpm = minOf(existing?.minBpm ?: workout.minBpm, workout.minBpm),
                 maxBpm = maxOf(existing?.maxBpm ?: workout.maxBpm, workout.maxBpm),
-                estimatedWorkoutCalories = maxOf(existing?.estimatedWorkoutCalories ?: 0, workout.estimatedCalories),
+                estimatedWorkoutCalories = maxOf(existing?.estimatedWorkoutCalories ?: 0, workout.estimatedCalories, existing?.calorieDelta ?: 0),
                 lastUpdatedTime = now
             )
             if (existing == null) eventDao.insert(event) else eventDao.update(event)
@@ -1000,6 +1009,7 @@ class WatchManager(private val context: Context) {
         root.put("meals", JSONArray(eventDao.observeMeals().first().map { it.toJson() }))
         root.put("candies", JSONArray(eventDao.observeCandies().first().map { it.toJson() }))
         root.put("supplements", JSONArray(eventDao.observeSupplements().first().map { it.toJson() }))
+        root.put("supplementEntries", JSONArray(eventDao.observeSupplementEntries().first().map { it.toJson() }))
         return root.toString()
     }
 
@@ -1013,20 +1023,58 @@ class WatchManager(private val context: Context) {
             val foods = buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toFood()) }
             foodDao.insertAll(foods)
         }
+        val festivalIds = mutableMapOf<Long, Long>()
         root.optJSONArray("festivals")?.let { array ->
-            eventDao.insertFestivals(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toFestival()) })
+            for (i in 0 until array.length()) {
+                val source = array.getJSONObject(i)
+                val importedId = source.optLong("id", 0L)
+                val newId = eventDao.insertFestival(source.toFestival())
+                if (importedId != 0L) festivalIds[importedId] = newId
+            }
         }
         root.optJSONArray("events")?.let { array ->
-            eventDao.insertEvents(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toEvent()) })
+            eventDao.insertEvents(buildList {
+                for (i in 0 until array.length()) {
+                    val event = array.getJSONObject(i).toEvent()
+                    add(event.copy(festivalId = event.festivalId?.let(festivalIds::get)))
+                }
+            })
         }
         root.optJSONArray("meals")?.let { array ->
-            eventDao.insertMeals(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toMeal()) })
+            eventDao.insertMeals(buildList {
+                for (i in 0 until array.length()) {
+                    val meal = array.getJSONObject(i).toMeal()
+                    add(meal.copy(festivalId = meal.festivalId?.let(festivalIds::get)))
+                }
+            })
         }
         root.optJSONArray("candies")?.let { array ->
-            eventDao.insertCandies(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toCandy()) })
+            eventDao.insertCandies(buildList {
+                for (i in 0 until array.length()) {
+                    val candy = array.getJSONObject(i).toCandy()
+                    add(candy.copy(festivalId = candy.festivalId?.let(festivalIds::get)))
+                }
+            })
         }
+        val supplementIds = mutableMapOf<Long, Long>()
         root.optJSONArray("supplements")?.let { array ->
-            eventDao.insertSupplements(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toSupplement()) })
+            for (i in 0 until array.length()) {
+                val source = array.getJSONObject(i)
+                val importedId = source.optLong("id", 0L)
+                val newId = eventDao.insertSupplement(source.toSupplement())
+                if (importedId != 0L) supplementIds[importedId] = newId
+            }
+        }
+        root.optJSONArray("supplementEntries")?.let { array ->
+            eventDao.insertSupplementEntries(buildList {
+                for (i in 0 until array.length()) {
+                    val source = array.getJSONObject(i)
+                    val importedSupplementId = source.optLong("supplementId", 0L)
+                    val supplementId = supplementIds[importedSupplementId] ?: return@buildList
+                    val festivalId = if (source.isNull("festivalId")) null else festivalIds[source.optLong("festivalId")]
+                    add(source.toSupplementEntry(supplementId, festivalId))
+                }
+            })
         }
         return root.keys().asSequence().count()
     }

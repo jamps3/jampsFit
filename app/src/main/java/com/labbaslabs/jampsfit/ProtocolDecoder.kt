@@ -4,6 +4,8 @@ import android.util.Log
 import com.labbaslabs.jampsfit.database.HealthEntry
 import java.util.*
 
+private val SLEEP_STAGES = setOf(0x01, 0x02, 0x03)
+
 class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
 
     sealed class DecodedResult {
@@ -142,7 +144,7 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             val stateId = b[offset].toInt() and 0xFF
             val hour = b[offset + 1].toInt() and 0xFF
             val minute = b[offset + 2].toInt() and 0xFF
-            if (hour in 0..23 && minute in 0..59) markers.add(stateId to (hour * 60 + minute))
+            if (hour in 0..23 && minute in 0..59) markers.add(normalizeSleepState(stateId) to (hour * 60 + minute))
             offset += 3
         }
         if (markers.size < 2) return
@@ -167,11 +169,12 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             merged
         }
 
-        val total = rawSegments.filter { it.stateId != 0x00 }.sumOf { it.endMinutes - it.startMinutes }
+        val total = rawSegments.filter { it.stateId in SLEEP_STAGES }.sumOf { it.endMinutes - it.startMinutes }
         val deep = rawSegments.filter { it.stateId == 0x02 }.sumOf { it.endMinutes - it.startMinutes }
-        val light = rawSegments.filter { it.stateId == 0x01 || it.stateId == 0x03 }.sumOf { it.endMinutes - it.startMinutes }
+        val light = rawSegments.filter { it.stateId == 0x01 }.sumOf { it.endMinutes - it.startMinutes }
+        val rem = rawSegments.filter { it.stateId == 0x03 }.sumOf { it.endMinutes - it.startMinutes }
         
-        onResult(DecodedResult.SleepBoundaries(mergedSegments, total, deep, light))
+        onResult(DecodedResult.SleepBoundaries(mergedSegments, total, deep, light + rem))
     }
 
     private fun parseDailyTotalsPacket(b: ByteArray) {
@@ -227,6 +230,11 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
         val text = String(b.copyOfRange(6, b.size)).trim()
         if (infoType == 0x00) onResult(DecodedResult.DeviceInfo(text, null))
         else if (infoType == 0x01) onResult(DecodedResult.DeviceInfo(null, text))
+    }
+
+    private fun normalizeSleepState(stateId: Int): Int = when (stateId) {
+        0x00, 0x01, 0x02, 0x03 -> stateId
+        else -> 0x00
     }
 
     private fun sleepStateLabel(stateId: Int) = when (stateId) {

@@ -279,6 +279,9 @@ interface EventDao {
     @Insert
     suspend fun insertSupplementEntry(entry: SupplementEntryEntity): Long
 
+    @Insert
+    suspend fun insertSupplementEntries(entries: List<SupplementEntryEntity>)
+
     @Query("SELECT * FROM supplement_entries ORDER BY takenAt DESC LIMIT 300")
     fun observeSupplementEntries(): Flow<List<SupplementEntryEntity>>
 
