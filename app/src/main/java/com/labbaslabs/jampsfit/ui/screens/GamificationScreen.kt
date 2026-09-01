@@ -18,6 +18,7 @@ import com.labbaslabs.jampsfit.WatchState
 import com.labbaslabs.jampsfit.ui.components.FestivalProgressCard
 import com.labbaslabs.jampsfit.ui.components.GamificationCard
 import com.labbaslabs.jampsfit.ui.components.WorkoutSummaryCard
+import com.labbaslabs.jampsfit.ui.components.HealthInsightsCard
 
 @Composable
 fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
@@ -36,6 +37,7 @@ fun GamificationScreen(state: WatchState, scrollState: ScrollState = rememberScr
             fontWeight = FontWeight.Bold
         )
         GamificationCard(state)
+        HealthInsightsCard(state)
         FestivalProgressCard(
             state = state,
             onCreateFestival = { viewModel.createFestival() },
