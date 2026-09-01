@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import com.labbaslabs.jampsfit.ui.theme.JampsFitTheme
 import com.labbaslabs.jampsfit.ui.components.SleekNavigationBar
@@ -41,6 +43,17 @@ class MainActivity : ComponentActivity() {
     private var watchService: WatchService? by mutableStateOf(null)
     private var isBound by mutableStateOf(value = false)
     private var pendingScanRequest = false
+    private val restoreBackupLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        lifecycleScope.launch {
+            runCatching {
+                val json = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: error("Unable to read backup")
+                watchService?.watchManager?.importDataFromJson(json) ?: error("Watch service is not running")
+            }.onSuccess { count -> Toast.makeText(this@MainActivity, "Backup restored ($count sections)", Toast.LENGTH_LONG).show() }
+                .onFailure { error -> Toast.makeText(this@MainActivity, "Restore failed: ${error.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -262,6 +275,23 @@ class MainActivity : ComponentActivity() {
             val shareIntent = Intent.createChooser(sendIntent, "Export Health Data")
             startActivity(shareIntent)
         }
+    }
+
+    fun exportJsonBackup() {
+        lifecycleScope.launch {
+            val json = watchService?.watchManager?.exportDataToJson() ?: return@launch
+            val sendIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_TEXT, json)
+                putExtra(Intent.EXTRA_TITLE, "jampsFit JSON Backup")
+                type = "application/json"
+            }
+            startActivity(Intent.createChooser(sendIntent, "Export JSON Backup"))
+        }
+    }
+
+    fun restoreJsonBackup() {
+        restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
     }
 
     fun requestFullScreenIntentPermission() {

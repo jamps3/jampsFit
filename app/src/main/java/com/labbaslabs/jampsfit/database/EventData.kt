@@ -140,6 +140,20 @@ data class EventEntity(
 @Dao
 interface EventDao {
     @Insert
+    suspend fun insertFestivals(festivals: List<FestivalEntity>)
+
+    @Insert
+    suspend fun insertEvents(events: List<EventEntity>)
+
+    @Insert
+    suspend fun insertCandies(candies: List<CandyEntity>)
+
+    @Insert
+    suspend fun insertMeals(meals: List<MealEntity>)
+
+    @Insert
+    suspend fun insertSupplements(supplements: List<SupplementEntity>)
+    @Insert
     suspend fun insertFestival(festival: FestivalEntity): Long
 
     @Update

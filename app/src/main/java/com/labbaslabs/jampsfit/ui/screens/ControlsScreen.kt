@@ -108,6 +108,16 @@ private fun WatchSettingsControls(
             Spacer(modifier = Modifier.width(8.dp))
             Text("Find My Watch")
         }
+        OutlinedButton(onClick = { activity?.exportJsonBackup() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Export JSON Backup")
+        }
+        OutlinedButton(onClick = { activity?.restoreJsonBackup() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+            Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Restore JSON Backup")
+        }
         Spacer(modifier = Modifier.height(12.dp))
         Text("Health history retention: ${state.healthRetentionDays} days", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         Slider(

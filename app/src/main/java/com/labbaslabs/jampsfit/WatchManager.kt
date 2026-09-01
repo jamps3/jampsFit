@@ -23,6 +23,14 @@ import com.labbaslabs.jampsfit.database.FoodRoles
 import com.labbaslabs.jampsfit.database.FoodSources
 import com.labbaslabs.jampsfit.database.HealthEntry
 import com.labbaslabs.jampsfit.database.HealthSyncQueueEntry
+import com.labbaslabs.jampsfit.database.toCandy
+import com.labbaslabs.jampsfit.database.toEvent
+import com.labbaslabs.jampsfit.database.toFood
+import com.labbaslabs.jampsfit.database.toFestival
+import com.labbaslabs.jampsfit.database.toHealthEntry
+import com.labbaslabs.jampsfit.database.toJson
+import com.labbaslabs.jampsfit.database.toMeal
+import com.labbaslabs.jampsfit.database.toSupplement
 import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.database.MealEntity
 import com.labbaslabs.jampsfit.database.SupplementEntity
@@ -35,6 +43,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.*
 
 data class WatchState(
@@ -975,6 +986,46 @@ class WatchManager(private val context: Context) {
         val entries = healthDao.getAllEntriesList(); val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         return "Timestamp,Time,Battery,HeartRate,SpO2,Systolic,Diastolic,Steps,ActivityCount,Distance,Calories\n" +
             entries.joinToString("\n") { e -> "${e.timestamp},${sdf.format(Date(e.timestamp))},${e.battery ?: ""},${e.heartRate ?: ""},${e.spo2 ?: ""},${e.systolic ?: ""},${e.diastolic ?: ""},${e.steps ?: ""},${e.activityCount ?: ""},${e.distance ?: ""},${e.calories ?: ""}" }
+    }
+
+    suspend fun exportDataToJson(): String {
+        val root = JSONObject().put("format", "jampsFit-backup-v1").put("createdAt", System.currentTimeMillis())
+        root.put("health", JSONArray(healthDao.getAllEntriesList().map { it.toJson() }))
+        root.put("foods", JSONArray(foodDao.observeFoods().first().map { it.toJson() }))
+        root.put("festivals", JSONArray(eventDao.observeFestivals().first().map { it.toJson() }))
+        root.put("events", JSONArray(eventDao.observeRecentEvents().first().map { it.toJson() }))
+        root.put("meals", JSONArray(eventDao.observeMeals().first().map { it.toJson() }))
+        root.put("candies", JSONArray(eventDao.observeCandies().first().map { it.toJson() }))
+        root.put("supplements", JSONArray(eventDao.observeSupplements().first().map { it.toJson() }))
+        return root.toString()
+    }
+
+    suspend fun importDataFromJson(json: String): Int {
+        val root = JSONObject(json)
+        require(root.optString("format") == "jampsFit-backup-v1") { "Unsupported backup format" }
+        root.optJSONArray("health")?.let { array ->
+            for (i in 0 until array.length()) healthDao.insert(array.getJSONObject(i).toHealthEntry())
+        }
+        root.optJSONArray("foods")?.let { array ->
+            val foods = buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toFood()) }
+            foodDao.insertAll(foods)
+        }
+        root.optJSONArray("festivals")?.let { array ->
+            eventDao.insertFestivals(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toFestival()) })
+        }
+        root.optJSONArray("events")?.let { array ->
+            eventDao.insertEvents(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toEvent()) })
+        }
+        root.optJSONArray("meals")?.let { array ->
+            eventDao.insertMeals(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toMeal()) })
+        }
+        root.optJSONArray("candies")?.let { array ->
+            eventDao.insertCandies(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toCandy()) })
+        }
+        root.optJSONArray("supplements")?.let { array ->
+            eventDao.insertSupplements(buildList { for (i in 0 until array.length()) add(array.getJSONObject(i).toSupplement()) })
+        }
+        return root.keys().asSequence().count()
     }
 
     fun sendNotification(title: String, text: String, forceLegacy: Boolean = false, ignoreDuplicate: Boolean = false, legacyType: Int = 0x01, forceMirrored: Boolean = false) {
