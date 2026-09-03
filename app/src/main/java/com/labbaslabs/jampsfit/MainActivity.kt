@@ -43,6 +43,22 @@ class MainActivity : ComponentActivity() {
     private var watchService: WatchService? by mutableStateOf(null)
     private var isBound by mutableStateOf(value = false)
     private var pendingScanRequest = false
+    private var pendingJsonBackup: String? = null
+    private val exportBackupLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val json = pendingJsonBackup
+        pendingJsonBackup = null
+        if (uri == null || json == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
+                    ?: error("Unable to open backup file")
+            }.onSuccess {
+                withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "JSON backup exported", Toast.LENGTH_LONG).show() }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "Export failed: ${error.message}", Toast.LENGTH_LONG).show() }
+            }
+        }
+    }
     private val restoreBackupLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         lifecycleScope.launch {
@@ -280,13 +296,8 @@ class MainActivity : ComponentActivity() {
     fun exportJsonBackup() {
         lifecycleScope.launch {
             val json = watchService?.watchManager?.exportDataToJson() ?: return@launch
-            val sendIntent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, json)
-                putExtra(Intent.EXTRA_TITLE, "jampsFit JSON Backup")
-                type = "application/json"
-            }
-            startActivity(Intent.createChooser(sendIntent, "Export JSON Backup"))
+            pendingJsonBackup = json
+            exportBackupLauncher.launch("jampsFit-backup-${System.currentTimeMillis()}.json")
         }
     }
 
