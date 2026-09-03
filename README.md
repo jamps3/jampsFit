@@ -12,7 +12,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Step Fetching**: Fetch current watch-face steps manually from the Home tab or automatically at a configurable interval.
 - **Sleep Tracking**: Fetch and display accurate watch sleep ranges, preserving hidden boundary markers that Da Fit may merge.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
-- **Health Measurements**: Track regular heart-rate measurements, with blood pressure and SpO2 measurement support on the near-term protocol roadmap.
+- **Health Measurements**: Track regular heart-rate measurements and receive blood pressure and SpO2 readings, with an experimental app-triggered blood pressure measurement.
 - **Battery Intelligence**: High-resolution discharge graph and time-remaining estimation based on current usage.
 - **Health Data Export**: Export your historical health and activity data to CSV files for external analysis.
 
@@ -77,7 +77,7 @@ Important capture correction: the Da Fit writes previously labeled as `6387` wer
 ## 📋 Roadmap
 - [ ] **Gamification Expansion**: Extend the Progress-tab XP, streak, and achievement system with weekly challenges, quest cards, milestone timelines, and personal bests. See `docs/plans/GAMIFICATION-PLAN.md`.
 - [ ] **Regular HR Measurements**: Add scheduled heart-rate measurement capture and history sync.
-- [ ] **Additional Vitals**: Investigate regular blood pressure and SpO2 measurement support once the watch protocol behavior is verified.
+- [ ] **Additional Vitals**: Investigate scheduled blood pressure measurements and app-triggered or scheduled SpO2 support.
 - [ ] **Sleep Merge Refinement**: Keep the existing accurate sleep decoding while improving how multiple sleep ranges are merged within the same day.
 - [ ] **Workout Sync**: Track specific exercise sessions with GPS data.
 - [ ] **Customizable Watch Faces**: Explore support for pushing custom dial files to the watch.

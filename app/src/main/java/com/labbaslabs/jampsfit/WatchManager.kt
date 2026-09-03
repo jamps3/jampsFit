@@ -297,7 +297,10 @@ class WatchManager(private val context: Context) {
     }
 
     private val decoder = ProtocolDecoder { result -> handleDecodedResult(result) }
+    private val connectionLock = Any()
     private var bluetoothGatt: BluetoothGatt? = null
+    @Volatile
+    private var connectionInProgress = false
     private var lastConnectedDevice: BluetoothDevice? = null
     private val operationQueue: Queue<GattOperation> = LinkedList()
     private var isOperating = false
@@ -315,6 +318,7 @@ class WatchManager(private val context: Context) {
     private var hrReminderJob: Job? = null
     private var autoHeartRateReactivationJob: Job? = null
     private var autoHeartRateHistoryFetchJob: Job? = null
+    private var measurementTimeoutJob: Job? = null
     private val heavyObserverJobs = mutableListOf<Job>()
     private var appForegrounded = false
     private var reconnectAttempt = 0
@@ -383,9 +387,16 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("SpO2: ${result.percent}%")
             }
             is ProtocolDecoder.DecodedResult.BloodPressure -> {
-                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic, lastWatchSeenTime = System.currentTimeMillis()) }
+                val wasAppMeasurement = _state.value.activeMeasurement == DaFitBloodPressureMeasurement.NAME
+                measurementTimeoutJob?.cancel()
+                measurementTimeoutJob = null
+                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic, lastWatchSeenTime = System.currentTimeMillis(), activeMeasurement = null) }
                 saveToDb(systolic = result.systolic, diastolic = result.diastolic)
                 updateDebugLog("BP: ${result.systolic}/${result.diastolic}")
+                if (wasAppMeasurement) {
+                    sendFee2NativeRaw(DaFitBloodPressureMeasurement.stopPacket())
+                    updateDebugLog("Blood Pressure measurement completed")
+                }
             }
             is ProtocolDecoder.DecodedResult.Activity -> {
                 if (rememberRecentPayload(result.seq.toString(), recentActivityPayloads, recentActivityPayloadSet)) return
@@ -1088,6 +1099,7 @@ class WatchManager(private val context: Context) {
         hrReminderJob?.cancel()
         autoHeartRateReactivationJob?.cancel()
         autoHeartRateHistoryFetchJob?.cancel()
+        measurementTimeoutJob?.cancel()
         activeEventSummaryJob?.cancel()
         stopHeavyObservers()
         synchronized(operationQueue) {
@@ -1362,8 +1374,45 @@ class WatchManager(private val context: Context) {
     }
 
     fun readBattery() { bluetoothGatt?.services?.forEach { s -> s.getCharacteristic(BATTERY_CHAR)?.let { enqueueOperation(GattOperation.ReadCharacteristic(it)); return } } }
-    fun startMeasurement(type: String) { updateDebugLog("$type app-start disabled. Use watch UI.") }
-    fun stopMeasurement() { _state.update { it.copy(activeMeasurement = null) } }
+    fun startMeasurement(type: String) {
+        if (type != DaFitBloodPressureMeasurement.NAME) {
+            updateDebugLog("$type app-start disabled. Use watch UI.")
+            return
+        }
+        if (!_state.value.isConnected) {
+            updateDebugLog("Blood Pressure measurement unavailable: watch disconnected")
+            return
+        }
+        if (_state.value.activeMeasurement != null) {
+            updateDebugLog("Measurement already active: ${_state.value.activeMeasurement}")
+            return
+        }
+
+        measurementTimeoutJob?.cancel()
+        _state.update { it.copy(activeMeasurement = DaFitBloodPressureMeasurement.NAME) }
+        sendFee2NativeRaw(DaFitBloodPressureMeasurement.startPacket())
+        updateDebugLog("Blood Pressure measurement requested")
+        measurementTimeoutJob = managerScope.launch {
+            delay(DaFitBloodPressureMeasurement.TIMEOUT_MS)
+            if (_state.value.activeMeasurement == DaFitBloodPressureMeasurement.NAME) {
+                sendFee2NativeRaw(DaFitBloodPressureMeasurement.stopPacket())
+                _state.update { it.copy(activeMeasurement = null) }
+                measurementTimeoutJob = null
+                updateDebugLog("Blood Pressure measurement timed out")
+            }
+        }
+    }
+
+    fun stopMeasurement() {
+        val activeMeasurement = _state.value.activeMeasurement ?: return
+        measurementTimeoutJob?.cancel()
+        measurementTimeoutJob = null
+        if (activeMeasurement == DaFitBloodPressureMeasurement.NAME && _state.value.isConnected) {
+            sendFee2NativeRaw(DaFitBloodPressureMeasurement.stopPacket())
+            updateDebugLog("Blood Pressure measurement stopped")
+        }
+        _state.update { it.copy(activeMeasurement = null) }
+    }
     fun updateShutterAction(a: String) { persistSettings { putString("shutterAction", a) }; _state.update { it.copy(shutterAction = a) } }
     fun updateMusicAction(a: String) { persistSettings { putString("musicAction", a) }; _state.update { it.copy(musicAction = a) } }
     fun updateCustomAction(b: String, a: String) { when (b) { "Play/Pause" -> { persistSettings { putString("playPauseAction", a) }; _state.update { it.copy(playPauseAction = a) } }; "Next" -> { persistSettings { putString("nextAction", a) }; _state.update { it.copy(nextAction = a) } }; "Previous" -> { persistSettings { putString("prevAction", a) }; _state.update { it.copy(prevAction = a) } } } }
@@ -1584,7 +1633,7 @@ class WatchManager(private val context: Context) {
     }
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(ct: Int, res: ScanResult) {
-            if (_state.value.isConnected) {
+            if (_state.value.isConnected || connectionInProgress) {
                 stopScan()
                 return
             }
@@ -1608,6 +1657,11 @@ class WatchManager(private val context: Context) {
             stopScan()
             _state.update { it.copy(connectionStatus = "Connected") }
             updateDebugLog("Scan skipped; watch is already connected.")
+            return
+        }
+        if (connectionInProgress) {
+            stopScan()
+            updateDebugLog("Scan skipped; watch connection is already in progress.")
             return
         }
         if (adapter?.isEnabled != true) {
@@ -1637,32 +1691,65 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob?.cancel()
         autoSleepFetchJob?.cancel()
         autoHeartRateHistoryFetchJob?.cancel()
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
-        bluetoothGatt = null
+        measurementTimeoutJob?.cancel()
+        measurementTimeoutJob = null
+        synchronized(connectionLock) {
+            connectionInProgress = false
+            bluetoothGatt?.disconnect()
+            bluetoothGatt?.close()
+            bluetoothGatt = null
+        }
         stopScan()
-        _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected") }
+        _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", activeMeasurement = null) }
     }
 
     @Suppress("DEPRECATION")
     private fun connectToDevice(device: BluetoothDevice) {
+        val started = synchronized(connectionLock) {
+            if (_state.value.isConnected || connectionInProgress) {
+                false
+            } else {
+                connectionInProgress = true
+                true
+            }
+        }
+        if (!started) {
+            stopScan()
+            updateDebugLog("Duplicate connection request ignored for ${device.address}")
+            return
+        }
+
         userRequestedDisconnect = false
         reconnectJob?.cancel()
         connectWatchdogJob?.cancel()
+        operationWatchdogJob?.cancel()
         stopScan()
+        synchronized(operationQueue) {
+            operationQueue.clear()
+            isOperating = false
+            activeOperation = null
+            operationAttempts = 0
+        }
         lastConnectedDevice = device
         persistSettings { putString(LAST_DEVICE_ADDRESS_KEY, device.address) }
         _state.update { it.copy(connectionStatus = "Connecting...", connectionDetail = "Connecting to ${device.name ?: device.address}", reconnectAttempt = reconnectAttempt, deviceName = device.name) }
-        bluetoothGatt?.close()
-        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
+        synchronized(connectionLock) {
+            bluetoothGatt?.close()
+            bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK)
+        }
         startConnectWatchdog()
     }
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, s: Int, ns: Int) {
-            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectedSince = System.currentTimeMillis(); connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { bluetoothGatt = null; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); autoHeartRateHistoryFetchJob?.cancel(); val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
+            if (!isCurrentGatt(gatt)) {
+                updateDebugLog("Ignoring stale GATT state callback: status=$s state=$ns")
+                gatt.close()
+                return
+            }
+            if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectedSince = System.currentTimeMillis(); connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; connectionInProgress = false; gatt.discoverServices() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { synchronized(connectionLock) { if (bluetoothGatt === gatt) bluetoothGatt = null; connectionInProgress = false }; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); autoHeartRateHistoryFetchJob?.cancel(); measurementTimeoutJob?.cancel(); measurementTimeoutJob = null; val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, activeMeasurement = null, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
         }
-        override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
+        override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (isCurrentGatt(gatt) && s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
             gatt.services.forEach { s -> s.characteristics.forEach { c ->
                 if (c.uuid != SKIP_NOTIFY_CHAR && (c.properties and (BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE)) != 0) {
@@ -1677,7 +1764,11 @@ class WatchManager(private val context: Context) {
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { if (matchesActiveOperation(g, d)) completeOperation(s, "descriptor ${d.uuid}") }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { if (matchesActiveOperation(g, c)) completeOperation(s, "write ${c.uuid}") }
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray, s: Int) { if (!matchesActiveOperation(g, c)) return; if (s == BluetoothGatt.GATT_SUCCESS) decoder.decode(c.uuid, v); completeOperation(s, "read ${c.uuid}") }
-        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray) { logIncomingPacket(c.uuid, v); decoder.decode(c.uuid, v) }
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, v: ByteArray) { if (!isCurrentGatt(g)) return; logIncomingPacket(c.uuid, v); decoder.decode(c.uuid, v) }
+    }
+
+    private fun isCurrentGatt(gatt: BluetoothGatt): Boolean = synchronized(connectionLock) {
+        bluetoothGatt === gatt
     }
     private fun logIncomingPacket(uuid: UUID, data: ByteArray) {
         val short = uuid.toString().substring(4, 8).uppercase(); val hex = data.joinToString(" ") { "%02X".format(it) }
@@ -1755,7 +1846,7 @@ class WatchManager(private val context: Context) {
         }
     }
     private fun connectKnownDeviceOrScan() {
-        if (_state.value.isConnected) return
+        if (_state.value.isConnected || connectionInProgress) return
         val address = prefs.getString(LAST_DEVICE_ADDRESS_KEY, null)
         val knownDevice = address?.let { runCatching { adapter?.getRemoteDevice(it) }.getOrNull() }
         if (knownDevice != null) {
@@ -1774,8 +1865,11 @@ class WatchManager(private val context: Context) {
                 val detail = "Connection timed out; retrying"
                 _state.update { it.copy(connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt) }
                 updateDebugLog("Connect timed out; scanning again.")
-                bluetoothGatt?.close()
-                bluetoothGatt = null
+                synchronized(connectionLock) {
+                    bluetoothGatt?.close()
+                    bluetoothGatt = null
+                    connectionInProgress = false
+                }
                 scheduleReconnect(nextReconnectDelay())
             }
         }
@@ -2003,7 +2097,6 @@ class WatchManager(private val context: Context) {
         val calendar = Calendar.getInstance()
         return "${calendar.get(Calendar.YEAR)}-${calendar.get(Calendar.DAY_OF_YEAR)}"
     }
-    private fun nativePacket(cmd: Int, vararg p: Int): ByteArray = ByteArray(5 + p.size).apply { this[0] = 0xFE.toByte(); this[1] = 0xEA.toByte(); this[2] = 0x20.toByte(); this[3] = size.toByte(); this[4] = cmd.toByte(); p.forEachIndexed { i, v -> this[5 + i] = (v and 0xFF).toByte() } }
     private fun sendFee2NativeRaw(b: ByteArray) = enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, b))
     fun sendLegacyShortNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true) }
     fun sendLegacyCallNotification(title: String, text: String) { sendNotification(title, text, forceLegacy = true, legacyType = 0x02) }

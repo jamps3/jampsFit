@@ -108,6 +108,51 @@ class ProtocolDecoderTest {
     }
 
     @Test
+    fun decodesBloodPressureMeasurementResult() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(
+            ProtocolDecoder.UUID_FEE3,
+            byteArrayOf(
+                0xFE.toByte(), 0xEA.toByte(), 0x20, 0x08, 0x69, 0x00, 0x77, 0x4F
+            ),
+        )
+
+        assertEquals(ProtocolDecoder.DecodedResult.BloodPressure(119, 79), results.single())
+    }
+
+    @Test
+    fun ignoresBloodPressureCommandAcknowledgement() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(
+            ProtocolDecoder.UUID_FEE3,
+            byteArrayOf(
+                0xFE.toByte(), 0xEA.toByte(), 0x20, 0x08, 0x69, 0x00, 0x00, 0x00
+            ),
+        )
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun ignoresBloodPressureStopAcknowledgement() {
+        val results = mutableListOf<ProtocolDecoder.DecodedResult>()
+        val decoder = ProtocolDecoder(results::add)
+
+        decoder.decode(
+            ProtocolDecoder.UUID_FEE3,
+            byteArrayOf(
+                0xFE.toByte(), 0xEA.toByte(), 0x20, 0x08, 0x69, 0x00, 0xFF.toByte(), 0xFF.toByte()
+            ),
+        )
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
     fun reassemblesAndDecodesHeartRateHistoryPage() {
         val results = mutableListOf<ProtocolDecoder.DecodedResult>()
         val decoder = ProtocolDecoder(results::add)

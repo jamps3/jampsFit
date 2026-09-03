@@ -80,7 +80,9 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             0x69 -> if (data.size > 7) {
                 val systolic = data[6].toInt() and 0xFF
                 val diastolic = data[7].toInt() and 0xFF
-                onResult(DecodedResult.BloodPressure(systolic, diastolic))
+                if (isPlausibleBloodPressure(systolic, diastolic)) {
+                    onResult(DecodedResult.BloodPressure(systolic, diastolic))
+                }
             }
             0x66 -> onResult(DecodedResult.ShutterEvent)
             0x67 -> {
@@ -92,6 +94,9 @@ class ProtocolDecoder(private val onResult: (DecodedResult) -> Unit) {
             0xA4 -> if (data.size > 6) onResult(DecodedResult.PowerSave(data[5].toInt() == 0x01))
         }
     }
+
+    private fun isPlausibleBloodPressure(systolic: Int, diastolic: Int): Boolean =
+        systolic in 40..250 && diastolic in 20..200 && systolic > diastolic
 
     private fun parseAutoHeartRate(data: ByteArray) {
         val interval = when (data.getOrNull(5)?.toInt()?.and(0xFF)) {

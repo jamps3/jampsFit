@@ -36,7 +36,8 @@ Living feature plans belong in `docs/plans/`. See `docs/plans/GAMIFICATION-PLAN.
 - [x] **Custom Branding**: Integrated jampsFit logo and adaptive launcher icon with OLED optimization.
 - [x] **Watch-tab Connection Controls**: Scan/connect, clock sync, battery refresh, and queue clearing live with watch controls instead of App settings.
 - [x] **Retire Notification Probes**: Removed dead notification probe controls after they produced no useful watch behavior.
-- [x] Remote Measurement: Start/Stop HR, SpO2, and BP measurement from the app.
+- [x] Remote BP Measurement: Start/stop one-shot blood pressure measurement from the app with a timeout.
+- [ ] Remote HR/SpO2 Measurement: Keep disabled until safe command payloads are verified on hardware.
 - [x] Data Export: Save session data to CSV files.
 - [x] Notification Mirroring: Push phone notifications (calls, SMS, apps) to the watch from jampsFit's own BLE connection using the confirmed direct `0x41` path with automatic app discovery and friendly name filtering.
 - [x] Extended Notifications: Direct `0x41` display is confirmed through 238 bytes; 240 bytes truncates on-watch.

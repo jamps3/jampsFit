@@ -55,7 +55,7 @@ Current status: **passive main-screen data is restored** when the app skips MTU 
 | 20 | `67` | **Music Control** | ✅ Verified | **RX only**: `01`=Prev, `02`=Next, `06`=Play/Pause. |
 | 20 | `6D` | **Heart Rate** | ✅ Verified | RX manual measurement result. |
 | 20 | `6B` | **SpO2** | ✅ Verified | RX manual measurement result. |
-| 20 | `69` | **Blood Pressure**| ✅ Verified | RX manual measurement result. |
+| 20 | `69` | **Blood Pressure**| ✅ Verified RX/TX | RX result is verified. TX `00 00 00` starts a one-shot measurement and `FF FF FF` stops it. |
 | 20 | `72` | **Quick View Win**| ✅ Verified | `[start H] [start M] [end H] [end M]`. |
 | 20 | `7D` | **Auto-lock** | ✅ Verified | `[seconds]` (5-60). |
 | 20 | `8D` | **Get Auto-lock** | ✅ Verified | Query current auto-lock duration. |
@@ -76,6 +76,7 @@ Confirmed subscribed channels on Kospet TANK M1 include:
 - `2A37`: standard heart-rate notify.
 - `FEE1`: live walking/activity notify.
 - `FEE3`: legacy notify. Confirmed to carry manual measurement updates (HR, SpO2, BP) and remote events.
+- `FEE2`: BP one-shot measurement uses command `69`; start payload is `00 00 00` and stop payload is `FF FF FF`. The watch can acknowledge stop as `69 00 FF FF`, which is control data rather than a BP reading. No separate scheduled BP command or BP history stream is known.
 - `FEA1`: mirrored activity/health notify.
 - `6487`: native MoYoung notify.
 
