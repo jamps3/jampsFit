@@ -93,7 +93,7 @@ fun TodayGraphs(state: WatchState) {
     Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     SleekGraphCard(
-        title = "Heart Rate (BPM)",
+        title = "Heart Rate (HR)",
         dataPoints = state.heartRateHistory,
         currentValue = state.heartRate?.let { "$it bpm" },
         color = Color(0xFFE91E63),
@@ -192,7 +192,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
         }
     } else {
         SleekBarChartCard(
-            title = "Heart Rate (Avg)",
+            title = "Heart Rate (HR)",
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.heartRate ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
             color = Color(0xFFE91E63),
@@ -301,7 +301,7 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
     val bloodPressureWindowStart = System.currentTimeMillis() - 24 * 60 * 60_000L
     val bloodPressureStats = state.bpHistory.filter { it.timestamp >= bloodPressureWindowStart }
     SleekGraphCard(
-        title = "Heart Rate (Avg)",
+        title = "Heart Rate (HR)",
         dataPoints = stats.map { entry ->
             com.labbaslabs.jampsfit.database.HistoryPoint(entry.heartRate ?: 0, entry.timestamp)
         },
@@ -428,7 +428,7 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
     SleekCard {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
-                Text(text = "Blood Pressure (mmHg)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(text = "Blood Pressure (BP)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 if (touchedEntry != null) {
                     Text(
                         text = sdf.format(Date(touchedEntry!!.timestamp)),

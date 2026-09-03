@@ -72,8 +72,6 @@ class MainViewModel : ViewModel() {
     fun updateStepFetchInterval(minutes: Int) = watchManager?.updateStepFetchInterval(minutes)
     
     fun setAutoHeartRateInterval(minutes: Int) = watchManager?.setAutoHeartRateInterval(minutes)
-    fun updateAutoHeartRateReactivationInterval(minutes: Int) =
-        watchManager?.updateAutoHeartRateReactivationInterval(minutes)
     fun updateAutoBloodPressureInterval(minutes: Int) = watchManager?.updateAutoBloodPressureInterval(minutes)
     fun toggleNotifications(enabled: Boolean) = watchManager?.toggleNotifications(enabled)
     fun toggleIgnoreDuplicates(enabled: Boolean) = watchManager?.toggleIgnoreDuplicates(enabled)

@@ -634,32 +634,6 @@ private fun AppSettingsControls(
         SettingSwitch(label = "Fetch Steps Automatically", checked = state.autoFetchSteps) { viewModel.toggleAutoFetchSteps(it) }
         SettingSwitch(label = "Fetch Battery Automatically", checked = state.autoFetchBattery) { viewModel.toggleAutoFetchBattery(it) }
         SettingSwitch(label = "Fetch Sleep Automatically", checked = state.autoFetchSleep) { viewModel.toggleAutoFetchSleep(it) }
-        SettingSwitch(label = "Remind to Measure HR", checked = state.hrReminderEnabled) { viewModel.toggleHrReminder(it) }
-        if (state.hrReminderEnabled) {
-            Text("HR reminder interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf(60, 120, 180, 240).forEach { minutes ->
-                    FilterChip(
-                        selected = state.hrReminderIntervalMinutes == minutes,
-                        onClick = { viewModel.updateHrReminderInterval(minutes) },
-                        label = { Text("${minutes / 60}h", fontSize = 11.sp) }
-                    )
-                }
-            }
-        }
-        if (state.autoFetchSteps || state.autoFetchBattery || state.autoFetchSleep) {
-            val intervalOptions = listOf(15, 30, 60, 120, 240)
-            Text("Auto-fetch interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                intervalOptions.forEach { minutes ->
-                    FilterChip(
-                        selected = state.stepFetchIntervalMinutes == minutes,
-                        onClick = { viewModel.updateStepFetchInterval(minutes) },
-                        label = { Text(if (minutes < 60) "${minutes}m" else "${minutes / 60}h", fontSize = 11.sp) }
-                    )
-                }
-            }
-        }
         SettingSwitch(label = "Sync Time Automatically", checked = state.autoSyncTime) { viewModel.toggleAutoSyncTime(it) }
         if (state.autoSyncTime) {
             Text("Sync interval: ${state.syncTimeIntervalHours}h", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
@@ -691,25 +665,27 @@ private fun AppSettingsControls(
         Spacer(modifier = Modifier.height(12.dp))
         Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(0, 5, 10).forEach { minutes ->
+            listOf(0, 5, 15, 30, 60, 180, 360, 540, 720, 1_440).forEach { minutes ->
                 FilterChip(
                     selected = state.autoHeartRateIntervalMinutes == minutes,
                     onClick = { viewModel.setAutoHeartRateInterval(minutes) },
                     enabled = state.isConnected,
-                    label = { Text(if (minutes == 0) "Off" else "${minutes}m", fontSize = 11.sp) }
+            label = { Text(formatIntervalLabel(minutes), fontSize = 11.sp) }
                 )
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        Text("Auto HR re-send", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            listOf(0, 15, 30, 60, 120, 180, 240, 300, 360).forEach { minutes ->
-                FilterChip(
-                    selected = state.autoHeartRateReactivationMinutes == minutes,
-                    onClick = { viewModel.updateAutoHeartRateReactivationInterval(minutes) },
-                    enabled = state.isConnected,
-                    label = { Text(formatIntervalLabel(minutes), fontSize = 11.sp) }
-                )
+        SettingSwitch(label = "Remind to Measure HR", checked = state.hrReminderEnabled) { viewModel.toggleHrReminder(it) }
+        if (state.hrReminderEnabled) {
+            Text("HR reminder interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf(60, 120, 180, 240).forEach { minutes ->
+                    FilterChip(
+                        selected = state.hrReminderIntervalMinutes == minutes,
+                        onClick = { viewModel.updateHrReminderInterval(minutes) },
+                        label = { Text("${minutes / 60}h", fontSize = 11.sp) }
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
