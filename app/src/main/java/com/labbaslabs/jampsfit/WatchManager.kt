@@ -198,6 +198,7 @@ class WatchManager(private val context: Context) {
     private val foodDao = db.foodDao()
     private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val prefs = context.getSharedPreferences("jampsFitPrefs", Context.MODE_PRIVATE)
+    private val initialPendingBloodPressure = restorePendingBloodPressure()
     private val initialAutoHeartRateInterval = prefs.getInt("autoHeartRateIntervalMinutes", 0)
     private var autoHeartRateTrackingStartedAt = prefs.getLong(AUTO_HR_TRACKING_STARTED_AT_KEY, 0L)
         .takeIf { it > 0L }
@@ -221,6 +222,9 @@ class WatchManager(private val context: Context) {
     private val scanner get() = adapter?.bluetoothLeScanner
 
     private val _state = MutableStateFlow(WatchState(
+        systolic = initialPendingBloodPressure?.systolic,
+        diastolic = initialPendingBloodPressure?.diastolic,
+        bpHistory = initialPendingBloodPressure?.let(::listOf) ?: emptyList(),
         autoStart = prefs.getBoolean("autoStart", true),
         autoConnect = prefs.getBoolean("autoConnect", true),
         autoFetchSteps = prefs.getBoolean("autoFetchSteps", false),
@@ -332,10 +336,10 @@ class WatchManager(private val context: Context) {
     private var lastEventSummaryTime = 0L
     private var lastPersistedHealthEntry: HealthEntry? = null
     private val healthWriteLock = Any()
-    private var pendingHealthEntry: HealthEntry? = null
+    private var pendingHealthEntry: HealthEntry? = initialPendingBloodPressure
     private val pendingAutoHeartRateSamples = mutableMapOf<Long, Int>()
     private var healthFlushJob: Job? = null
-    private var lastHealthWriteTime = 0L
+    private var lastHealthWriteTime = prefs.getLong(LAST_HEALTH_WRITE_TIME_KEY, 0L)
     private val packetLogLock = Any()
     private val pendingPacketLogs = mutableListOf<String>()
     private var packetLogFlushJob: Job? = null
@@ -368,6 +372,9 @@ class WatchManager(private val context: Context) {
         cleanupSeenNotifications()
         checkFullScreenIntentPermission()
         updateDebugLog("WatchManager build: modular-decoder-v2")
+        synchronized(healthWriteLock) {
+            scheduleHealthFlushLocked(System.currentTimeMillis())
+        }
     }
 
     private fun handleDecodedResult(result: ProtocolDecoder.DecodedResult) {
@@ -393,10 +400,20 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("SpO2: ${result.percent}%")
             }
             is ProtocolDecoder.DecodedResult.BloodPressure -> {
+                val now = System.currentTimeMillis()
                 val wasAppMeasurement = _state.value.activeMeasurement == DaFitBloodPressureMeasurement.NAME
                 measurementTimeoutJob?.cancel()
                 measurementTimeoutJob = null
-                _state.update { it.copy(systolic = result.systolic, diastolic = result.diastolic, lastWatchSeenTime = System.currentTimeMillis(), activeMeasurement = null) }
+                val liveEntry = HealthEntry(timestamp = now, systolic = result.systolic, diastolic = result.diastolic)
+                _state.update {
+                    it.copy(
+                        systolic = result.systolic,
+                        diastolic = result.diastolic,
+                        bpHistory = (it.bpHistory + liveEntry).takeLast(50),
+                        lastWatchSeenTime = now,
+                        activeMeasurement = null,
+                    )
+                }
                 saveToDb(systolic = result.systolic, diastolic = result.diastolic)
                 updateDebugLog("BP: ${result.systolic}/${result.diastolic}")
                 if (wasAppMeasurement) {
@@ -593,7 +610,11 @@ class WatchManager(private val context: Context) {
         if (heavyObserverJobs.isNotEmpty()) return
         heavyObserverJobs += managerScope.launch { healthDao.getBatteryHistory().collect { h -> _state.update { it.copy(batteryHistory = h.reversed()) } } }
         heavyObserverJobs += managerScope.launch { healthDao.getSpO2History().collect { h -> _state.update { it.copy(spo2History = h.reversed()) } } }
-        heavyObserverJobs += managerScope.launch { healthDao.getBloodPressureHistory().collect { h -> _state.update { it.copy(bpHistory = h.reversed()) } } }
+        heavyObserverJobs += managerScope.launch {
+            healthDao.getBloodPressureHistory().collect { history ->
+                _state.update { it.copy(bpHistory = mergePendingBloodPressure(history.reversed())) }
+            }
+        }
         heavyObserverJobs += managerScope.launch { healthDao.getStepsHistory().collect { h -> _state.update { it.copy(stepsHistory = h.reversed()) } } }
         heavyObserverJobs += managerScope.launch { healthDao.getDistanceHistory().collect { h -> _state.update { it.copy(distanceHistory = h.reversed()) } } }
         heavyObserverJobs += managerScope.launch { healthDao.getActivityHistory().collect { h -> _state.update { it.copy(activityHistory = h.reversed()) } } }
@@ -749,6 +770,10 @@ class WatchManager(private val context: Context) {
         private const val AUTO_BP_INTERVAL_KEY = "autoBloodPressureIntervalMinutes"
         private const val AUTO_BP_LAST_STARTED_AT_KEY = "lastAutoBloodPressureMeasurementTime"
         private const val AUTO_BP_BUSY_RETRY_MS = 60_000L
+        private const val LAST_HEALTH_WRITE_TIME_KEY = "lastHealthWriteTime"
+        private const val PENDING_BP_TIMESTAMP_KEY = "pendingBloodPressureTimestamp"
+        private const val PENDING_BP_SYSTOLIC_KEY = "pendingBloodPressureSystolic"
+        private const val PENDING_BP_DIASTOLIC_KEY = "pendingBloodPressureDiastolic"
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -1963,6 +1988,9 @@ class WatchManager(private val context: Context) {
             deepSleepMinutes = deepSleepMinutes, lightSleepMinutes = lightSleepMinutes,
             sleepSegmentsJson = sleepSegments?.let(::encodeSleepSegments)
         )
+        if (systolic != null && diastolic != null) {
+            persistPendingBloodPressure(incoming)
+        }
         synchronized(healthWriteLock) {
             val previous = pendingHealthEntry
             pendingHealthEntry = if (previous == null) incoming else previous.copy(
@@ -2005,11 +2033,12 @@ class WatchManager(private val context: Context) {
             pendingAutoHeartRateSamples.clear()
             healthFlushJob = null
             if (entry != null || heartRates.isNotEmpty()) lastHealthWriteTime = System.currentTimeMillis()
-            entry to heartRates
+            Triple(entry, heartRates, lastHealthWriteTime)
         }
         val entry = pending.first
         val heartRates = pending.second
         if (entry == null && heartRates.isEmpty()) return
+        persistSettings { putLong(LAST_HEALTH_WRITE_TIME_KEY, pending.third) }
 
         val queuedEntries = buildList {
             if (entry != null && !shouldSkipHealthEntry(entry)) {
@@ -2020,6 +2049,11 @@ class WatchManager(private val context: Context) {
             }
         }
         val inserted = healthDao.enqueueHealthBatch(queuedEntries)
+        if (queuedEntries.isNotEmpty()) {
+            if (entry?.systolic != null && entry.diastolic != null) {
+                clearPersistedBloodPressureThrough(entry.timestamp)
+            }
+        }
         if (inserted > 0) {
             _state.update { it.copy(diagnosticsHealthWrites = it.diagnosticsHealthWrites + 1) }
             scheduleActiveEventSummary()
@@ -2028,6 +2062,46 @@ class WatchManager(private val context: Context) {
 
         synchronized(healthWriteLock) {
             scheduleHealthFlushLocked(System.currentTimeMillis())
+        }
+    }
+
+    private fun restorePendingBloodPressure(): HealthEntry? {
+        val timestamp = prefs.getLong(PENDING_BP_TIMESTAMP_KEY, 0L)
+        val systolic = prefs.getInt(PENDING_BP_SYSTOLIC_KEY, 0)
+        val diastolic = prefs.getInt(PENDING_BP_DIASTOLIC_KEY, 0)
+        return if (timestamp > 0L && systolic in 40..250 && diastolic in 20..200 && systolic > diastolic) {
+            HealthEntry(timestamp = timestamp, systolic = systolic, diastolic = diastolic)
+        } else {
+            null
+        }
+    }
+
+    private fun persistPendingBloodPressure(entry: HealthEntry) {
+        val systolic = entry.systolic ?: return
+        val diastolic = entry.diastolic ?: return
+        persistSettings {
+            putLong(PENDING_BP_TIMESTAMP_KEY, entry.timestamp)
+            putInt(PENDING_BP_SYSTOLIC_KEY, systolic)
+            putInt(PENDING_BP_DIASTOLIC_KEY, diastolic)
+        }
+    }
+
+    private fun mergePendingBloodPressure(history: List<HealthEntry>): List<HealthEntry> {
+        val pending = restorePendingBloodPressure() ?: return history
+        val alreadyPersisted = history.any {
+            it.timestamp == pending.timestamp &&
+                it.systolic == pending.systolic &&
+                it.diastolic == pending.diastolic
+        }
+        return if (alreadyPersisted) history else (history + pending).sortedBy { it.timestamp }.takeLast(50)
+    }
+
+    private fun clearPersistedBloodPressureThrough(timestamp: Long) {
+        if (prefs.getLong(PENDING_BP_TIMESTAMP_KEY, 0L) > timestamp) return
+        persistSettings {
+            remove(PENDING_BP_TIMESTAMP_KEY)
+            remove(PENDING_BP_SYSTOLIC_KEY)
+            remove(PENDING_BP_DIASTOLIC_KEY)
         }
     }
 

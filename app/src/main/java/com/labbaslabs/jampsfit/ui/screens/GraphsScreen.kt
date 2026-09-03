@@ -93,6 +93,16 @@ fun TodayGraphs(state: WatchState) {
     Text(text = "Live Trends", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     SleekGraphCard(
+        title = "Heart Rate (BPM)",
+        dataPoints = state.heartRateHistory,
+        currentValue = state.heartRate?.let { "$it bpm" },
+        color = Color(0xFFE91E63),
+        timeFormat = timeFormat,
+        startTime = todayStart,
+        endTime = todayEnd
+    )
+    HistoryBloodPressureCard(state.bpHistory, timeFormat)
+    SleekGraphCard(
         title = "Battery (%)", 
         dataPoints = state.batteryHistory.filter { it.value > 0 }, 
         currentValue = state.battery?.let { "$it%" }, 
@@ -159,15 +169,6 @@ fun TodayGraphs(state: WatchState) {
         endTime = todayEnd
     )
     SleekGraphCard(
-        title = "Heart Rate (BPM)", 
-        dataPoints = state.heartRateHistory, 
-        currentValue = state.heartRate?.let { "$it bpm" }, 
-        color = Color(0xFFE91E63),
-        timeFormat = timeFormat,
-        startTime = todayStart,
-        endTime = todayEnd
-    )
-    SleekGraphCard(
         title = "SpO2 (%)", 
         dataPoints = state.spo2History, 
         currentValue = state.spo2?.let { "$it%" }, 
@@ -179,7 +180,6 @@ fun TodayGraphs(state: WatchState) {
     
     SleepDistributionCard(state)
     SleepTimelineCard(state)
-    HistoryBloodPressureCard(state.bpHistory, timeFormat)
 }
 
 @Composable
@@ -191,6 +191,15 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
             Text(text = "No history data available yet.", color = Color.Gray)
         }
     } else {
+        SleekBarChartCard(
+            title = "Heart Rate (Avg)",
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.heartRate ?: 0, it.timestamp) },
+            currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
+            color = Color(0xFFE91E63),
+            timeFormat = timeFormat
+        )
+        HistoryBloodPressureCard(stats, timeFormat)
+
         SleekBarChartCard(
             title = "Steps (Total)",
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.steps ?: 0, it.timestamp) },
@@ -236,14 +245,6 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
         )
 
         SleekBarChartCard(
-            title = "Heart Rate (Avg)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.heartRate ?: 0, it.timestamp) },
-            currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
-            color = Color(0xFFE91E63),
-            timeFormat = timeFormat
-        )
-
-        SleekBarChartCard(
             title = "SpO2 (Avg)",
             dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.spo2 ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.spo2 ?: 0) > 0 }?.spo2?.toString()?.plus("%"),
@@ -269,8 +270,6 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
             forceZeroMin = true,
             fixedMax = 100f
         )
-        
-        HistoryBloodPressureCard(stats, timeFormat)
         
         val sleepData = stats.filter { (it.sleepMinutes ?: 0) > 0 }
         if (sleepData.isNotEmpty()) {
@@ -301,6 +300,16 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     val bloodPressureWindowStart = System.currentTimeMillis() - 24 * 60 * 60_000L
     val bloodPressureStats = state.bpHistory.filter { it.timestamp >= bloodPressureWindowStart }
+    SleekGraphCard(
+        title = "Heart Rate (Avg)",
+        dataPoints = stats.map { entry ->
+            com.labbaslabs.jampsfit.database.HistoryPoint(entry.heartRate ?: 0, entry.timestamp)
+        },
+        currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
+        color = Color(0xFFE91E63),
+        timeFormat = timeFormat
+    )
+    HistoryBloodPressureCard(bloodPressureStats, "HH:mm")
 
     if (stats.isEmpty()) {
         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -388,15 +397,6 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
 
         SleekGraphCard(
-            title = "Heart Rate (Avg)",
-            dataPoints = stats.map { entry -> 
-                com.labbaslabs.jampsfit.database.HistoryPoint(entry.heartRate ?: 0, entry.timestamp)
-            },
-            currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
-            color = Color(0xFFE91E63),
-            timeFormat = timeFormat
-        )
-        SleekGraphCard(
             title = "SpO2 (Avg)",
             dataPoints = stats.map { entry -> 
                 com.labbaslabs.jampsfit.database.HistoryPoint(entry.spo2 ?: 0, entry.timestamp)
@@ -412,7 +412,6 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         }
         HistorySleepCard(stats, timeFormat)
     }
-    HistoryBloodPressureCard(bloodPressureStats, "HH:mm")
 }
 
 @Composable
