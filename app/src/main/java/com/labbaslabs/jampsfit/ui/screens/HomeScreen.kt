@@ -139,16 +139,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                         }
                     )
                 }),
-                GaugeMetric("SpO2", state.spo2, "%", gauge(GaugeSetting.SPO2), 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.SPO2, it) }, action = {
-                    MeasurementButton(
-                        isActive = state.activeMeasurement == "SpO2",
-                        enabled = state.isConnected,
-                        onClick = {
-                            if (state.activeMeasurement == "SpO2") viewModel.stopMeasurement()
-                            else viewModel.startMeasurement("SpO2")
-                        }
-                    )
-                }),
+                GaugeMetric("SpO2", state.spo2, "%", gauge(GaugeSetting.SPO2), 98, Icons.Default.Bloodtype, Color(0xFF00BCD4), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.SPO2, it) }),
                 GaugeMetric("Blood Pressure", state.systolic, " sys", gauge(GaugeSetting.BLOOD_PRESSURE_SYSTOLIC), 120, Icons.Default.Speed, Color(0xFFFF5722), secondaryValue = state.diastolic, secondaryUnit = " dia", secondaryReference = gauge(GaugeSetting.BLOOD_PRESSURE_DIASTOLIC), defaultSecondaryReference = 80, secondaryColor = Color(0xFF03A9F4), onReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BLOOD_PRESSURE_SYSTOLIC, it) }, onSecondaryReferenceChange = { viewModel.updateGaugeReference(GaugeSetting.BLOOD_PRESSURE_DIASTOLIC, it) }, action = {
                     MeasurementButton(
                         isActive = state.activeMeasurement == "Blood Pressure",

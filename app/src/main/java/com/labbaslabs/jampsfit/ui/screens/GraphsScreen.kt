@@ -299,6 +299,8 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 @Composable
 fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String, state: WatchState) {
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    val bloodPressureWindowStart = System.currentTimeMillis() - 24 * 60 * 60_000L
+    val bloodPressureStats = state.bpHistory.filter { it.timestamp >= bloodPressureWindowStart }
 
     if (stats.isEmpty()) {
         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -404,19 +406,18 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             timeFormat = timeFormat
         )
 
-        HistoryBloodPressureCard(stats, timeFormat)
         if (title.contains("24 Hours", ignoreCase = true)) {
             SleepDistributionCard(state)
             SleepTimelineCard(state)
         }
         HistorySleepCard(stats, timeFormat)
     }
+    HistoryBloodPressureCard(bloodPressureStats, "HH:mm")
 }
 
 @Composable
 fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
     val bpData = stats.filter { (it.systolic ?: 0) > 0 && (it.diastolic ?: 0) > 0 }
-    if (bpData.isEmpty()) return
 
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
@@ -437,13 +438,19 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
                     )
                 }
             }
-            val displayEntry = touchedEntry ?: bpData.last()
+            val displayEntry = touchedEntry ?: bpData.lastOrNull()
             Text(
-                text = "${displayEntry.systolic}/${displayEntry.diastolic}",
+                text = displayEntry?.let { "${it.systolic}/${it.diastolic}" } ?: "--/--",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFF5722)
             )
+        }
+        if (bpData.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                Text(text = "Waiting for data...", color = Color.Gray)
+            }
+            return@SleekCard
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
