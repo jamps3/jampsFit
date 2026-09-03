@@ -11,6 +11,18 @@ internal object DaFitBloodPressureMeasurement {
     private const val COMMAND = 0x69
 }
 
+internal object DaFitBloodPressureSchedule {
+    val supportedIntervalsMinutes = listOf(0, 5, 15, 30, 60, 180, 360, 540, 720, 1_440)
+
+    fun isSupported(intervalMinutes: Int): Boolean = intervalMinutes in supportedIntervalsMinutes
+
+    fun nextDelayMillis(intervalMinutes: Int, lastStartedAt: Long, now: Long): Long {
+        require(intervalMinutes > 0 && isSupported(intervalMinutes))
+        val anchor = lastStartedAt.takeIf { it > 0L } ?: now
+        return (anchor + intervalMinutes * 60_000L - now).coerceAtLeast(0L)
+    }
+}
+
 internal fun nativePacket(command: Int, vararg payload: Int): ByteArray =
     ByteArray(5 + payload.size).apply {
         this[0] = 0xFE.toByte()

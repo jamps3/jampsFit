@@ -84,6 +84,7 @@ data class WatchState(
     val stepFetchIntervalMinutes: Int = 60,
     val autoHeartRateIntervalMinutes: Int = 0,
     val autoHeartRateReactivationMinutes: Int = 0,
+    val autoBloodPressureIntervalMinutes: Int = 0,
     val batteryThreshold: Int = 15,
     val gaugeSettings: Map<GaugeSetting, Int> = loadGaugeSettings(emptyMap<String, Any>()),
     val batteryEstimation: String? = null,
@@ -228,6 +229,9 @@ class WatchManager(private val context: Context) {
         stepFetchIntervalMinutes = prefs.getInt("stepFetchIntervalMinutes", 60),
         autoHeartRateIntervalMinutes = initialAutoHeartRateInterval,
         autoHeartRateReactivationMinutes = prefs.getInt("autoHeartRateReactivationMinutes", 0),
+        autoBloodPressureIntervalMinutes = prefs.getInt(AUTO_BP_INTERVAL_KEY, 0)
+            .takeIf(DaFitBloodPressureSchedule::isSupported)
+            ?: 0,
         batteryThreshold = prefs.getInt("batteryThreshold", 15),
         gaugeSettings = loadGaugeSettings(prefs.all),
         shutterAction = prefs.getString("shutterAction", "Camera") ?: "Camera",
@@ -318,7 +322,9 @@ class WatchManager(private val context: Context) {
     private var hrReminderJob: Job? = null
     private var autoHeartRateReactivationJob: Job? = null
     private var autoHeartRateHistoryFetchJob: Job? = null
+    private var autoBloodPressureJob: Job? = null
     private var measurementTimeoutJob: Job? = null
+    private var lastAutoBloodPressureMeasurementTime = prefs.getLong(AUTO_BP_LAST_STARTED_AT_KEY, 0L)
     private val heavyObserverJobs = mutableListOf<Job>()
     private var appForegrounded = false
     private var reconnectAttempt = 0
@@ -740,6 +746,9 @@ class WatchManager(private val context: Context) {
         private const val AUTO_HR_INITIAL_BACKFILL_MS = 60 * 60_000L
         private const val AUTO_HR_FOREGROUND_FETCH_MS = 15 * 60_000L
         private const val AUTO_HR_BACKGROUND_FETCH_MS = 60 * 60_000L
+        private const val AUTO_BP_INTERVAL_KEY = "autoBloodPressureIntervalMinutes"
+        private const val AUTO_BP_LAST_STARTED_AT_KEY = "lastAutoBloodPressureMeasurementTime"
+        private const val AUTO_BP_BUSY_RETRY_MS = 60_000L
         private val BATTERY_CHAR = ProtocolDecoder.UUID_BATTERY
         private val FEE1_CHAR = ProtocolDecoder.UUID_FEE1
         private val FEA1_CHAR = ProtocolDecoder.UUID_FEA1
@@ -1099,6 +1108,7 @@ class WatchManager(private val context: Context) {
         hrReminderJob?.cancel()
         autoHeartRateReactivationJob?.cancel()
         autoHeartRateHistoryFetchJob?.cancel()
+        autoBloodPressureJob?.cancel()
         measurementTimeoutJob?.cancel()
         activeEventSummaryJob?.cancel()
         stopHeavyObservers()
@@ -1326,6 +1336,36 @@ class WatchManager(private val context: Context) {
         }
     }
 
+    private fun restartAutoBloodPressureMeasurement() {
+        autoBloodPressureJob?.cancel()
+        val intervalMinutes = _state.value.autoBloodPressureIntervalMinutes
+        if (!_state.value.isConnected || intervalMinutes <= 0) return
+        if (lastAutoBloodPressureMeasurementTime <= 0L) {
+            lastAutoBloodPressureMeasurementTime = System.currentTimeMillis()
+            persistSettings { putLong(AUTO_BP_LAST_STARTED_AT_KEY, lastAutoBloodPressureMeasurementTime) }
+        }
+        autoBloodPressureJob = managerScope.launch {
+            while (isActive) {
+                val currentInterval = _state.value.autoBloodPressureIntervalMinutes
+                if (currentInterval <= 0 || !_state.value.isConnected) return@launch
+                delay(
+                    DaFitBloodPressureSchedule.nextDelayMillis(
+                        intervalMinutes = currentInterval,
+                        lastStartedAt = lastAutoBloodPressureMeasurementTime,
+                        now = System.currentTimeMillis(),
+                    ),
+                )
+                if (_state.value.activeMeasurement != null) {
+                    delay(AUTO_BP_BUSY_RETRY_MS)
+                    continue
+                }
+                if (!requestBloodPressureMeasurement(source = "Automatic")) {
+                    delay(AUTO_BP_BUSY_RETRY_MS)
+                }
+            }
+        }
+    }
+
     fun setWeatherCity(city: String) {
         val safeCity = city.trim().ifBlank { "London" }.take(12)
         persistSettings { putString("weatherCity", safeCity) }
@@ -1379,19 +1419,29 @@ class WatchManager(private val context: Context) {
             updateDebugLog("$type app-start disabled. Use watch UI.")
             return
         }
+        if (requestBloodPressureMeasurement(source = "Manual")) {
+            restartAutoBloodPressureMeasurement()
+        }
+    }
+
+    private fun requestBloodPressureMeasurement(source: String): Boolean {
         if (!_state.value.isConnected) {
             updateDebugLog("Blood Pressure measurement unavailable: watch disconnected")
-            return
+            return false
         }
         if (_state.value.activeMeasurement != null) {
             updateDebugLog("Measurement already active: ${_state.value.activeMeasurement}")
-            return
+            return false
         }
 
+        lastAutoBloodPressureMeasurementTime = System.currentTimeMillis()
+        if (_state.value.autoBloodPressureIntervalMinutes > 0) {
+            persistSettings { putLong(AUTO_BP_LAST_STARTED_AT_KEY, lastAutoBloodPressureMeasurementTime) }
+        }
         measurementTimeoutJob?.cancel()
         _state.update { it.copy(activeMeasurement = DaFitBloodPressureMeasurement.NAME) }
         sendFee2NativeRaw(DaFitBloodPressureMeasurement.startPacket())
-        updateDebugLog("Blood Pressure measurement requested")
+        updateDebugLog("$source Blood Pressure measurement requested")
         measurementTimeoutJob = managerScope.launch {
             delay(DaFitBloodPressureMeasurement.TIMEOUT_MS)
             if (_state.value.activeMeasurement == DaFitBloodPressureMeasurement.NAME) {
@@ -1401,6 +1451,7 @@ class WatchManager(private val context: Context) {
                 updateDebugLog("Blood Pressure measurement timed out")
             }
         }
+        return true
     }
 
     fun stopMeasurement() {
@@ -1427,6 +1478,24 @@ class WatchManager(private val context: Context) {
         persistSettings { putInt("autoHeartRateReactivationMinutes", safe) }
         _state.update { it.copy(autoHeartRateReactivationMinutes = safe) }
         restartAutoHeartRateReactivation()
+    }
+    fun updateAutoBloodPressureInterval(minutes: Int) {
+        if (!DaFitBloodPressureSchedule.isSupported(minutes)) return
+        val wasDisabled = _state.value.autoBloodPressureIntervalMinutes == 0
+        if (minutes > 0 && wasDisabled) {
+            lastAutoBloodPressureMeasurementTime = System.currentTimeMillis()
+        }
+        persistSettings {
+            putInt(AUTO_BP_INTERVAL_KEY, minutes)
+            if (minutes > 0) {
+                putLong(AUTO_BP_LAST_STARTED_AT_KEY, lastAutoBloodPressureMeasurementTime)
+            } else {
+                remove(AUTO_BP_LAST_STARTED_AT_KEY)
+            }
+        }
+        if (minutes == 0) lastAutoBloodPressureMeasurementTime = 0L
+        _state.update { it.copy(autoBloodPressureIntervalMinutes = minutes) }
+        restartAutoBloodPressureMeasurement()
     }
     fun toggleNotifications(e: Boolean) { persistSettings { putBoolean("notificationsEnabled", e) }; _state.update { it.copy(notificationsEnabled = e) } }
     fun toggleIgnoreDuplicates(e: Boolean) { persistSettings { putBoolean("ignoreDuplicateNotifications", e) }; _state.update { it.copy(ignoreDuplicateNotifications = e) } }
@@ -1691,6 +1760,7 @@ class WatchManager(private val context: Context) {
         connectWatchdogJob?.cancel()
         autoSleepFetchJob?.cancel()
         autoHeartRateHistoryFetchJob?.cancel()
+        autoBloodPressureJob?.cancel()
         measurementTimeoutJob?.cancel()
         measurementTimeoutJob = null
         synchronized(connectionLock) {
@@ -1747,7 +1817,7 @@ class WatchManager(private val context: Context) {
                 return
             }
             if (ns == BluetoothProfile.STATE_CONNECTED) { reconnectAttempt = 0; connectedSince = System.currentTimeMillis(); connectWatchdogJob?.cancel(); _state.update { it.copy(isConnected = true, connectionStatus = "Connected", connectionDetail = "Watch link established", reconnectAttempt = 0, lastWatchSeenTime = System.currentTimeMillis()) }; connectionInProgress = false; gatt.discoverServices() }
-            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { synchronized(connectionLock) { if (bluetoothGatt === gatt) bluetoothGatt = null; connectionInProgress = false }; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); autoHeartRateHistoryFetchJob?.cancel(); measurementTimeoutJob?.cancel(); measurementTimeoutJob = null; val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, activeMeasurement = null, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
+            else if (ns == BluetoothProfile.STATE_DISCONNECTED) { synchronized(connectionLock) { if (bluetoothGatt === gatt) bluetoothGatt = null; connectionInProgress = false }; autoSleepFetchJob?.cancel(); hrReminderJob?.cancel(); autoHeartRateReactivationJob?.cancel(); autoHeartRateHistoryFetchJob?.cancel(); autoBloodPressureJob?.cancel(); measurementTimeoutJob?.cancel(); measurementTimeoutJob = null; val now = System.currentTimeMillis(); val connectedDuration = if (connectedSince > 0L) now - connectedSince else 0L; connectedSince = 0L; val detail = "Watch connection lost"; _state.update { it.copy(isConnected = false, connectionStatus = "Disconnected", connectionDetail = detail, reconnectAttempt = reconnectAttempt, activeMeasurement = null, diagnosticsConnectedMs = it.diagnosticsConnectedMs + connectedDuration) }; updateDebugLog(detail); synchronized(operationQueue) { operationQueue.clear(); isOperating = false; activeOperation = null; operationAttempts = 0 }; gatt.close(); scheduleReconnect() }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, s: Int) { if (isCurrentGatt(gatt) && s == BluetoothGatt.GATT_SUCCESS) setupChannels(gatt) }
         private fun setupChannels(gatt: BluetoothGatt) {
@@ -1759,7 +1829,7 @@ class WatchManager(private val context: Context) {
                 if (c.uuid == BATTERY_CHAR) enqueueOperation(GattOperation.ReadCharacteristic(c))
             } }
             enqueueOperation(GattOperation.WriteCharacteristic(FEE2_WRITE, nativePacket(0x2F)))
-            restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateHistoryFetch(); restartAutoHeartRateReactivation()
+            restartAutoStepFetch(); restartAutoSyncTime(); restartAutoSleepFetch(); restartHrReminder(); restartAutoHeartRateHistoryFetch(); restartAutoHeartRateReactivation(); restartAutoBloodPressureMeasurement()
         }
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, s: Int) { if (matchesActiveOperation(g, d)) completeOperation(s, "descriptor ${d.uuid}") }
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, s: Int) { if (matchesActiveOperation(g, c)) completeOperation(s, "write ${c.uuid}") }

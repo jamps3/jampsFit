@@ -12,7 +12,7 @@ A sleek, feature-rich Android companion application for the **Kospet TANK M1** s
 - **Step Fetching**: Fetch current watch-face steps manually from the Home tab or automatically at a configurable interval.
 - **Sleep Tracking**: Fetch and display accurate watch sleep ranges, preserving hidden boundary markers that Da Fit may merge.
 - **Dynamic Trends**: Real-time multi-line graphs for all health metrics with smooth animations and area-glow effects.
-- **Health Measurements**: Track regular heart-rate measurements and receive blood pressure and SpO2 readings, with an experimental app-triggered blood pressure measurement.
+- **Health Measurements**: Track regular heart-rate measurements and receive blood pressure and SpO2 readings, with manual or phone-scheduled app-triggered blood pressure measurements.
 - **Battery Intelligence**: High-resolution discharge graph and time-remaining estimation based on current usage.
 - **Health Data Export**: Export your historical health and activity data to CSV files for external analysis.
 

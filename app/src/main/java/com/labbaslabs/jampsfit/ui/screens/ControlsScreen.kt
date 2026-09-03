@@ -708,7 +708,18 @@ private fun AppSettingsControls(
                     selected = state.autoHeartRateReactivationMinutes == minutes,
                     onClick = { viewModel.updateAutoHeartRateReactivationInterval(minutes) },
                     enabled = state.isConnected,
-                    label = { Text(formatAutoHrReactivationLabel(minutes), fontSize = 11.sp) }
+                    label = { Text(formatIntervalLabel(minutes), fontSize = 11.sp) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Automatic Blood Pressure", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            listOf(0, 5, 15, 30, 60, 180, 360, 540, 720, 1_440).forEach { minutes ->
+                FilterChip(
+                    selected = state.autoBloodPressureIntervalMinutes == minutes,
+                    onClick = { viewModel.updateAutoBloodPressureInterval(minutes) },
+                    label = { Text(formatIntervalLabel(minutes), fontSize = 11.sp) },
                 )
             }
         }
@@ -721,7 +732,7 @@ private fun AppSettingsControls(
     }
 }
 
-private fun formatAutoHrReactivationLabel(minutes: Int): String = when {
+private fun formatIntervalLabel(minutes: Int): String = when {
     minutes == 0 -> "Off"
     minutes < 60 -> "${minutes}m"
     else -> "${minutes / 60}h"
