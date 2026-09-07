@@ -101,7 +101,7 @@ fun TodayGraphs(state: WatchState) {
         startTime = todayStart,
         endTime = todayEnd
     )
-    HistoryBloodPressureCard(state.bpHistory, timeFormat)
+    HistoryBloodPressureCard(state.bpHistory, timeFormat, todayStart, todayEnd)
     SleekGraphCard(
         title = "Battery (%)", 
         dataPoints = state.batteryHistory.filter { it.value > 0 }, 
@@ -300,6 +300,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     val bloodPressureWindowStart = System.currentTimeMillis() - 24 * 60 * 60_000L
     val bloodPressureStats = state.bpHistory.filter { it.timestamp >= bloodPressureWindowStart }
+    val sharedStart = if (title.contains("24 Hours", ignoreCase = true)) bloodPressureWindowStart else stats.firstOrNull()?.timestamp
+    val sharedEnd = if (title.contains("24 Hours", ignoreCase = true)) System.currentTimeMillis() else stats.lastOrNull()?.timestamp
     SleekGraphCard(
         title = "Heart Rate (HR)",
         dataPoints = stats.map { entry ->
@@ -307,9 +309,13 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         },
         currentValue = stats.lastOrNull { (it.heartRate ?: 0) > 0 }?.heartRate?.toString(),
         color = Color(0xFFE91E63),
-        timeFormat = timeFormat
+        timeFormat = timeFormat,
+        startTime = sharedStart,
+        endTime = sharedEnd
     )
-    HistoryBloodPressureCard(bloodPressureStats, "HH:mm")
+    val chartStart = if (title.contains("24 Hours", ignoreCase = true)) bloodPressureWindowStart else stats.firstOrNull()?.timestamp
+    val chartEnd = if (title.contains("24 Hours", ignoreCase = true)) System.currentTimeMillis() else stats.lastOrNull()?.timestamp
+    HistoryBloodPressureCard(bloodPressureStats, "HH:mm", chartStart, chartEnd)
 
     if (stats.isEmpty()) {
         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -334,6 +340,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
                 currentValue = hourlyCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
                 color = Color(0xFFFF5722),
                 timeFormat = timeFormat,
+                startTime = sharedStart,
+                endTime = sharedEnd,
                 forceZeroMin = true
             )
         }
@@ -344,6 +352,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = stats.lastOrNull { (it.battery ?: 0) > 0 }?.battery?.toString()?.plus("%"),
             color = Color(0xFF4CAF50),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true,
             fixedMax = 100f
         )
@@ -354,6 +364,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = stats.lastOrNull { (it.steps ?: 0) > 0 }?.steps?.toString(),
             color = Color(0xFF03A9F4),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true
         )
 
@@ -363,6 +375,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
             color = Color(0xFF8BC34A),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true
         )
 
@@ -372,6 +386,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
             color = Color(0xFF2196F3),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true
         )
 
@@ -381,6 +397,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = stats.lastOrNull { (it.calories ?: 0) > 0 }?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true
         )
 
@@ -393,6 +411,8 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             currentValue = totalCalories.lastOrNull()?.value?.toString()?.plus(" kcal"),
             color = Color(0xFFFF5722),
             timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd,
             forceZeroMin = true
         )
 
@@ -403,7 +423,9 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
             },
             currentValue = stats.lastOrNull { (it.spo2 ?: 0) > 0 }?.spo2?.toString(),
             color = Color(0xFF00BCD4),
-            timeFormat = timeFormat
+            timeFormat = timeFormat,
+            startTime = sharedStart,
+            endTime = sharedEnd
         )
 
         if (title.contains("24 Hours", ignoreCase = true)) {
@@ -415,8 +437,16 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
 }
 
 @Composable
-fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String) {
+fun HistoryBloodPressureCard(
+    stats: List<com.labbaslabs.jampsfit.database.HealthEntry>,
+    timeFormat: String,
+    startTime: Long? = null,
+    endTime: Long? = null
+) {
     val bpData = stats.filter { (it.systolic ?: 0) > 0 && (it.diastolic ?: 0) > 0 }
+    val timeRangeStart = startTime ?: bpData.firstOrNull()?.timestamp ?: 0L
+    val timeRangeEnd = endTime ?: bpData.lastOrNull()?.timestamp ?: timeRangeStart + 1L
+    val timeRange = (timeRangeEnd - timeRangeStart).coerceAtLeast(1L).toFloat()
 
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontSize = 10.sp)
@@ -506,6 +536,7 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
 
             // Draw X axis labels
             if (bpData.isNotEmpty()) {
+                fun xFor(timestamp: Long): Float = leftPadding + ((timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth
                 val indices = if (bpData.size >= 5) {
                     listOf(0, bpData.size / 4, bpData.size / 2, 3 * bpData.size / 4, bpData.size - 1)
                 } else if (bpData.size >= 2) {
@@ -516,8 +547,7 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
 
                 indices.forEach { index ->
                     val entry = bpData[index]
-                    val xPos = if (bpData.size == 1) leftPadding + graphWidth / 2f
-                               else leftPadding + (index.toFloat() / (bpData.size - 1)) * graphWidth
+                    val xPos = xFor(entry.timestamp)
                     val timeStr = sdf.format(Date(entry.timestamp))
                     
                     val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
@@ -540,18 +570,19 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
                 val entry = bpData[0]
                 val sysY = graphHeight - ((entry.systolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                 val diaY = graphHeight - ((entry.diastolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
-                drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = Offset(leftPadding + graphWidth / 2f, sysY))
-                drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = Offset(leftPadding + graphWidth / 2f, diaY))
+                val x = leftPadding + ((entry.timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth
+                drawCircle(color = Color(0xFFFF5722), radius = 5.dp.toPx(), center = Offset(x, sysY))
+                drawCircle(color = Color(0xFF3F51B5), radius = 5.dp.toPx(), center = Offset(x, diaY))
             } else {
                 val sysPoints = bpData.mapIndexed { i, entry ->
                     Offset(
-                        x = leftPadding + (i.toFloat() / (bpData.size - 1)) * graphWidth,
+                        x = leftPadding + ((entry.timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth,
                         y = graphHeight - ((entry.systolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                     )
                 }
                 val diaPoints = bpData.mapIndexed { i, entry ->
                     Offset(
-                        x = leftPadding + (i.toFloat() / (bpData.size - 1)) * graphWidth,
+                        x = leftPadding + ((entry.timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth,
                         y = graphHeight - ((entry.diastolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                     )
                 }
@@ -567,8 +598,7 @@ fun HistoryBloodPressureCard(stats: List<com.labbaslabs.jampsfit.database.Health
                 val entry = bpData[index]
                 touchedEntry = entry
                 
-                val x = if (bpData.size == 1) leftPadding + graphWidth / 2f
-                        else leftPadding + (index.toFloat() / (bpData.size - 1)) * graphWidth
+                val x = leftPadding + ((entry.timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth
                 val sysY = graphHeight - ((entry.systolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                 val diaY = graphHeight - ((entry.diastolic?.toFloat() ?: 0f) - minVal) / range * graphHeight
                 
