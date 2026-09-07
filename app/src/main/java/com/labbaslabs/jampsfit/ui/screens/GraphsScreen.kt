@@ -178,7 +178,6 @@ fun TodayGraphs(state: WatchState) {
         endTime = todayEnd
     )
     
-    SleepDistributionCard(state)
     SleepTimelineCard(state)
 }
 
@@ -429,7 +428,6 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         )
 
         if (title.contains("24 Hours", ignoreCase = true)) {
-            SleepDistributionCard(state)
             SleepTimelineCard(state)
         }
         HistorySleepCard(stats, timeFormat)
@@ -537,22 +535,17 @@ fun HistoryBloodPressureCard(
             // Draw X axis labels
             if (bpData.isNotEmpty()) {
                 fun xFor(timestamp: Long): Float = leftPadding + ((timestamp - timeRangeStart).toFloat() / timeRange) * graphWidth
-                val indices = if (bpData.size >= 5) {
-                    listOf(0, bpData.size / 4, bpData.size / 2, 3 * bpData.size / 4, bpData.size - 1)
-                } else if (bpData.size >= 2) {
-                    listOf(0, bpData.size / 2, bpData.size - 1)
-                } else {
-                    listOf(0)
+                val labelTimes = (0..4).map { step ->
+                    timeRangeStart + (timeRangeEnd - timeRangeStart) * step / 4
                 }
 
-                indices.forEach { index ->
-                    val entry = bpData[index]
-                    val xPos = xFor(entry.timestamp)
-                    val timeStr = sdf.format(Date(entry.timestamp))
+                labelTimes.forEachIndexed { index, labelTime ->
+                    val xPos = xFor(labelTime)
+                    val timeStr = sdf.format(Date(labelTime))
                     
                     val labelWidth = textMeasurer.measure(timeStr, labelStyle).size.width.toFloat()
                     val xOffset = when {
-                        index == bpData.size - 1 -> -labelWidth
+                        index == 4 -> -labelWidth
                         index == 0 -> 0f
                         else -> -labelWidth / 2f
                     }
