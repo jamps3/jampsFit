@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -153,7 +154,7 @@ class MainActivity : ComponentActivity() {
                                 4 -> RemoteScreen(state)
                                 5 -> ControlsScreen(
                                     state = state,
-                                    onScanClick = { viewModel.startScan() },
+                                    onScanClick = { checkPermissionsAndStart() },
                                     onDisconnectClick = { viewModel.disconnect() },
                                 )
                             }
@@ -229,8 +230,17 @@ class MainActivity : ComponentActivity() {
     }
 
     fun startWatchService() {
+        if (!hasBluetoothPermissions()) {
+            Log.w("MainActivity", "Not starting watch service: Bluetooth permission was revoked")
+            return
+        }
         val intent = Intent(this, WatchService::class.java)
-        startForegroundService(intent)
+        try {
+            startForegroundService(intent)
+        } catch (e: SecurityException) {
+            Log.w("MainActivity", "Not starting watch service: Bluetooth permission was revoked", e)
+            return
+        }
         
         val service = watchService
         if (service != null) {
@@ -259,6 +269,10 @@ class MainActivity : ComponentActivity() {
             requestPermissions()
         }
     }
+
+    private fun hasBluetoothPermissions(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
 
     private fun requestIgnoreBatteryOptimizations() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -330,6 +344,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!hasBluetoothPermissions()) {
+            stopWatchService()
+        }
         watchService?.watchManager?.checkFullScreenIntentPermission()
     }
 

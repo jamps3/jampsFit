@@ -25,6 +25,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.labbaslabs.jampsfit.WatchState
+import com.labbaslabs.jampsfit.database.HealthEntry
+import com.labbaslabs.jampsfit.database.HistoryPoint
 import com.labbaslabs.jampsfit.food.calculateBasalCalories
 import com.labbaslabs.jampsfit.food.dayProgress
 import com.labbaslabs.jampsfit.ui.components.SleekCard
@@ -35,15 +37,20 @@ import kotlin.math.roundToInt
 @Composable
 fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     var selectedSubTab by remember { mutableIntStateOf(0) }
-    val subTabs = listOf("Last 24h", "Today", "Daily", "Weekly", "Monthly")
+    var dailyCount by remember { mutableIntStateOf(14) }
+    var weeklyCount by remember { mutableIntStateOf(8) }
+    var monthlyCount by remember { mutableIntStateOf(12) }
+    var totalTimeframeIndex by remember { mutableIntStateOf(TOTAL_TIMEFRAMES.lastIndex) }
+    val subTabs = listOf("Last 24h", "Today", "Daily", "Weekly", "Monthly", "Total")
 
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        SecondaryTabRow(
+        SecondaryScrollableTabRow(
             selectedTabIndex = selectedSubTab,
             containerColor = Color.Transparent,
-            divider = {}
+            divider = {},
+            edgePadding = 0.dp
         ) {
             subTabs.forEachIndexed { index, title ->
                 Tab(
@@ -61,9 +68,37 @@ fun GraphsScreen(state: WatchState, scrollState: ScrollState = rememberScrollSta
             when (selectedSubTab) {
                 0 -> HistoryGraphs(title = "Last 24 Hours", stats = state.last24hStats, timeFormat = "HH:00", state = state)
                 1 -> TodayGraphs(state)
-                2 -> HistoryBarGraphs(title = "Daily History", stats = state.dailyStats, timeFormat = "dd MMM", state = state)
-                3 -> HistoryBarGraphs(title = "Weekly History", stats = state.weeklyStats, timeFormat = "'W'w", state = state)
-                4 -> HistoryBarGraphs(title = "Monthly History", stats = state.monthlyStats, timeFormat = "MMM", state = state)
+                2 -> HistoryRangeGraphs(
+                    title = "Daily History",
+                    unit = "days",
+                    stats = state.dailyStats,
+                    selectedCount = dailyCount,
+                    onSelectedCountChange = { dailyCount = it },
+                    minimumRange = 365,
+                    timeFormat = "dd MMM",
+                    state = state
+                )
+                3 -> HistoryRangeGraphs(
+                    title = "Weekly History",
+                    unit = "weeks",
+                    stats = state.weeklyStats,
+                    selectedCount = weeklyCount,
+                    onSelectedCountChange = { weeklyCount = it },
+                    minimumRange = 52,
+                    timeFormat = "'W'w",
+                    state = state
+                )
+                4 -> HistoryRangeGraphs(
+                    title = "Monthly History",
+                    unit = "months",
+                    stats = state.monthlyStats,
+                    selectedCount = monthlyCount,
+                    onSelectedCountChange = { monthlyCount = it },
+                    minimumRange = 60,
+                    timeFormat = "MMM yyyy",
+                    state = state
+                )
+                5 -> TotalGraphs(state, totalTimeframeIndex) { totalTimeframeIndex = it }
             }
         }
     }
@@ -182,8 +217,87 @@ fun TodayGraphs(state: WatchState) {
 }
 
 @Composable
-fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.HealthEntry>, timeFormat: String, state: WatchState) {
+private fun HistoryRangeGraphs(
+    title: String,
+    unit: String,
+    stats: List<HealthEntry>,
+    selectedCount: Int,
+    onSelectedCountChange: (Int) -> Unit,
+    minimumRange: Int,
+    timeFormat: String,
+    state: WatchState
+) {
+    val availableCount = stats.size
+    val maximumCount = maxOf(availableCount, minimumRange)
+    val displayedCount = selectedCount.coerceIn(1, maximumCount)
+    val displayedStats = fillHistoryPeriods(stats, displayedCount, unit)
+
     Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    SleekCard {
+        Text(
+            text = "Show $displayedCount $unit",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = if (availableCount == 0) "No recorded $unit yet." else "$availableCount recorded $unit available; missing periods are shown as zero.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+        if (maximumCount > 1) {
+            Slider(
+                value = displayedCount.toFloat(),
+                onValueChange = { onSelectedCountChange(it.roundToInt()) },
+                valueRange = 1f..maximumCount.toFloat(),
+                steps = maximumCount - 2
+            )
+        }
+    }
+    HistoryBarGraphs(title = title, stats = displayedStats, timeFormat = timeFormat, state = state, showTitle = false)
+}
+
+private fun fillHistoryPeriods(stats: List<HealthEntry>, count: Int, unit: String): List<HealthEntry> {
+    val periodStarts = stats.associateBy { periodStart(it.timestamp, unit) }
+    val cursor = Calendar.getInstance().apply {
+        timeInMillis = periodStart(stats.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis(), unit)
+    }
+    return buildList(count) {
+        repeat(count) {
+            val timestamp = cursor.timeInMillis
+            add(periodStarts[timestamp] ?: HealthEntry(timestamp = timestamp))
+            when (unit) {
+                "weeks" -> cursor.add(Calendar.WEEK_OF_YEAR, -1)
+                "months" -> cursor.add(Calendar.MONTH, -1)
+                else -> cursor.add(Calendar.DATE, -1)
+            }
+        }
+    }.asReversed()
+}
+
+private fun periodStart(timestamp: Long, unit: String): Long = Calendar.getInstance().apply {
+    timeInMillis = timestamp
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+    when (unit) {
+        "weeks" -> {
+            firstDayOfWeek = Calendar.MONDAY
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        }
+        "months" -> set(Calendar.DAY_OF_MONTH, 1)
+    }
+}.timeInMillis
+
+@Composable
+fun HistoryBarGraphs(
+    title: String,
+    stats: List<com.labbaslabs.jampsfit.database.HealthEntry>,
+    timeFormat: String,
+    state: WatchState,
+    showTitle: Boolean = true
+) {
+    if (showTitle) Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
     if (stats.isEmpty()) {
         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -210,7 +324,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Distance (Total)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) }.filter { it.value > 0 },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.distance ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.distance ?: 0) > 0 }?.distance?.toString()?.plus("m"),
             color = Color(0xFF2196F3),
             timeFormat = timeFormat,
@@ -219,7 +333,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Calories (Moving)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) }.filter { it.value > 0 },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.calories ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.calories ?: 0) > 0 }?.calories?.toString()?.plus(" kcal"),
             color = Color(0xFFFF9800),
             timeFormat = timeFormat,
@@ -253,7 +367,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Activity Count",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) }.filter { it.value > 0 },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.activityCount ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.activityCount ?: 0) > 0 }?.activityCount?.toString(),
             color = Color(0xFF8BC34A),
             timeFormat = timeFormat,
@@ -262,7 +376,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
         SleekBarChartCard(
             title = "Battery (Avg)",
-            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.battery ?: 0, it.timestamp) }.filter { it.value > 0 },
+            dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.battery ?: 0, it.timestamp) },
             currentValue = stats.lastOrNull { (it.battery ?: 0) > 0 }?.battery?.toString()?.plus("%"),
             color = Color(0xFF4CAF50),
             timeFormat = timeFormat,
@@ -270,8 +384,7 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
             fixedMax = 100f
         )
         
-        val sleepData = stats.filter { (it.sleepMinutes ?: 0) > 0 }
-        if (sleepData.isNotEmpty()) {
+        if (stats.any { (it.sleepMinutes ?: 0) > 0 }) {
             SleekCard {
                 Text(text = "Sleep History (Minutes)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -283,8 +396,8 @@ fun HistoryBarGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database
 
                 SleekBarChartCard(
                     title = "Total Sleep",
-                    dataPoints = sleepData.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.sleepMinutes ?: 0, it.timestamp) },
-                    currentValue = sleepData.lastOrNull()?.sleepMinutes?.let { "${it / 60}h ${it % 60}m" },
+                    dataPoints = stats.map { com.labbaslabs.jampsfit.database.HistoryPoint(it.sleepMinutes ?: 0, it.timestamp) },
+                    currentValue = stats.lastOrNull { (it.sleepMinutes ?: 0) > 0 }?.sleepMinutes?.let { "${it / 60}h ${it % 60}m" },
                     color = Color(0xFF9C27B0),
                     timeFormat = timeFormat,
                     forceZeroMin = true
@@ -433,6 +546,288 @@ fun HistoryGraphs(title: String, stats: List<com.labbaslabs.jampsfit.database.He
         HistorySleepCard(stats, timeFormat)
     }
 }
+
+private data class YearlyHealthTotal(
+    val year: Int,
+    val steps: Int,
+    val distance: Int,
+    val movingCalories: Int,
+    val sleepMinutes: Int,
+    val activeDays: Int
+)
+
+@Composable
+private fun TotalGraphs(state: WatchState, requestedTimeframeIndex: Int, onRequestedTimeframeIndexChange: (Int) -> Unit) {
+    val allDailyStats = state.dailyStats
+    val now = System.currentTimeMillis()
+    val selectedTimeframeIndex = requestedTimeframeIndex.coerceIn(TOTAL_TIMEFRAMES.indices)
+    val selectedTimeframe = TOTAL_TIMEFRAMES[selectedTimeframeIndex]
+    val dailyStats = selectedTimeframe.startTime(now)?.let { startTime ->
+        allDailyStats.filter { entry -> entry.timestamp >= startTime }
+    } ?: allDailyStats
+    val stepGoal = state.stepGoalSetting ?: 10_000
+    val totalSteps = dailyStats.sumOf { it.steps ?: 0 }
+    val totalDistance = dailyStats.sumOf { it.distance ?: 0 }
+    val totalMovingCalories = dailyStats.sumOf { it.calories ?: 0 }
+    val totalSleep = dailyStats.sumOf { it.sleepMinutes ?: 0 }
+    val activityDays = dailyStats.count { entry ->
+        listOf(entry.steps, entry.distance, entry.calories, entry.sleepMinutes, entry.heartRate, entry.spo2).any { it != null && it > 0 }
+    }
+    val goalDays = dailyStats.count { (it.steps ?: 0) >= stepGoal }
+    val bestDay = dailyStats.maxByOrNull { it.steps ?: 0 }
+    val averageHeartRate = dailyStats.mapNotNull { it.heartRate?.takeIf { value -> value > 0 } }.average()
+    val averageSleep = dailyStats.mapNotNull { it.sleepMinutes?.takeIf { value -> value > 0 } }.average()
+    val averageSteps = if (activityDays == 0) 0 else totalSteps / activityDays
+    val averageMovingCalories = if (activityDays == 0) 0 else totalMovingCalories / activityDays
+    val estimatedDailyEnergyNeed = calculateBasalCalories(state) + averageMovingCalories
+    val bloodPressureReadings = dailyStats.mapNotNull { entry ->
+        val systolic = entry.systolic?.takeIf { it > 0 }
+        val diastolic = entry.diastolic?.takeIf { it > 0 }
+        if (systolic != null && diastolic != null) systolic to diastolic else null
+    }
+    val averageBloodPressure = bloodPressureReadings.takeIf { it.isNotEmpty() }?.let { readings ->
+        "${readings.map { it.first }.average().roundToInt()} / ${readings.map { it.second }.average().roundToInt()}"
+    } ?: "--"
+    val yearlyTotals = remember(dailyStats) { yearlyTotals(dailyStats) }
+
+    Text(
+        text = if (selectedTimeframe.isTotal) "Your Total Journey" else "Your Last ${selectedTimeframe.label}",
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold
+    )
+    SleekCard {
+        Text(
+            text = "Timeframe: ${selectedTimeframe.label}",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "Choose 1 day, 1 week, monthly ranges, or all recorded history.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+        Slider(
+            value = selectedTimeframeIndex.toFloat(),
+            onValueChange = { onRequestedTimeframeIndexChange(it.roundToInt()) },
+            valueRange = 0f..TOTAL_TIMEFRAMES.lastIndex.toFloat(),
+            steps = (TOTAL_TIMEFRAMES.size - 2).coerceAtLeast(0)
+        )
+    }
+    if (dailyStats.isEmpty()) {
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            Text(text = "Your milestones will appear here as health data is recorded.", color = Color.Gray)
+        }
+        return
+    }
+
+    SleekCard {
+        Text(text = "Every recorded day adds up.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            text = "$activityDays active days • ${formatDistance(totalDistance)} travelled • ${formatDuration(totalSleep)} asleep",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
+    }
+
+    TotalMetricRow(
+        leftLabel = "Total steps",
+        leftValue = formatNumber(totalSteps),
+        rightLabel = "Goal days",
+        rightValue = "$goalDays / $activityDays"
+    )
+    TotalMetricRow(
+        leftLabel = "Distance",
+        leftValue = formatDistance(totalDistance),
+        rightLabel = "Moving calories",
+        rightValue = "${formatNumber(totalMovingCalories)} kcal"
+    )
+    TotalMetricRow(
+        leftLabel = "Average steps/day",
+        leftValue = formatNumber(averageSteps),
+        rightLabel = "Average moving kcal/day",
+        rightValue = "${formatNumber(averageMovingCalories)} kcal"
+    )
+    TotalMetricRow(
+        leftLabel = "Average HR",
+        leftValue = if (averageHeartRate.isNaN()) "--" else "${averageHeartRate.roundToInt()} bpm",
+        rightLabel = "Average sleep",
+        rightValue = if (averageSleep.isNaN()) "--" else formatDuration(averageSleep.roundToInt())
+    )
+    TotalMetricRow(
+        leftLabel = "Average BP (sys/dia)",
+        leftValue = averageBloodPressure,
+        rightLabel = "Estimated energy need/day",
+        rightValue = "${formatNumber(estimatedDailyEnergyNeed)} kcal"
+    )
+    bestDay?.takeIf { (it.steps ?: 0) > 0 }?.let { entry ->
+        SleekCard {
+            Text(text = "Personal best day", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = "${formatNumber(entry.steps ?: 0)} steps", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF03A9F4))
+            Text(text = SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).format(Date(entry.timestamp)), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+    }
+    StepDistributionCard(dailyStats, stepGoal)
+
+    Text(text = "Cumulative progress", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    SleekBarChartCard(
+        title = "Cumulative Steps",
+        dataPoints = cumulativePoints(dailyStats) { it.steps ?: 0 },
+        currentValue = formatNumber(totalSteps),
+        color = Color(0xFF03A9F4),
+        timeFormat = "MMM yy",
+        forceZeroMin = true
+    )
+    SleekBarChartCard(
+        title = "Cumulative Distance (km)",
+        dataPoints = cumulativePoints(dailyStats) { (it.distance ?: 0) / 1_000 },
+        currentValue = formatDistance(totalDistance),
+        color = Color(0xFF2196F3),
+        timeFormat = "MMM yy",
+        forceZeroMin = true
+    )
+    SleekBarChartCard(
+        title = "Cumulative Moving Calories",
+        dataPoints = cumulativePoints(dailyStats) { it.calories ?: 0 },
+        currentValue = "${formatNumber(totalMovingCalories)} kcal",
+        color = Color(0xFFFF9800),
+        timeFormat = "MMM yy",
+        forceZeroMin = true
+    )
+
+    if (yearlyTotals.isNotEmpty()) {
+        Text(text = "Year by year", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        SleekBarChartCard(
+            title = "Steps by Year",
+            dataPoints = yearlyTotals.map { HistoryPoint(it.steps, yearTimestamp(it.year)) },
+            currentValue = formatNumber(yearlyTotals.last().steps),
+            color = Color(0xFF03A9F4),
+            timeFormat = "yyyy",
+            forceZeroMin = true
+        )
+        SleekBarChartCard(
+            title = "Distance by Year (km)",
+            dataPoints = yearlyTotals.map { HistoryPoint(it.distance / 1_000, yearTimestamp(it.year)) },
+            currentValue = formatDistance(yearlyTotals.last().distance),
+            color = Color(0xFF2196F3),
+            timeFormat = "yyyy",
+            forceZeroMin = true
+        )
+        SleekBarChartCard(
+            title = "Sleep by Year (hours)",
+            dataPoints = yearlyTotals.map { HistoryPoint(it.sleepMinutes / 60, yearTimestamp(it.year)) },
+            currentValue = formatDuration(yearlyTotals.last().sleepMinutes),
+            color = Color(0xFF9C27B0),
+            timeFormat = "yyyy",
+            forceZeroMin = true
+        )
+    }
+}
+
+@Composable
+private fun StepDistributionCard(stats: List<HealthEntry>, stepGoal: Int) {
+    val buckets = listOf(
+        "Below 25%" to stats.count { (it.steps ?: 0) < stepGoal / 4 },
+        "Building (25–74%)" to stats.count { (it.steps ?: 0) in stepGoal / 4 until (stepGoal * 3) / 4 },
+        "Nearly there (75–99%)" to stats.count { (it.steps ?: 0) in (stepGoal * 3) / 4 until stepGoal },
+        "Goal reached (100–149%)" to stats.count { (it.steps ?: 0) in stepGoal until (stepGoal * 3) / 2 },
+        "Power day (150%+)" to stats.count { (it.steps ?: 0) >= (stepGoal * 3) / 2 }
+    )
+    val totalDays = stats.size.coerceAtLeast(1)
+
+    SleekCard {
+        Text(text = "Step-day distribution", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text(text = "How your recorded days compare with your ${formatNumber(stepGoal)}-step goal", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        buckets.forEach { (label, days) ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(text = label, style = MaterialTheme.typography.bodySmall)
+                Text(text = "$days day${if (days == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+            LinearProgressIndicator(
+                progress = { days.toFloat() / totalDays },
+                modifier = Modifier.fillMaxWidth(),
+                color = when (label) {
+                    "Below 25%" -> Color(0xFFF44336)
+                    "Building (25–74%)" -> Color(0xFFFF9800)
+                    "Nearly there (75–99%)" -> Color(0xFFFFC107)
+                    "Goal reached (100–149%)" -> Color(0xFF4CAF50)
+                    else -> Color(0xFF03A9F4)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TotalMetricRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        TotalMetricCard(leftLabel, leftValue, Modifier.weight(1f))
+        TotalMetricCard(rightLabel, rightValue, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun TotalMetricCard(label: String, value: String, modifier: Modifier = Modifier) {
+    SleekCard(modifier = modifier) {
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    }
+}
+
+private fun cumulativePoints(stats: List<HealthEntry>, value: (HealthEntry) -> Int): List<HistoryPoint> {
+    var total = 0
+    return stats.map { entry ->
+        total += value(entry)
+        HistoryPoint(total, entry.timestamp)
+    }
+}
+
+private fun yearlyTotals(stats: List<HealthEntry>): List<YearlyHealthTotal> = stats
+    .groupBy { entry -> Calendar.getInstance().apply { timeInMillis = entry.timestamp }.get(Calendar.YEAR) }
+    .map { (year, entries) ->
+        YearlyHealthTotal(
+            year = year,
+            steps = entries.sumOf { it.steps ?: 0 },
+            distance = entries.sumOf { it.distance ?: 0 },
+            movingCalories = entries.sumOf { it.calories ?: 0 },
+            sleepMinutes = entries.sumOf { it.sleepMinutes ?: 0 },
+            activeDays = entries.count { (it.steps ?: 0) > 0 }
+        )
+    }
+    .sortedBy { it.year }
+
+private fun yearTimestamp(year: Int): Long = Calendar.getInstance().apply {
+    clear()
+    set(year, Calendar.JANUARY, 1)
+}.timeInMillis
+
+private fun formatNumber(value: Int): String = String.format(Locale.getDefault(), "%,d", value)
+
+private fun formatDistance(meters: Int): String = String.format(Locale.getDefault(), "%.1f km", meters / 1_000f)
+
+private fun formatDuration(minutes: Int): String = "${minutes / 60}h ${minutes % 60}m"
+
+private data class TotalTimeframe(val label: String, val days: Int? = null, val months: Int? = null) {
+    val isTotal: Boolean get() = days == null && months == null
+
+    fun startTime(now: Long): Long? = when {
+        days != null -> now - days * DAY_MILLIS
+        months != null -> Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.MONTH, -months)
+        }.timeInMillis
+        else -> null
+    }
+}
+
+private val TOTAL_TIMEFRAMES = listOf(
+    TotalTimeframe("1 day", days = 1),
+    TotalTimeframe("1 week", days = 7),
+    * (1..12).map { months -> TotalTimeframe("$months ${if (months == 1) "month" else "months"}", months = months) }.toTypedArray(),
+    TotalTimeframe("Total time")
+)
+
+private const val DAY_MILLIS = 24L * 60L * 60L * 1_000L
 
 @Composable
 fun HistoryBloodPressureCard(

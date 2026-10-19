@@ -205,8 +205,7 @@ interface HealthDao {
             MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data 
         GROUP BY date(timestamp / 1000, 'unixepoch', 'localtime') 
-        ORDER BY timestamp DESC 
-        LIMIT 30
+        ORDER BY timestamp DESC
     """)
     fun getDailyStats(): Flow<List<HealthEntry>>
 
@@ -229,8 +228,7 @@ interface HealthDao {
             MAX(sleepSegmentsJson) as sleepSegmentsJson
         FROM health_data 
         GROUP BY strftime('%Y-%W', timestamp / 1000, 'unixepoch', 'localtime') 
-        ORDER BY timestamp DESC 
-        LIMIT 12
+        ORDER BY timestamp DESC
     """)
     fun getWeeklyStats(): Flow<List<HealthEntry>>
 
@@ -254,7 +252,6 @@ interface HealthDao {
         FROM health_data
         GROUP BY strftime('%Y-%m', timestamp / 1000, 'unixepoch', 'localtime') 
         ORDER BY timestamp DESC
-        LIMIT 12
     """)
     fun getMonthlyStats(): Flow<List<HealthEntry>>
 

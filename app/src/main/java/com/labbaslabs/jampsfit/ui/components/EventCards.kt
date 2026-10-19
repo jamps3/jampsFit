@@ -3,6 +3,7 @@ package com.labbaslabs.jampsfit.ui.components
 import android.graphics.BitmapFactory
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -474,7 +475,7 @@ private fun FestivalIcon(festival: FestivalEntity?, onClick: () -> Unit) {
     val bitmap = remember(festival?.imageUri) {
         festival?.imageUri?.let { uri ->
             runCatching {
-                context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
+                context.contentResolver.openInputStream(uri.toUri())?.use { BitmapFactory.decodeStream(it) }
             }.getOrNull()
         }
     }

@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.*
 import android.bluetooth.BluetoothAdapter
@@ -7,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.media.Ringtone
@@ -15,6 +17,7 @@ import android.os.*
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -120,6 +123,8 @@ class WatchService : Service() {
         private const val WATCH_MISSING_DELAY_MS = 60L * 60L * 1000L
     }
 
+    private lateinit var healthStatusNotifications: HealthStatusNotifications
+
     override fun onCreate() {
         super.onCreate()
         watchManager = WatchManager(this)
@@ -127,6 +132,13 @@ class WatchService : Service() {
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
         createNotificationChannels()
+        healthStatusNotifications = HealthStatusNotifications(this)
+        serviceScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                healthStatusNotifications.update(watchManager.state.value)
+            }
+        }
         
         val filter = IntentFilter().apply {
             addAction("com.labbaslabs.jampsfit.NOTIFICATION_RECEIVED")
@@ -141,6 +153,7 @@ class WatchService : Service() {
 
         watchManager.state.onEach { state ->
             updateNotificationThrottled(if (state.isConnected) "Connected" else "Waiting for watch")
+            healthStatusNotifications.update(state)
             handleWatchMissingReminder(state.isConnected)
             
             // Connection alert logic
@@ -452,20 +465,35 @@ class WatchService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!hasBluetoothPermissions()) {
+            Log.w("WatchService", "Not starting: Bluetooth permission was revoked")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val notification = createNotification("Initializing...")
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.w("WatchService", "Not starting: Bluetooth permission was revoked", e)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         watchManager.ensureAutoConnect()
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val keepRunning = watchManager.state.value.autoStart || watchManager.state.value.autoConnect
-        if (keepRunning) {
+        if (keepRunning && hasBluetoothPermissions()) {
             val restartIntent = Intent(applicationContext, WatchService::class.java)
             applicationContext.startForegroundService(restartIntent)
         }
         super.onTaskRemoved(rootIntent)
     }
+
+    private fun hasBluetoothPermissions(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
 
     override fun onBind(intent: Intent?): IBinder {
         return binder
@@ -540,6 +568,7 @@ class WatchService : Service() {
     override fun onDestroy() {
         watchManager.setServiceRunning(false)
         watchMissingJob?.cancel()
+        healthStatusNotifications.clear()
         serviceScope.cancel()
         unregisterReceiver(notificationReceiver)
         unregisterReceiver(bluetoothStateReceiver)

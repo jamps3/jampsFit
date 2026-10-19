@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -107,7 +108,7 @@ fun EatScreen(state: WatchState, scrollState: ScrollState = rememberScrollState(
     var confirmMealReset by remember { mutableStateOf(false) }
     var confirmCalorieReset by remember { mutableStateOf(false) }
     var addingFood by remember { mutableStateOf(false) }
-    var burgerCenterBuns by rememberSaveable { mutableStateOf(0) }
+    var burgerCenterBuns by rememberSaveable { mutableIntStateOf(0) }
     var burgerPatties by rememberSaveable { mutableStateOf<Int?>(null) }
     var burgerCheeseSlices by rememberSaveable { mutableStateOf<Int?>(null) }
     var burgerSauceLayers by rememberSaveable { mutableStateOf<Int?>(null) }

@@ -12,6 +12,9 @@
 # Project specific
 *.jks
 *.keystore
+.signing/
+/release-signing.properties
+/.release-version.properties.tmp
 *.log
 
 # Mobile Tools
@@ -20,6 +23,7 @@
 *.dex
 
 # Capture files
+/*-bugreport.zip
 bugreport*.zip
 bugreport*.txt
 btlog*.txt

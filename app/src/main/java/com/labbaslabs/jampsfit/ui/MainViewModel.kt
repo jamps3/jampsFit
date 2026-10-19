@@ -71,6 +71,8 @@ class MainViewModel : ViewModel() {
     fun toggleAutoFetchSleep(enabled: Boolean) = watchManager?.toggleAutoFetchSleep(enabled)
     fun updateStepFetchInterval(minutes: Int) = watchManager?.updateStepFetchInterval(minutes)
     
+    fun updateHealthIcons(settings: com.labbaslabs.jampsfit.HealthIconSettings) = watchManager?.updateHealthIcons(settings)
+
     fun setAutoHeartRateInterval(minutes: Int) = watchManager?.setAutoHeartRateInterval(minutes)
     fun updateAutoBloodPressureInterval(minutes: Int) = watchManager?.updateAutoBloodPressureInterval(minutes)
     fun toggleNotifications(enabled: Boolean) = watchManager?.toggleNotifications(enabled)

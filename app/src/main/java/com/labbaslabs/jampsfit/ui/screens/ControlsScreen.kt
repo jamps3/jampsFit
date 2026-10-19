@@ -61,7 +61,7 @@ fun ControlsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .then(if (controlsTab == 4) Modifier else Modifier.verticalScroll(scrollState)),
+            .then(if (controlsTab in setOf(3, 4)) Modifier else Modifier.verticalScroll(scrollState)),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(text = "Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -654,6 +654,27 @@ private fun AppSettingsControls(
     }
 
     SleekCard {
+        Text("Health Status Icons", fontWeight = FontWeight.Bold)
+        Text("Status bar numbers are monochrome. Swipe down for colors and measurement times.", style = MaterialTheme.typography.bodySmall)
+        val settings = state.statusIcons
+        SettingSwitch("HR number", settings.heartRate) { viewModel.updateHealthIcons(settings.copy(heartRate = it)) }
+        SettingSwitch("BP numbers", settings.bloodPressure) { viewModel.updateHealthIcons(settings.copy(bloodPressure = it)) }
+        SettingSwitch("Separate systolic / diastolic icons", settings.splitBloodPressure) { viewModel.updateHealthIcons(settings.copy(splitBloodPressure = it)) }
+        Text("Personal display limits (not gauge references)", style = MaterialTheme.typography.bodySmall)
+        listOf("HR" to (settings.hrLow to settings.hrHigh), "Systolic" to (settings.sysLow to settings.sysHigh), "Diastolic" to (settings.diaLow to settings.diaHigh)).forEachIndexed { index, (name, limits) ->
+            Text("$name low: ${limits.first}; high: ${limits.second}")
+            Slider(value = limits.first.toFloat(), onValueChange = { value ->
+                val low = value.toInt().coerceAtMost(limits.second - 1)
+                viewModel.updateHealthIcons(when (index) { 0 -> settings.copy(hrLow = low); 1 -> settings.copy(sysLow = low); else -> settings.copy(diaLow = low) })
+            }, valueRange = 20f..200f)
+            Slider(value = limits.second.toFloat(), onValueChange = { value ->
+                val high = value.toInt().coerceAtLeast(limits.first + 1)
+                viewModel.updateHealthIcons(when (index) { 0 -> settings.copy(hrHigh = high); 1 -> settings.copy(sysHigh = high); else -> settings.copy(diaHigh = high) })
+            }, valueRange = 21f..250f)
+        }
+    }
+
+    SleekCard {
         Text(text = "Battery Notification", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text("Notify at ${state.batteryThreshold}%")
@@ -664,8 +685,8 @@ private fun AppSettingsControls(
         Text(text = "Watch Health Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Text("Auto HR interval", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(0, 5, 15, 30, 60, 180, 360, 540, 720, 1_440).forEach { minutes ->
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            com.labbaslabs.jampsfit.HeartRateAutomation.supportedIntervals.forEach { minutes ->
                 FilterChip(
                     selected = state.autoHeartRateIntervalMinutes == minutes,
                     onClick = { viewModel.setAutoHeartRateInterval(minutes) },
@@ -701,9 +722,14 @@ private fun AppSettingsControls(
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text("Move reminder", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Text(
+            text = "Last sent: ${if (state.moveReminderEnabled) "On" else "Off"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            GadgetProbeButton("Move On", "move-reminder-on", state.isConnected, activity, Modifier.weight(1f))
-            GadgetProbeButton("Move Off", "move-reminder-off", state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("Move On", "move-reminder-on", state.moveReminderEnabled, state.isConnected, activity, Modifier.weight(1f))
+            GadgetProbeButton("Move Off", "move-reminder-off", !state.moveReminderEnabled, state.isConnected, activity, Modifier.weight(1f))
         }
     }
 }
@@ -942,6 +968,7 @@ private fun ManualCommandControls(state: WatchState, activity: MainActivity?) {
 private fun GadgetProbeButton(
     label: String,
     kind: String,
+    selected: Boolean,
     enabled: Boolean,
     activity: MainActivity?,
     modifier: Modifier = Modifier
@@ -953,7 +980,7 @@ private fun GadgetProbeButton(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp)
     ) {
-        Text(label, fontSize = 12.sp)
+        Text(if (selected) "✓ $label" else label, fontSize = 12.sp)
     }
 }
 

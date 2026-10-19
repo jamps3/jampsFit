@@ -1,5 +1,6 @@
 package com.labbaslabs.jampsfit.ui.screens
 
+import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,6 +45,13 @@ import androidx.compose.foundation.border
 @Composable
 fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState()) {
     val viewModel = LocalMainViewModel.current
+    val context = LocalContext.current
+    val appVersion = remember(context) {
+        context.packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.PackageInfoFlags.of(0),
+        ).versionName.orEmpty()
+    }
     var selectedGauge by remember { mutableStateOf<GaugeMetric?>(null) }
     fun gauge(setting: GaugeSetting): Int = state.gaugeSettings[setting] ?: setting.defaultValue
 
@@ -65,7 +74,7 @@ fun HomeScreen(state: WatchState, scrollState: ScrollState = rememberScrollState
                 modifier = Modifier.height(60.dp).weight(1f)
             )
             Text(
-                text = "2.0",
+                text = appVersion,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFFFFC107)

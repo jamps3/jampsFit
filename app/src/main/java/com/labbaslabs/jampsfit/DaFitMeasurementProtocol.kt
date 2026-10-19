@@ -11,6 +11,14 @@ internal object DaFitBloodPressureMeasurement {
     private const val COMMAND = 0x69
 }
 
+internal object DaFitPowerSave {
+    const val SETTLE_TIMEOUT_MS = 1_500L
+
+    fun setPacket(enabled: Boolean): ByteArray = nativePacket(COMMAND, if (enabled) 0x01 else 0x00)
+
+    private const val COMMAND = 0x94
+}
+
 internal object DaFitBloodPressureSchedule {
     val supportedIntervalsMinutes = listOf(0, 5, 15, 30, 60, 180, 360, 540, 720, 1_440)
 
